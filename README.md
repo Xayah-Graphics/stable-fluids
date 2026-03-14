@@ -1,1 +1,1 @@
-# stable-fluids
+# Stable Fluids
