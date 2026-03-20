@@ -28,6 +28,7 @@ Error code scheme:
 1002  : invalid cell size
 1003  : invalid dt
 1004  : invalid iteration count
+1005  : invalid boundary type
 2xxx  : buffer errors
 2001  : invalid density buffer
 2003  : invalid velocity_x buffer
@@ -47,6 +48,11 @@ Error code scheme:
 5001  : CUDA call failed
 */
 
+typedef enum StableFluidsBoundaryType {
+    STABLE_FLUIDS_BOUNDARY_FIXED = 0,
+    STABLE_FLUIDS_BOUNDARY_PERIODIC = 1
+} StableFluidsBoundaryType;
+
 typedef struct StableFluidsStepDesc {
     uint32_t struct_size;
     uint32_t api_version;
@@ -59,6 +65,12 @@ typedef struct StableFluidsStepDesc {
     float diffusion;
     int32_t diffuse_iterations;
     int32_t pressure_iterations;
+    uint32_t boundary_x_min;
+    uint32_t boundary_x_max;
+    uint32_t boundary_y_min;
+    uint32_t boundary_y_max;
+    uint32_t boundary_z_min;
+    uint32_t boundary_z_max;
     void* density;
     void* velocity_x;
     void* velocity_y;

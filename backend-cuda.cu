@@ -11,6 +11,13 @@ namespace stable_fluids {
 
     namespace {
 
+        constexpr uint32_t boundary_x_min_bit = 1u << 0;
+        constexpr uint32_t boundary_x_max_bit = 1u << 1;
+        constexpr uint32_t boundary_y_min_bit = 1u << 2;
+        constexpr uint32_t boundary_y_max_bit = 1u << 3;
+        constexpr uint32_t boundary_z_min_bit = 1u << 4;
+        constexpr uint32_t boundary_z_max_bit = 1u << 5;
+
         int32_t cuda_code(const cudaError_t status) noexcept {
             return status == cudaSuccess ? 0 : 5001;
         }
@@ -39,41 +46,101 @@ namespace stable_fluids {
             return value < lo ? lo : (value > hi ? hi : value);
         }
 
-        __host__ __device__ float clampf(const float value, const float lo, const float hi) {
-            return value < lo ? lo : (value > hi ? hi : value);
+        __host__ __device__ bool periodic_x_min(const uint32_t mask) {
+            return (mask & boundary_x_min_bit) != 0;
+        }
+
+        __host__ __device__ bool periodic_x_max(const uint32_t mask) {
+            return (mask & boundary_x_max_bit) != 0;
+        }
+
+        __host__ __device__ bool periodic_y_min(const uint32_t mask) {
+            return (mask & boundary_y_min_bit) != 0;
+        }
+
+        __host__ __device__ bool periodic_y_max(const uint32_t mask) {
+            return (mask & boundary_y_max_bit) != 0;
+        }
+
+        __host__ __device__ bool periodic_z_min(const uint32_t mask) {
+            return (mask & boundary_z_min_bit) != 0;
+        }
+
+        __host__ __device__ bool periodic_z_max(const uint32_t mask) {
+            return (mask & boundary_z_max_bit) != 0;
+        }
+
+        __host__ __device__ bool map_index_or_fail(int& value, const int size, const bool periodic_min, const bool periodic_max) {
+            if (value < 0) {
+                if (!periodic_min) return false;
+                value %= size;
+                if (value < 0) value += size;
+                return true;
+            }
+            if (value >= size) {
+                if (!periodic_max) return false;
+                value %= size;
+                return true;
+            }
+            return true;
+        }
+
+        __host__ __device__ float wrap_or_clamp_coordinate(float value, const int size, const bool periodic_min, const bool periodic_max) {
+            if (value < 0.0f) {
+                if (periodic_min) {
+                    const float period = static_cast<float>(size);
+                    value = fmodf(value, period);
+                    if (value < 0.0f) value += period;
+                    return value;
+                }
+                return 0.0f;
+            }
+            if (value > static_cast<float>(size - 1)) {
+                if (periodic_max) {
+                    const float period = static_cast<float>(size);
+                    value = fmodf(value, period);
+                    if (value < 0.0f) value += period;
+                    return value;
+                }
+                return static_cast<float>(size - 1);
+            }
+            return value;
         }
 
         __host__ __device__ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, const int sy) {
             return static_cast<std::uint64_t>(z) * static_cast<std::uint64_t>(sx) * static_cast<std::uint64_t>(sy) + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(sx) + static_cast<std::uint64_t>(x);
         }
 
-        __device__ float fetch_clamped(const float* field, const int x, const int y, const int z, const int sx, const int sy, const int sz) {
-            return field[index_3d(clampi(x, 0, sx - 1), clampi(y, 0, sy - 1), clampi(z, 0, sz - 1), sx, sy)];
+        __host__ __device__ float fetch_boundary(const float* field, int x, int y, int z, const int sx, const int sy, const int sz, const uint32_t boundary_mask) {
+            if (!map_index_or_fail(x, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask))) x = clampi(x, 0, sx - 1);
+            if (!map_index_or_fail(y, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask))) y = clampi(y, 0, sy - 1);
+            if (!map_index_or_fail(z, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask))) z = clampi(z, 0, sz - 1);
+            return field[index_3d(x, y, z, sx, sy)];
         }
 
-        __device__ float sample_grid(const float* field, float gx, float gy, float gz, const int sx, const int sy, const int sz) {
-            gx = clampf(gx, 0.0f, static_cast<float>(sx - 1));
-            gy = clampf(gy, 0.0f, static_cast<float>(sy - 1));
-            gz = clampf(gz, 0.0f, static_cast<float>(sz - 1));
+        __device__ float sample_grid(const float* field, float gx, float gy, float gz, const int sx, const int sy, const int sz, const uint32_t boundary_mask) {
+            gx = wrap_or_clamp_coordinate(gx, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask));
+            gy = wrap_or_clamp_coordinate(gy, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask));
+            gz = wrap_or_clamp_coordinate(gz, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask));
 
             const int x0 = clampi(static_cast<int>(floorf(gx)), 0, sx - 1);
             const int y0 = clampi(static_cast<int>(floorf(gy)), 0, sy - 1);
             const int z0 = clampi(static_cast<int>(floorf(gz)), 0, sz - 1);
-            const int x1 = min(x0 + 1, sx - 1);
-            const int y1 = min(y0 + 1, sy - 1);
-            const int z1 = min(z0 + 1, sz - 1);
+            const int x1 = x0 + 1;
+            const int y1 = y0 + 1;
+            const int z1 = z0 + 1;
             const float tx = gx - static_cast<float>(x0);
             const float ty = gy - static_cast<float>(y0);
             const float tz = gz - static_cast<float>(z0);
 
-            const float c000 = field[index_3d(x0, y0, z0, sx, sy)];
-            const float c100 = field[index_3d(x1, y0, z0, sx, sy)];
-            const float c010 = field[index_3d(x0, y1, z0, sx, sy)];
-            const float c110 = field[index_3d(x1, y1, z0, sx, sy)];
-            const float c001 = field[index_3d(x0, y0, z1, sx, sy)];
-            const float c101 = field[index_3d(x1, y0, z1, sx, sy)];
-            const float c011 = field[index_3d(x0, y1, z1, sx, sy)];
-            const float c111 = field[index_3d(x1, y1, z1, sx, sy)];
+            const float c000 = fetch_boundary(field, x0, y0, z0, sx, sy, sz, boundary_mask);
+            const float c100 = fetch_boundary(field, x1, y0, z0, sx, sy, sz, boundary_mask);
+            const float c010 = fetch_boundary(field, x0, y1, z0, sx, sy, sz, boundary_mask);
+            const float c110 = fetch_boundary(field, x1, y1, z0, sx, sy, sz, boundary_mask);
+            const float c001 = fetch_boundary(field, x0, y0, z1, sx, sy, sz, boundary_mask);
+            const float c101 = fetch_boundary(field, x1, y0, z1, sx, sy, sz, boundary_mask);
+            const float c011 = fetch_boundary(field, x0, y1, z1, sx, sy, sz, boundary_mask);
+            const float c111 = fetch_boundary(field, x1, y1, z1, sx, sy, sz, boundary_mask);
 
             const float c00 = c000 + (c100 - c000) * tx;
             const float c10 = c010 + (c110 - c010) * tx;
@@ -84,118 +151,140 @@ namespace stable_fluids {
             return c0 + (c1 - c0) * tz;
         }
 
-        __device__ float sample_scalar(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h) {
-            return sample_grid(field, pos.x / h - 0.5f, pos.y / h - 0.5f, pos.z / h - 0.5f, nx, ny, nz);
+        __device__ float sample_scalar(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
+            return sample_grid(field, pos.x / h - 0.5f, pos.y / h - 0.5f, pos.z / h - 0.5f, nx, ny, nz, boundary_mask);
         }
 
-        __device__ float sample_u(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h) {
-            return sample_grid(field, pos.x / h, pos.y / h - 0.5f, pos.z / h - 0.5f, nx + 1, ny, nz);
+        __device__ float sample_u(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
+            return sample_grid(field, pos.x / h, pos.y / h - 0.5f, pos.z / h - 0.5f, nx + 1, ny, nz, boundary_mask);
         }
 
-        __device__ float sample_v(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h) {
-            return sample_grid(field, pos.x / h - 0.5f, pos.y / h, pos.z / h - 0.5f, nx, ny + 1, nz);
+        __device__ float sample_v(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
+            return sample_grid(field, pos.x / h - 0.5f, pos.y / h, pos.z / h - 0.5f, nx, ny + 1, nz, boundary_mask);
         }
 
-        __device__ float sample_w(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h) {
-            return sample_grid(field, pos.x / h - 0.5f, pos.y / h - 0.5f, pos.z / h, nx, ny, nz + 1);
+        __device__ float sample_w(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
+            return sample_grid(field, pos.x / h - 0.5f, pos.y / h - 0.5f, pos.z / h, nx, ny, nz + 1, boundary_mask);
         }
 
-        __device__ float3 clamp_domain(const float3 pos, const int nx, const int ny, const int nz, const float h) {
-            return make_float3(clampf(pos.x, 0.0f, static_cast<float>(nx) * h), clampf(pos.y, 0.0f, static_cast<float>(ny) * h), clampf(pos.z, 0.0f, static_cast<float>(nz) * h));
+        __device__ float3 wrap_or_clamp_domain(const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
+            const float domain_x = static_cast<float>(nx) * h;
+            const float domain_y = static_cast<float>(ny) * h;
+            const float domain_z = static_cast<float>(nz) * h;
+            auto axis = [](float value, const float extent, const bool periodic_min, const bool periodic_max) {
+                if (value < 0.0f) {
+                    if (periodic_min) {
+                        value = fmodf(value, extent);
+                        if (value < 0.0f) value += extent;
+                        return value;
+                    }
+                    return 0.0f;
+                }
+                if (value > extent) {
+                    if (periodic_max) {
+                        value = fmodf(value, extent);
+                        if (value < 0.0f) value += extent;
+                        return value;
+                    }
+                    return extent;
+                }
+                return value;
+            };
+            return make_float3(axis(pos.x, domain_x, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask)), axis(pos.y, domain_y, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask)), axis(pos.z, domain_z, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask)));
         }
 
-        __device__ float3 sample_velocity(const float* velocity_x, const float* velocity_y, const float* velocity_z, float3 pos, const int nx, const int ny, const int nz, const float h) {
-            pos = clamp_domain(pos, nx, ny, nz, h);
-            return make_float3(sample_u(velocity_x, pos, nx, ny, nz, h), sample_v(velocity_y, pos, nx, ny, nz, h), sample_w(velocity_z, pos, nx, ny, nz, h));
+        __device__ float3 sample_velocity(const float* velocity_x, const float* velocity_y, const float* velocity_z, float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
+            pos = wrap_or_clamp_domain(pos, nx, ny, nz, h, boundary_mask);
+            return make_float3(sample_u(velocity_x, pos, nx, ny, nz, h, boundary_mask), sample_v(velocity_y, pos, nx, ny, nz, h, boundary_mask), sample_w(velocity_z, pos, nx, ny, nz, h, boundary_mask));
         }
 
-        __global__ void advect_velocity_kernel(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt) {
+        __global__ void advect_velocity_kernel(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
 
             if (x <= nx && y < ny && z < nz) {
-                if (x == 0 || x == nx) velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
+                if ((x == 0 && !periodic_x_min(boundary_mask)) || (x == nx && !periodic_x_max(boundary_mask))) velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
                 else {
                     const float3 pos = make_float3(static_cast<float>(x) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
-                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
-                    velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = sample_u(source_x, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
+                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h, boundary_mask);
+                    velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = sample_u(source_x, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask);
                 }
             }
             if (x < nx && y <= ny && z < nz) {
-                if (y == 0 || y == ny) velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
+                if ((y == 0 && !periodic_y_min(boundary_mask)) || (y == ny && !periodic_y_max(boundary_mask))) velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
                 else {
                     const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, static_cast<float>(y) * h, (static_cast<float>(z) + 0.5f) * h);
-                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
-                    velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = sample_v(source_y, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
+                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h, boundary_mask);
+                    velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = sample_v(source_y, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask);
                 }
             }
             if (x < nx && y < ny && z <= nz) {
-                if (z == 0 || z == nz) velocity_z_destination[index_3d(x, y, z, nx, ny)] = 0.0f;
+                if ((z == 0 && !periodic_z_min(boundary_mask)) || (z == nz && !periodic_z_max(boundary_mask))) velocity_z_destination[index_3d(x, y, z, nx, ny)] = 0.0f;
                 else {
                     const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, static_cast<float>(z) * h);
-                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
-                    velocity_z_destination[index_3d(x, y, z, nx, ny)] = sample_w(source_z, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
+                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h, boundary_mask);
+                    velocity_z_destination[index_3d(x, y, z, nx, ny)] = sample_w(source_z, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask);
                 }
             }
         }
 
-        __global__ void advect_scalar_kernel(float* destination, const float* source, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const float dt) {
+        __global__ void advect_scalar_kernel(float* destination, const float* source, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= nx || y >= ny || z >= nz) return;
             const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
-            const float3 velocity = sample_velocity(velocity_x, velocity_y, velocity_z, pos, nx, ny, nz, h);
-            destination[index_3d(x, y, z, nx, ny)] = fmaxf(0.0f, sample_scalar(source, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h));
+            const float3 velocity = sample_velocity(velocity_x, velocity_y, velocity_z, pos, nx, ny, nz, h, boundary_mask);
+            destination[index_3d(x, y, z, nx, ny)] = fmaxf(0.0f, sample_scalar(source, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask));
         }
 
-        __global__ void diffuse_grid_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity) {
+        __global__ void diffuse_grid_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= sx || y >= sy || z >= sz || ((x + y + z) & 1) != parity) return;
-            const float neighbors = fetch_clamped(destination, x - 1, y, z, sx, sy, sz) + fetch_clamped(destination, x + 1, y, z, sx, sy, sz) + fetch_clamped(destination, x, y - 1, z, sx, sy, sz) + fetch_clamped(destination, x, y + 1, z, sx, sy, sz) + fetch_clamped(destination, x, y, z - 1, sx, sy, sz) + fetch_clamped(destination, x, y, z + 1, sx, sy, sz);
+            const float neighbors = fetch_boundary(destination, x - 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x + 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y - 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y + 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z - 1, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z + 1, sx, sy, sz, boundary_mask);
             destination[index_3d(x, y, z, sx, sy)] = (source[index_3d(x, y, z, sx, sy)] + alpha * neighbors) / denom;
         }
 
-        __global__ void diffuse_velocity_kernel(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* velocity_x_source, const float* velocity_y_source, const float* velocity_z_source, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity) {
+        __global__ void diffuse_velocity_kernel(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* velocity_x_source, const float* velocity_y_source, const float* velocity_z_source, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x <= nx && y < ny && z < nz) {
-                if (x == 0 || x == nx) velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
+                if ((x == 0 && !periodic_x_min(boundary_mask)) || (x == nx && !periodic_x_max(boundary_mask))) velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
                 else if (((x + y + z) & 1) == parity) {
-                    const float neighbors = fetch_clamped(velocity_x_destination, x - 1, y, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x + 1, y, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y - 1, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y + 1, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y, z - 1, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y, z + 1, nx + 1, ny, nz);
+                    const float neighbors = fetch_boundary(velocity_x_destination, x - 1, y, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(velocity_x_destination, x + 1, y, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(velocity_x_destination, x, y - 1, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(velocity_x_destination, x, y + 1, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(velocity_x_destination, x, y, z - 1, nx + 1, ny, nz, boundary_mask) + fetch_boundary(velocity_x_destination, x, y, z + 1, nx + 1, ny, nz, boundary_mask);
                     velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = (velocity_x_source[index_3d(x, y, z, nx + 1, ny)] + alpha * neighbors) / denom;
                 }
             }
             if (x < nx && y <= ny && z < nz) {
-                if (y == 0 || y == ny) velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
+                if ((y == 0 && !periodic_y_min(boundary_mask)) || (y == ny && !periodic_y_max(boundary_mask))) velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
                 else if (((x + y + z) & 1) == parity) {
-                    const float neighbors = fetch_clamped(velocity_y_destination, x - 1, y, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x + 1, y, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y - 1, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y + 1, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y, z - 1, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y, z + 1, nx, ny + 1, nz);
+                    const float neighbors = fetch_boundary(velocity_y_destination, x - 1, y, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(velocity_y_destination, x + 1, y, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(velocity_y_destination, x, y - 1, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(velocity_y_destination, x, y + 1, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(velocity_y_destination, x, y, z - 1, nx, ny + 1, nz, boundary_mask) + fetch_boundary(velocity_y_destination, x, y, z + 1, nx, ny + 1, nz, boundary_mask);
                     velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = (velocity_y_source[index_3d(x, y, z, nx, ny + 1)] + alpha * neighbors) / denom;
                 }
             }
             if (x < nx && y < ny && z <= nz) {
-                if (z == 0 || z == nz) velocity_z_destination[index_3d(x, y, z, nx, ny)] = 0.0f;
+                if ((z == 0 && !periodic_z_min(boundary_mask)) || (z == nz && !periodic_z_max(boundary_mask))) velocity_z_destination[index_3d(x, y, z, nx, ny)] = 0.0f;
                 else if (((x + y + z) & 1) == parity) {
-                    const float neighbors = fetch_clamped(velocity_z_destination, x - 1, y, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x + 1, y, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y - 1, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y + 1, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y, z - 1, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y, z + 1, nx, ny, nz + 1);
+                    const float neighbors = fetch_boundary(velocity_z_destination, x - 1, y, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(velocity_z_destination, x + 1, y, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(velocity_z_destination, x, y - 1, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(velocity_z_destination, x, y + 1, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(velocity_z_destination, x, y, z - 1, nx, ny, nz + 1, boundary_mask) + fetch_boundary(velocity_z_destination, x, y, z + 1, nx, ny, nz + 1, boundary_mask);
                     velocity_z_destination[index_3d(x, y, z, nx, ny)] = (velocity_z_source[index_3d(x, y, z, nx, ny)] + alpha * neighbors) / denom;
                 }
             }
         }
 
-        __global__ void compute_poisson_rhs_kernel(float* rhs, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h) {
+        __global__ void compute_poisson_rhs_kernel(float* rhs, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= nx || y >= ny || z >= nz) return;
-            rhs[index_3d(x, y, z, nx, ny)] = -(fetch_clamped(velocity_x, x + 1, y, z, nx + 1, ny, nz) - fetch_clamped(velocity_x, x, y, z, nx + 1, ny, nz) + fetch_clamped(velocity_y, x, y + 1, z, nx, ny + 1, nz) - fetch_clamped(velocity_y, x, y, z, nx, ny + 1, nz)
-                + fetch_clamped(velocity_z, x, y, z + 1, nx, ny, nz + 1) - fetch_clamped(velocity_z, x, y, z, nx, ny, nz + 1)) * h;
+            rhs[index_3d(x, y, z, nx, ny)] = -(fetch_boundary(velocity_x, x + 1, y, z, nx + 1, ny, nz, boundary_mask) - fetch_boundary(velocity_x, x, y, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(velocity_y, x, y + 1, z, nx, ny + 1, nz, boundary_mask) - fetch_boundary(velocity_y, x, y, z, nx, ny + 1, nz, boundary_mask)
+                + fetch_boundary(velocity_z, x, y, z + 1, nx, ny, nz + 1, boundary_mask) - fetch_boundary(velocity_z, x, y, z, nx, ny, nz + 1, boundary_mask)) * h;
         }
 
-        __global__ void poisson_rbgs_kernel(float* pressure, const float* rhs, const int nx, const int ny, const int nz, const int parity) {
+        __global__ void poisson_rbgs_kernel(float* pressure, const float* rhs, const int nx, const int ny, const int nz, const int parity, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
@@ -207,30 +296,54 @@ namespace stable_fluids {
                 sum += pressure[index_3d(x - 1, y, z, nx, ny)];
                 ++count;
             }
+            else if (periodic_x_min(boundary_mask)) {
+                sum += pressure[index_3d(nx - 1, y, z, nx, ny)];
+                ++count;
+            }
             if (x + 1 < nx) {
                 sum += pressure[index_3d(x + 1, y, z, nx, ny)];
+                ++count;
+            }
+            else if (periodic_x_max(boundary_mask)) {
+                sum += pressure[index_3d(0, y, z, nx, ny)];
                 ++count;
             }
             if (y > 0) {
                 sum += pressure[index_3d(x, y - 1, z, nx, ny)];
                 ++count;
             }
+            else if (periodic_y_min(boundary_mask)) {
+                sum += pressure[index_3d(x, ny - 1, z, nx, ny)];
+                ++count;
+            }
             if (y + 1 < ny) {
                 sum += pressure[index_3d(x, y + 1, z, nx, ny)];
+                ++count;
+            }
+            else if (periodic_y_max(boundary_mask)) {
+                sum += pressure[index_3d(x, 0, z, nx, ny)];
                 ++count;
             }
             if (z > 0) {
                 sum += pressure[index_3d(x, y, z - 1, nx, ny)];
                 ++count;
             }
+            else if (periodic_z_min(boundary_mask)) {
+                sum += pressure[index_3d(x, y, nz - 1, nx, ny)];
+                ++count;
+            }
             if (z + 1 < nz) {
                 sum += pressure[index_3d(x, y, z + 1, nx, ny)];
+                ++count;
+            }
+            else if (periodic_z_max(boundary_mask)) {
+                sum += pressure[index_3d(x, y, 0, nx, ny)];
                 ++count;
             }
             pressure[index_3d(x, y, z, nx, ny)] = count > 0 ? (sum + rhs[index_3d(x, y, z, nx, ny)]) / static_cast<float>(count) : 0.0f;
         }
 
-        __global__ void restrict_poisson_residual_kernel(float* coarse_rhs, const float* fine_pressure, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz) {
+        __global__ void restrict_poisson_residual_kernel(float* coarse_rhs, const float* fine_pressure, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
@@ -250,24 +363,48 @@ namespace stable_fluids {
                             neighbors += fine_pressure[index_3d(fx - 1, fy, fz, fine_nx, fine_ny)];
                             ++count;
                         }
+                        else if (periodic_x_min(boundary_mask)) {
+                            neighbors += fine_pressure[index_3d(fine_nx - 1, fy, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
                         if (fx + 1 < fine_nx) {
                             neighbors += fine_pressure[index_3d(fx + 1, fy, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        else if (periodic_x_max(boundary_mask)) {
+                            neighbors += fine_pressure[index_3d(0, fy, fz, fine_nx, fine_ny)];
                             ++count;
                         }
                         if (fy > 0) {
                             neighbors += fine_pressure[index_3d(fx, fy - 1, fz, fine_nx, fine_ny)];
                             ++count;
                         }
+                        else if (periodic_y_min(boundary_mask)) {
+                            neighbors += fine_pressure[index_3d(fx, fine_ny - 1, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
                         if (fy + 1 < fine_ny) {
                             neighbors += fine_pressure[index_3d(fx, fy + 1, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        else if (periodic_y_max(boundary_mask)) {
+                            neighbors += fine_pressure[index_3d(fx, 0, fz, fine_nx, fine_ny)];
                             ++count;
                         }
                         if (fz > 0) {
                             neighbors += fine_pressure[index_3d(fx, fy, fz - 1, fine_nx, fine_ny)];
                             ++count;
                         }
+                        else if (periodic_z_min(boundary_mask)) {
+                            neighbors += fine_pressure[index_3d(fx, fy, fine_nz - 1, fine_nx, fine_ny)];
+                            ++count;
+                        }
                         if (fz + 1 < fine_nz) {
                             neighbors += fine_pressure[index_3d(fx, fy, fz + 1, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        else if (periodic_z_max(boundary_mask)) {
+                            neighbors += fine_pressure[index_3d(fx, fy, 0, fine_nx, fine_ny)];
                             ++count;
                         }
                         const float applied = static_cast<float>(count) * fine_pressure[index_3d(fx, fy, fz, fine_nx, fine_ny)] - neighbors;
@@ -279,7 +416,7 @@ namespace stable_fluids {
             coarse_rhs[index_3d(x, y, z, coarse_nx, coarse_ny)] = samples > 0 ? residual_sum / static_cast<float>(samples) : 0.0f;
         }
 
-        __global__ void restrict_diffusion_residual_kernel(float* coarse_rhs, const float* fine_solution, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const float alpha) {
+        __global__ void restrict_diffusion_residual_kernel(float* coarse_rhs, const float* fine_solution, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const float alpha, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
@@ -294,9 +431,9 @@ namespace stable_fluids {
                 for (int fy = 2 * y; fy < std::min(2 * y + 2, fine_ny); ++fy) {
                     for (int fx = 2 * x; fx < std::min(2 * x + 2, fine_nx); ++fx) {
                         const float center = fine_solution[index_3d(fx, fy, fz, fine_nx, fine_ny)];
-                        const float neighbors = fetch_clamped(fine_solution, fx - 1, fy, fz, fine_nx, fine_ny, fine_nz) + fetch_clamped(fine_solution, fx + 1, fy, fz, fine_nx, fine_ny, fine_nz) +
-                                                fetch_clamped(fine_solution, fx, fy - 1, fz, fine_nx, fine_ny, fine_nz) + fetch_clamped(fine_solution, fx, fy + 1, fz, fine_nx, fine_ny, fine_nz) +
-                                                fetch_clamped(fine_solution, fx, fy, fz - 1, fine_nx, fine_ny, fine_nz) + fetch_clamped(fine_solution, fx, fy, fz + 1, fine_nx, fine_ny, fine_nz);
+                        const float neighbors = fetch_boundary(fine_solution, fx - 1, fy, fz, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx + 1, fy, fz, fine_nx, fine_ny, fine_nz, boundary_mask) +
+                                                fetch_boundary(fine_solution, fx, fy - 1, fz, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx, fy + 1, fz, fine_nx, fine_ny, fine_nz, boundary_mask) +
+                                                fetch_boundary(fine_solution, fx, fy, fz - 1, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx, fy, fz + 1, fine_nx, fine_ny, fine_nz, boundary_mask);
                         const float applied = (1.0f + 6.0f * alpha) * center - alpha * neighbors;
                         residual_sum += fine_rhs[index_3d(fx, fy, fz, fine_nx, fine_ny)] - applied;
                         ++samples;
@@ -306,29 +443,44 @@ namespace stable_fluids {
             coarse_rhs[index_3d(x, y, z, coarse_nx, coarse_ny)] = samples > 0 ? residual_sum / static_cast<float>(samples) : 0.0f;
         }
 
-        __global__ void prolongate_add_kernel(float* fine_pressure, const float* coarse_pressure, const int fine_nx, const int fine_ny, const int fine_nz, const int coarse_nx, const int coarse_ny, const int coarse_nz) {
+        __global__ void prolongate_add_kernel(float* fine_pressure, const float* coarse_pressure, const int fine_nx, const int fine_ny, const int fine_nz, const int coarse_nx, const int coarse_ny, const int coarse_nz, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= fine_nx || y >= fine_ny || z >= fine_nz) return;
-            fine_pressure[index_3d(x, y, z, fine_nx, fine_ny)] += sample_grid(coarse_pressure, 0.5f * static_cast<float>(x) - 0.25f, 0.5f * static_cast<float>(y) - 0.25f, 0.5f * static_cast<float>(z) - 0.25f, coarse_nx, coarse_ny, coarse_nz);
+            fine_pressure[index_3d(x, y, z, fine_nx, fine_ny)] += sample_grid(coarse_pressure, 0.5f * static_cast<float>(x) - 0.25f, 0.5f * static_cast<float>(y) - 0.25f, 0.5f * static_cast<float>(z) - 0.25f, coarse_nx, coarse_ny, coarse_nz, boundary_mask);
         }
 
-        __global__ void project_velocity_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const float* pressure, const int nx, const int ny, const int nz, const float inv_h) {
+        __global__ void project_velocity_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const float* pressure, const int nx, const int ny, const int nz, const float inv_h, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x <= nx && y < ny && z < nz) {
-                if (x == 0 || x == nx) velocity_x[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
-                else velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x - 1, y, z, nx, ny)]) * inv_h;
+                if (x == 0) {
+                    if (!periodic_x_min(boundary_mask)) velocity_x[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
+                    else velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(0, y, z, nx, ny)] - pressure[index_3d(nx - 1, y, z, nx, ny)]) * inv_h;
+                } else if (x == nx) {
+                    if (!periodic_x_max(boundary_mask)) velocity_x[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
+                    else velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(0, y, z, nx, ny)] - pressure[index_3d(nx - 1, y, z, nx, ny)]) * inv_h;
+                } else velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x - 1, y, z, nx, ny)]) * inv_h;
             }
             if (x < nx && y <= ny && z < nz) {
-                if (y == 0 || y == ny) velocity_y[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
-                else velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y - 1, z, nx, ny)]) * inv_h;
+                if (y == 0) {
+                    if (!periodic_y_min(boundary_mask)) velocity_y[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
+                    else velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, 0, z, nx, ny)] - pressure[index_3d(x, ny - 1, z, nx, ny)]) * inv_h;
+                } else if (y == ny) {
+                    if (!periodic_y_max(boundary_mask)) velocity_y[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
+                    else velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, 0, z, nx, ny)] - pressure[index_3d(x, ny - 1, z, nx, ny)]) * inv_h;
+                } else velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y - 1, z, nx, ny)]) * inv_h;
             }
             if (x < nx && y < ny && z <= nz) {
-                if (z == 0 || z == nz) velocity_z[index_3d(x, y, z, nx, ny)] = 0.0f;
-                else velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y, z - 1, nx, ny)]) * inv_h;
+                if (z == 0) {
+                    if (!periodic_z_min(boundary_mask)) velocity_z[index_3d(x, y, z, nx, ny)] = 0.0f;
+                    else velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, 0, nx, ny)] - pressure[index_3d(x, y, nz - 1, nx, ny)]) * inv_h;
+                } else if (z == nz) {
+                    if (!periodic_z_max(boundary_mask)) velocity_z[index_3d(x, y, z, nx, ny)] = 0.0f;
+                    else velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, 0, nx, ny)] - pressure[index_3d(x, y, nz - 1, nx, ny)]) * inv_h;
+                } else velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y, z - 1, nx, ny)]) * inv_h;
             }
         }
 
@@ -345,6 +497,7 @@ int32_t stable_fluids_validate_desc(const StableFluidsStepDesc* desc) {
     if (desc->cell_size <= 0.0f) return 1002;
     if (desc->dt <= 0.0f) return 1003;
     if (desc->diffuse_iterations <= 0 || desc->pressure_iterations <= 0) return 1004;
+    if (desc->boundary_x_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_x_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_y_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_y_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_z_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_z_max > STABLE_FLUIDS_BOUNDARY_PERIODIC) return 1005;
     if (desc->density == nullptr) return 2001;
     if (desc->velocity_x == nullptr) return 2003;
     if (desc->velocity_y == nullptr) return 2004;
@@ -376,6 +529,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
     const int32_t block_x = desc->block_x;
     const int32_t block_y = desc->block_y;
     const int32_t block_z = desc->block_z;
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_min_bit : 0u) |
+                                   (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_max_bit : 0u);
 
     const auto cell_bytes = scalar_bytes(nx, ny, nz);
     const auto velocity_x_field_bytes = velocity_x_bytes(nx, ny, nz);
@@ -428,7 +583,7 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
         if (cuda_code(cudaMemcpyAsync(velocity_x_previous, velocity_x_field, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
         if (cuda_code(cudaMemcpyAsync(velocity_y_previous, velocity_y_field, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
         if (cuda_code(cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-        advect_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt);
+        advect_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt, boundary_mask);
         if (cuda_code(cudaGetLastError()) != 0) return 5001;
     }
     {
@@ -444,9 +599,9 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
             const float alpha = dt * viscosity / (cell_size * cell_size);
             const float denom = 1.0f + 6.0f * alpha;
             for (int iteration = 0; iteration < diffuse_iterations; ++iteration) {
-                diffuse_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, nx, ny, nz, alpha, denom, 0);
+                diffuse_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask);
                 if (cuda_code(cudaGetLastError()) != 0) return 5001;
-                diffuse_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, nx, ny, nz, alpha, denom, 1);
+                diffuse_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask);
                 if (cuda_code(cudaGetLastError()) != 0) return 5001;
             }
         }
@@ -454,7 +609,7 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
     {
         nvtx3::scoped_range range{"stable.step.project"};
         if (cuda_code(cudaMemsetAsync(pressure, 0, cell_bytes, stream)) != 0) return 5001;
-        compute_poisson_rhs_kernel<<<cells, block, 0, stream>>>(divergence, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size);
+        compute_poisson_rhs_kernel<<<cells, block, 0, stream>>>(divergence, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, boundary_mask);
         if (cuda_code(cudaGetLastError()) != 0) return 5001;
         const int v_cycles = std::max(1, pressure_iterations / 40);
         const int smoothing_steps = 1;
@@ -466,15 +621,15 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                 const int lz = level_nz[level];
                 const dim3 level_grid = make_grid(lx, ly, lz, block);
                 for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
-                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0);
-                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0, boundary_mask);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1, boundary_mask);
                 }
                 const int cx = level_nx[level + 1];
                 const int cy = level_ny[level + 1];
                 const int cz = level_nz[level + 1];
                 const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
                 if (cuda_code(cudaMemsetAsync(pressure_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
-                restrict_poisson_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(rhs_levels[level + 1], pressure_levels[level], rhs_levels[level], lx, ly, lz);
+                restrict_poisson_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(rhs_levels[level + 1], pressure_levels[level], rhs_levels[level], lx, ly, lz, boundary_mask);
             }
             {
                 const int level = level_count - 1;
@@ -483,8 +638,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                 const int lz = level_nz[level];
                 const dim3 level_grid = make_grid(lx, ly, lz, block);
                 for (int smooth = 0; smooth < coarse_steps; ++smooth) {
-                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0);
-                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0, boundary_mask);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1, boundary_mask);
                 }
             }
             for (int level = level_count - 2; level >= 0; --level) {
@@ -495,20 +650,20 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                 const int cy = level_ny[level + 1];
                 const int cz = level_nz[level + 1];
                 const dim3 level_grid = make_grid(lx, ly, lz, block);
-                prolongate_add_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], pressure_levels[level + 1], lx, ly, lz, cx, cy, cz);
+                prolongate_add_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], pressure_levels[level + 1], lx, ly, lz, cx, cy, cz, boundary_mask);
                 for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
-                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0);
-                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0, boundary_mask);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1, boundary_mask);
                 }
             }
         }
-        project_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, pressure, nx, ny, nz, 1.0f / cell_size);
+        project_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, pressure, nx, ny, nz, 1.0f / cell_size, boundary_mask);
         if (cuda_code(cudaGetLastError()) != 0) return 5001;
     }
     {
         nvtx3::scoped_range range{"stable.step.advect_density"};
         if (cuda_code(cudaMemcpyAsync(density_previous, density_field, cell_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-        advect_scalar_kernel<<<cells, block, 0, stream>>>(density_temporary, density_previous, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, dt);
+        advect_scalar_kernel<<<cells, block, 0, stream>>>(density_temporary, density_previous, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, dt, boundary_mask);
         if (cuda_code(cudaGetLastError()) != 0) return 5001;
     }
     {
@@ -539,15 +694,15 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                     const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
                     const float denom = 1.0f + 6.0f * alpha;
                     for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
-                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0);
-                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask);
                     }
                     const int cx = level_nx[level + 1];
                     const int cy = level_ny[level + 1];
                     const int cz = level_nz[level + 1];
                     const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
                     if (cuda_code(cudaMemsetAsync(diffusion_solution_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
-                    restrict_diffusion_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(diffusion_rhs_levels[level + 1], diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha);
+                    restrict_diffusion_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(diffusion_rhs_levels[level + 1], diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, boundary_mask);
                 }
                 {
                     const int level = level_count - 1;
@@ -558,8 +713,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                     const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
                     const float denom = 1.0f + 6.0f * alpha;
                     for (int smooth = 0; smooth < coarse_steps; ++smooth) {
-                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0);
-                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask);
                     }
                 }
                 for (int level = level_count - 2; level >= 0; --level) {
@@ -572,10 +727,10 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                     const dim3 level_grid = make_grid(lx, ly, lz, block);
                     const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
                     const float denom = 1.0f + 6.0f * alpha;
-                    prolongate_add_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_solution_levels[level + 1], lx, ly, lz, cx, cy, cz);
+                    prolongate_add_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_solution_levels[level + 1], lx, ly, lz, cx, cy, cz, boundary_mask);
                     for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
-                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0);
-                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask);
                     }
                 }
             }
@@ -583,8 +738,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
             {
                 const float alpha = dt * diffusion / (cell_size * cell_size);
                 const float denom = 1.0f + 6.0f * alpha;
-                diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 0);
-                diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 1);
+                diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask);
+                diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask);
                 if (cuda_code(cudaGetLastError()) != 0) return 5001;
             }
         }
