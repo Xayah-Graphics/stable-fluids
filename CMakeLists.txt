@@ -28,7 +28,6 @@ add_library(
         SHARED
         stable-fluids.h
         backend-cuda.cu
-        backend-cpu.cpp
         backend-parallel.cpp
 )
 
