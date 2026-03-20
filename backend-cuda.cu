@@ -109,55 +109,35 @@ namespace stable_fluids {
             return make_float3(sample_u(velocity_x, pos, nx, ny, nz, h), sample_v(velocity_y, pos, nx, ny, nz, h), sample_w(velocity_z, pos, nx, ny, nz, h));
         }
 
-        __global__ void set_u_boundary_kernel(float* velocity_x, const int nx, const int ny, const int nz) {
+        __global__ void advect_velocity_kernel(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x <= nx && y < ny && z < nz && (x == 0 || x == nx)) velocity_x[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
-        }
 
-        __global__ void set_v_boundary_kernel(float* velocity_y, const int nx, const int ny, const int nz) {
-            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x < nx && y <= ny && z < nz && (y == 0 || y == ny)) velocity_y[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
-        }
-
-        __global__ void set_w_boundary_kernel(float* velocity_z, const int nx, const int ny, const int nz) {
-            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x < nx && y < ny && z <= nz && (z == 0 || z == nz)) velocity_z[index_3d(x, y, z, nx, ny)] = 0.0f;
-        }
-
-        __global__ void advect_u_kernel(float* destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt) {
-            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x > nx || y >= ny || z >= nz) return;
-            const float3 pos = make_float3(static_cast<float>(x) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
-            const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
-            destination[index_3d(x, y, z, nx + 1, ny)] = sample_u(source_x, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
-        }
-
-        __global__ void advect_v_kernel(float* destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt) {
-            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x >= nx || y > ny || z >= nz) return;
-            const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, static_cast<float>(y) * h, (static_cast<float>(z) + 0.5f) * h);
-            const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
-            destination[index_3d(x, y, z, nx, ny + 1)] = sample_v(source_y, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
-        }
-
-        __global__ void advect_w_kernel(float* destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt) {
-            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x >= nx || y >= ny || z > nz) return;
-            const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, static_cast<float>(z) * h);
-            const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
-            destination[index_3d(x, y, z, nx, ny)] = sample_w(source_z, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
+            if (x <= nx && y < ny && z < nz) {
+                if (x == 0 || x == nx) velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
+                else {
+                    const float3 pos = make_float3(static_cast<float>(x) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
+                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
+                    velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = sample_u(source_x, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
+                }
+            }
+            if (x < nx && y <= ny && z < nz) {
+                if (y == 0 || y == ny) velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
+                else {
+                    const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, static_cast<float>(y) * h, (static_cast<float>(z) + 0.5f) * h);
+                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
+                    velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = sample_v(source_y, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
+                }
+            }
+            if (x < nx && y < ny && z <= nz) {
+                if (z == 0 || z == nz) velocity_z_destination[index_3d(x, y, z, nx, ny)] = 0.0f;
+                else {
+                    const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, static_cast<float>(z) * h);
+                    const float3 velocity = sample_velocity(source_x, source_y, source_z, pos, nx, ny, nz, h);
+                    velocity_z_destination[index_3d(x, y, z, nx, ny)] = sample_w(source_z, clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h), nx, ny, nz, h);
+                }
+            }
         }
 
         __global__ void advect_scalar_kernel(float* destination, const float* source, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const float dt) {
@@ -179,16 +159,43 @@ namespace stable_fluids {
             destination[index_3d(x, y, z, sx, sy)] = (source[index_3d(x, y, z, sx, sy)] + alpha * neighbors) / denom;
         }
 
-        __global__ void compute_divergence_kernel(float* divergence, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h) {
+        __global__ void diffuse_velocity_kernel(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* velocity_x_source, const float* velocity_y_source, const float* velocity_z_source, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity) {
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+            if (x <= nx && y < ny && z < nz) {
+                if (x == 0 || x == nx) velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
+                else if (((x + y + z) & 1) == parity) {
+                    const float neighbors = fetch_clamped(velocity_x_destination, x - 1, y, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x + 1, y, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y - 1, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y + 1, z, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y, z - 1, nx + 1, ny, nz) + fetch_clamped(velocity_x_destination, x, y, z + 1, nx + 1, ny, nz);
+                    velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = (velocity_x_source[index_3d(x, y, z, nx + 1, ny)] + alpha * neighbors) / denom;
+                }
+            }
+            if (x < nx && y <= ny && z < nz) {
+                if (y == 0 || y == ny) velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
+                else if (((x + y + z) & 1) == parity) {
+                    const float neighbors = fetch_clamped(velocity_y_destination, x - 1, y, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x + 1, y, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y - 1, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y + 1, z, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y, z - 1, nx, ny + 1, nz) + fetch_clamped(velocity_y_destination, x, y, z + 1, nx, ny + 1, nz);
+                    velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = (velocity_y_source[index_3d(x, y, z, nx, ny + 1)] + alpha * neighbors) / denom;
+                }
+            }
+            if (x < nx && y < ny && z <= nz) {
+                if (z == 0 || z == nz) velocity_z_destination[index_3d(x, y, z, nx, ny)] = 0.0f;
+                else if (((x + y + z) & 1) == parity) {
+                    const float neighbors = fetch_clamped(velocity_z_destination, x - 1, y, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x + 1, y, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y - 1, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y + 1, z, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y, z - 1, nx, ny, nz + 1) + fetch_clamped(velocity_z_destination, x, y, z + 1, nx, ny, nz + 1);
+                    velocity_z_destination[index_3d(x, y, z, nx, ny)] = (velocity_z_source[index_3d(x, y, z, nx, ny)] + alpha * neighbors) / denom;
+                }
+            }
+        }
+
+        __global__ void compute_poisson_rhs_kernel(float* rhs, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= nx || y >= ny || z >= nz) return;
-            divergence[index_3d(x, y, z, nx, ny)] = (fetch_clamped(velocity_x, x + 1, y, z, nx + 1, ny, nz) - fetch_clamped(velocity_x, x, y, z, nx + 1, ny, nz) + fetch_clamped(velocity_y, x, y + 1, z, nx, ny + 1, nz) - fetch_clamped(velocity_y, x, y, z, nx, ny + 1, nz)
-                + fetch_clamped(velocity_z, x, y, z + 1, nx, ny, nz + 1) - fetch_clamped(velocity_z, x, y, z, nx, ny, nz + 1)) / h;
+            rhs[index_3d(x, y, z, nx, ny)] = -(fetch_clamped(velocity_x, x + 1, y, z, nx + 1, ny, nz) - fetch_clamped(velocity_x, x, y, z, nx + 1, ny, nz) + fetch_clamped(velocity_y, x, y + 1, z, nx, ny + 1, nz) - fetch_clamped(velocity_y, x, y, z, nx, ny + 1, nz)
+                + fetch_clamped(velocity_z, x, y, z + 1, nx, ny, nz + 1) - fetch_clamped(velocity_z, x, y, z, nx, ny, nz + 1)) * h;
         }
 
-        __global__ void pressure_rbgs_kernel(float* pressure, const float* divergence, const int nx, const int ny, const int nz, const float h, const int parity) {
+        __global__ void poisson_rbgs_kernel(float* pressure, const float* rhs, const int nx, const int ny, const int nz, const int parity) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
@@ -220,28 +227,109 @@ namespace stable_fluids {
                 sum += pressure[index_3d(x, y, z + 1, nx, ny)];
                 ++count;
             }
-            pressure[index_3d(x, y, z, nx, ny)] = count > 0 ? (sum - divergence[index_3d(x, y, z, nx, ny)] * h * h) / static_cast<float>(count) : 0.0f;
+            pressure[index_3d(x, y, z, nx, ny)] = count > 0 ? (sum + rhs[index_3d(x, y, z, nx, ny)]) / static_cast<float>(count) : 0.0f;
         }
 
-        __global__ void subtract_gradient_u_kernel(float* velocity_x, const float* pressure, const int nx, const int ny, const int nz, const float h) {
+        __global__ void restrict_poisson_residual_kernel(float* coarse_rhs, const float* fine_pressure, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x > 0 && x < nx && y < ny && z < nz) velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x - 1, y, z, nx, ny)]) / h;
+            const int coarse_nx = std::max(1, (fine_nx + 1) / 2);
+            const int coarse_ny = std::max(1, (fine_ny + 1) / 2);
+            const int coarse_nz = std::max(1, (fine_nz + 1) / 2);
+            if (x >= coarse_nx || y >= coarse_ny || z >= coarse_nz) return;
+
+            float residual_sum = 0.0f;
+            int samples = 0;
+            for (int fz = 2 * z; fz < std::min(2 * z + 2, fine_nz); ++fz) {
+                for (int fy = 2 * y; fy < std::min(2 * y + 2, fine_ny); ++fy) {
+                    for (int fx = 2 * x; fx < std::min(2 * x + 2, fine_nx); ++fx) {
+                        float neighbors = 0.0f;
+                        int count = 0;
+                        if (fx > 0) {
+                            neighbors += fine_pressure[index_3d(fx - 1, fy, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        if (fx + 1 < fine_nx) {
+                            neighbors += fine_pressure[index_3d(fx + 1, fy, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        if (fy > 0) {
+                            neighbors += fine_pressure[index_3d(fx, fy - 1, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        if (fy + 1 < fine_ny) {
+                            neighbors += fine_pressure[index_3d(fx, fy + 1, fz, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        if (fz > 0) {
+                            neighbors += fine_pressure[index_3d(fx, fy, fz - 1, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        if (fz + 1 < fine_nz) {
+                            neighbors += fine_pressure[index_3d(fx, fy, fz + 1, fine_nx, fine_ny)];
+                            ++count;
+                        }
+                        const float applied = static_cast<float>(count) * fine_pressure[index_3d(fx, fy, fz, fine_nx, fine_ny)] - neighbors;
+                        residual_sum += fine_rhs[index_3d(fx, fy, fz, fine_nx, fine_ny)] - applied;
+                        ++samples;
+                    }
+                }
+            }
+            coarse_rhs[index_3d(x, y, z, coarse_nx, coarse_ny)] = samples > 0 ? residual_sum / static_cast<float>(samples) : 0.0f;
         }
 
-        __global__ void subtract_gradient_v_kernel(float* velocity_y, const float* pressure, const int nx, const int ny, const int nz, const float h) {
+        __global__ void restrict_diffusion_residual_kernel(float* coarse_rhs, const float* fine_solution, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const float alpha) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x < nx && y > 0 && y < ny && z < nz) velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y - 1, z, nx, ny)]) / h;
+            const int coarse_nx = std::max(1, (fine_nx + 1) / 2);
+            const int coarse_ny = std::max(1, (fine_ny + 1) / 2);
+            const int coarse_nz = std::max(1, (fine_nz + 1) / 2);
+            if (x >= coarse_nx || y >= coarse_ny || z >= coarse_nz) return;
+
+            float residual_sum = 0.0f;
+            int samples = 0;
+            for (int fz = 2 * z; fz < std::min(2 * z + 2, fine_nz); ++fz) {
+                for (int fy = 2 * y; fy < std::min(2 * y + 2, fine_ny); ++fy) {
+                    for (int fx = 2 * x; fx < std::min(2 * x + 2, fine_nx); ++fx) {
+                        const float center = fine_solution[index_3d(fx, fy, fz, fine_nx, fine_ny)];
+                        const float neighbors = fetch_clamped(fine_solution, fx - 1, fy, fz, fine_nx, fine_ny, fine_nz) + fetch_clamped(fine_solution, fx + 1, fy, fz, fine_nx, fine_ny, fine_nz) +
+                                                fetch_clamped(fine_solution, fx, fy - 1, fz, fine_nx, fine_ny, fine_nz) + fetch_clamped(fine_solution, fx, fy + 1, fz, fine_nx, fine_ny, fine_nz) +
+                                                fetch_clamped(fine_solution, fx, fy, fz - 1, fine_nx, fine_ny, fine_nz) + fetch_clamped(fine_solution, fx, fy, fz + 1, fine_nx, fine_ny, fine_nz);
+                        const float applied = (1.0f + 6.0f * alpha) * center - alpha * neighbors;
+                        residual_sum += fine_rhs[index_3d(fx, fy, fz, fine_nx, fine_ny)] - applied;
+                        ++samples;
+                    }
+                }
+            }
+            coarse_rhs[index_3d(x, y, z, coarse_nx, coarse_ny)] = samples > 0 ? residual_sum / static_cast<float>(samples) : 0.0f;
         }
 
-        __global__ void subtract_gradient_w_kernel(float* velocity_z, const float* pressure, const int nx, const int ny, const int nz, const float h) {
+        __global__ void prolongate_add_kernel(float* fine_pressure, const float* coarse_pressure, const int fine_nx, const int fine_ny, const int fine_nz, const int coarse_nx, const int coarse_ny, const int coarse_nz) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-            if (x < nx && y < ny && z > 0 && z < nz) velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y, z - 1, nx, ny)]) / h;
+            if (x >= fine_nx || y >= fine_ny || z >= fine_nz) return;
+            fine_pressure[index_3d(x, y, z, fine_nx, fine_ny)] += sample_grid(coarse_pressure, 0.5f * static_cast<float>(x) - 0.25f, 0.5f * static_cast<float>(y) - 0.25f, 0.5f * static_cast<float>(z) - 0.25f, coarse_nx, coarse_ny, coarse_nz);
+        }
+
+        __global__ void project_velocity_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const float* pressure, const int nx, const int ny, const int nz, const float inv_h) {
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+            if (x <= nx && y < ny && z < nz) {
+                if (x == 0 || x == nx) velocity_x[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
+                else velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x - 1, y, z, nx, ny)]) * inv_h;
+            }
+            if (x < nx && y <= ny && z < nz) {
+                if (y == 0 || y == ny) velocity_y[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
+                else velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y - 1, z, nx, ny)]) * inv_h;
+            }
+            if (x < nx && y < ny && z <= nz) {
+                if (z == 0 || z == nz) velocity_z[index_3d(x, y, z, nx, ny)] = 0.0f;
+                else velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y, z - 1, nx, ny)]) * inv_h;
+            }
         }
 
     } // namespace
@@ -308,12 +396,31 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
     auto* velocity_z_previous = static_cast<float*>(desc->temporary_previous_velocity_z);
     auto* pressure = static_cast<float*>(desc->temporary_pressure);
     auto* divergence = static_cast<float*>(desc->temporary_divergence);
+    auto* coarse_pressure_storage = static_cast<float*>(desc->temporary_density);
+    auto* coarse_rhs_storage = static_cast<float*>(desc->temporary_previous_density);
     const dim3 block{static_cast<unsigned>(std::max(block_x, 1)), static_cast<unsigned>(std::max(block_y, 1)), static_cast<unsigned>(std::max(block_z, 1))};
     const dim3 cells = make_grid(nx, ny, nz, block);
-    const dim3 u_grid = make_grid(nx + 1, ny, nz, block);
-    const dim3 v_grid = make_grid(nx, ny + 1, nz, block);
-    const dim3 w_grid = make_grid(nx, ny, nz + 1, block);
+    const dim3 velocity_grid = make_grid(nx + 1, ny + 1, nz + 1, block);
     const auto stream = reinterpret_cast<stable_fluids::Stream>(desc->stream);
+    constexpr int max_levels = 16;
+    int level_count = 1;
+    int level_nx[max_levels]{nx};
+    int level_ny[max_levels]{ny};
+    int level_nz[max_levels]{nz};
+    float level_scale[max_levels]{1.0f};
+    float* pressure_levels[max_levels]{pressure};
+    float* rhs_levels[max_levels]{divergence};
+    std::uint64_t coarse_offset = 0;
+    while (level_count < max_levels && (level_nx[level_count - 1] > 1 || level_ny[level_count - 1] > 1 || level_nz[level_count - 1] > 1)) {
+        level_nx[level_count] = std::max(1, (level_nx[level_count - 1] + 1) / 2);
+        level_ny[level_count] = std::max(1, (level_ny[level_count - 1] + 1) / 2);
+        level_nz[level_count] = std::max(1, (level_nz[level_count - 1] + 1) / 2);
+        level_scale[level_count] = level_scale[level_count - 1] * 0.25f;
+        pressure_levels[level_count] = coarse_pressure_storage + coarse_offset;
+        rhs_levels[level_count] = coarse_rhs_storage + coarse_offset;
+        coarse_offset += static_cast<std::uint64_t>(level_nx[level_count]) * static_cast<std::uint64_t>(level_ny[level_count]) * static_cast<std::uint64_t>(level_nz[level_count]);
+        ++level_count;
+    }
 
     nvtx3::scoped_range step_range{"stable.step"};
     {
@@ -321,12 +428,7 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
         if (cuda_code(cudaMemcpyAsync(velocity_x_previous, velocity_x_field, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
         if (cuda_code(cudaMemcpyAsync(velocity_y_previous, velocity_y_field, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
         if (cuda_code(cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-        advect_u_kernel<<<u_grid, block, 0, stream>>>(velocity_x_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt);
-        advect_v_kernel<<<v_grid, block, 0, stream>>>(velocity_y_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt);
-        advect_w_kernel<<<w_grid, block, 0, stream>>>(velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt);
-        set_u_boundary_kernel<<<u_grid, block, 0, stream>>>(velocity_x_temporary, nx, ny, nz);
-        set_v_boundary_kernel<<<v_grid, block, 0, stream>>>(velocity_y_temporary, nx, ny, nz);
-        set_w_boundary_kernel<<<w_grid, block, 0, stream>>>(velocity_z_temporary, nx, ny, nz);
+        advect_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt);
         if (cuda_code(cudaGetLastError()) != 0) return 5001;
     }
     {
@@ -342,19 +444,9 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
             const float alpha = dt * viscosity / (cell_size * cell_size);
             const float denom = 1.0f + 6.0f * alpha;
             for (int iteration = 0; iteration < diffuse_iterations; ++iteration) {
-                diffuse_grid_kernel<<<u_grid, block, 0, stream>>>(velocity_x_field, velocity_x_temporary, nx + 1, ny, nz, alpha, denom, 0);
-                diffuse_grid_kernel<<<v_grid, block, 0, stream>>>(velocity_y_field, velocity_y_temporary, nx, ny + 1, nz, alpha, denom, 0);
-                diffuse_grid_kernel<<<w_grid, block, 0, stream>>>(velocity_z_field, velocity_z_temporary, nx, ny, nz + 1, alpha, denom, 0);
-                set_u_boundary_kernel<<<u_grid, block, 0, stream>>>(velocity_x_field, nx, ny, nz);
-                set_v_boundary_kernel<<<v_grid, block, 0, stream>>>(velocity_y_field, nx, ny, nz);
-                set_w_boundary_kernel<<<w_grid, block, 0, stream>>>(velocity_z_field, nx, ny, nz);
+                diffuse_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, nx, ny, nz, alpha, denom, 0);
                 if (cuda_code(cudaGetLastError()) != 0) return 5001;
-                diffuse_grid_kernel<<<u_grid, block, 0, stream>>>(velocity_x_field, velocity_x_temporary, nx + 1, ny, nz, alpha, denom, 1);
-                diffuse_grid_kernel<<<v_grid, block, 0, stream>>>(velocity_y_field, velocity_y_temporary, nx, ny + 1, nz, alpha, denom, 1);
-                diffuse_grid_kernel<<<w_grid, block, 0, stream>>>(velocity_z_field, velocity_z_temporary, nx, ny, nz + 1, alpha, denom, 1);
-                set_u_boundary_kernel<<<u_grid, block, 0, stream>>>(velocity_x_field, nx, ny, nz);
-                set_v_boundary_kernel<<<v_grid, block, 0, stream>>>(velocity_y_field, nx, ny, nz);
-                set_w_boundary_kernel<<<w_grid, block, 0, stream>>>(velocity_z_field, nx, ny, nz);
+                diffuse_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, nx, ny, nz, alpha, denom, 1);
                 if (cuda_code(cudaGetLastError()) != 0) return 5001;
             }
         }
@@ -362,17 +454,55 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
     {
         nvtx3::scoped_range range{"stable.step.project"};
         if (cuda_code(cudaMemsetAsync(pressure, 0, cell_bytes, stream)) != 0) return 5001;
-        compute_divergence_kernel<<<cells, block, 0, stream>>>(divergence, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size);
-        for (int iteration = 0; iteration < pressure_iterations; ++iteration) {
-            pressure_rbgs_kernel<<<cells, block, 0, stream>>>(pressure, divergence, nx, ny, nz, cell_size, 0);
-            pressure_rbgs_kernel<<<cells, block, 0, stream>>>(pressure, divergence, nx, ny, nz, cell_size, 1);
+        compute_poisson_rhs_kernel<<<cells, block, 0, stream>>>(divergence, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size);
+        if (cuda_code(cudaGetLastError()) != 0) return 5001;
+        const int v_cycles = std::max(1, pressure_iterations / 40);
+        const int smoothing_steps = 1;
+        const int coarse_steps = std::max(8, pressure_iterations / 10);
+        for (int cycle = 0; cycle < v_cycles; ++cycle) {
+            for (int level = 0; level + 1 < level_count; ++level) {
+                const int lx = level_nx[level];
+                const int ly = level_ny[level];
+                const int lz = level_nz[level];
+                const dim3 level_grid = make_grid(lx, ly, lz, block);
+                for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1);
+                }
+                const int cx = level_nx[level + 1];
+                const int cy = level_ny[level + 1];
+                const int cz = level_nz[level + 1];
+                const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
+                if (cuda_code(cudaMemsetAsync(pressure_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
+                restrict_poisson_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(rhs_levels[level + 1], pressure_levels[level], rhs_levels[level], lx, ly, lz);
+            }
+            {
+                const int level = level_count - 1;
+                const int lx = level_nx[level];
+                const int ly = level_ny[level];
+                const int lz = level_nz[level];
+                const dim3 level_grid = make_grid(lx, ly, lz, block);
+                for (int smooth = 0; smooth < coarse_steps; ++smooth) {
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1);
+                }
+            }
+            for (int level = level_count - 2; level >= 0; --level) {
+                const int lx = level_nx[level];
+                const int ly = level_ny[level];
+                const int lz = level_nz[level];
+                const int cx = level_nx[level + 1];
+                const int cy = level_ny[level + 1];
+                const int cz = level_nz[level + 1];
+                const dim3 level_grid = make_grid(lx, ly, lz, block);
+                prolongate_add_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], pressure_levels[level + 1], lx, ly, lz, cx, cy, cz);
+                for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0);
+                    poisson_rbgs_kernel<<<level_grid, block, 0, stream>>>(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1);
+                }
+            }
         }
-        subtract_gradient_u_kernel<<<u_grid, block, 0, stream>>>(velocity_x_field, pressure, nx, ny, nz, cell_size);
-        subtract_gradient_v_kernel<<<v_grid, block, 0, stream>>>(velocity_y_field, pressure, nx, ny, nz, cell_size);
-        subtract_gradient_w_kernel<<<w_grid, block, 0, stream>>>(velocity_z_field, pressure, nx, ny, nz, cell_size);
-        set_u_boundary_kernel<<<u_grid, block, 0, stream>>>(velocity_x_field, nx, ny, nz);
-        set_v_boundary_kernel<<<v_grid, block, 0, stream>>>(velocity_y_field, nx, ny, nz);
-        set_w_boundary_kernel<<<w_grid, block, 0, stream>>>(velocity_z_field, nx, ny, nz);
+        project_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, pressure, nx, ny, nz, 1.0f / cell_size);
         if (cuda_code(cudaGetLastError()) != 0) return 5001;
     }
     {
@@ -387,11 +517,73 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
             if (cuda_code(cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
         } else {
             if (cuda_code(cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-            const float alpha = dt * diffusion / (cell_size * cell_size);
-            const float denom = 1.0f + 6.0f * alpha;
-            for (int iteration = 0; iteration < diffuse_iterations; ++iteration) {
+            auto* diffusion_coarse_solution = pressure;
+            auto* diffusion_coarse_rhs = divergence;
+            float* diffusion_solution_levels[max_levels]{density_field};
+            float* diffusion_rhs_levels[max_levels]{density_temporary};
+            std::uint64_t diffusion_offset = 0;
+            for (int level = 1; level < level_count; ++level) {
+                diffusion_solution_levels[level] = diffusion_coarse_solution + diffusion_offset;
+                diffusion_rhs_levels[level] = diffusion_coarse_rhs + diffusion_offset;
+                diffusion_offset += static_cast<std::uint64_t>(level_nx[level]) * static_cast<std::uint64_t>(level_ny[level]) * static_cast<std::uint64_t>(level_nz[level]);
+            }
+            const int v_cycles = std::max(1, diffuse_iterations / 12);
+            const int smoothing_steps = 1;
+            const int coarse_steps = std::max(6, diffuse_iterations / 4);
+            for (int cycle = 0; cycle < v_cycles; ++cycle) {
+                for (int level = 0; level + 1 < level_count; ++level) {
+                    const int lx = level_nx[level];
+                    const int ly = level_ny[level];
+                    const int lz = level_nz[level];
+                    const dim3 level_grid = make_grid(lx, ly, lz, block);
+                    const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
+                    const float denom = 1.0f + 6.0f * alpha;
+                    for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1);
+                    }
+                    const int cx = level_nx[level + 1];
+                    const int cy = level_ny[level + 1];
+                    const int cz = level_nz[level + 1];
+                    const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
+                    if (cuda_code(cudaMemsetAsync(diffusion_solution_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
+                    restrict_diffusion_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(diffusion_rhs_levels[level + 1], diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha);
+                }
+                {
+                    const int level = level_count - 1;
+                    const int lx = level_nx[level];
+                    const int ly = level_ny[level];
+                    const int lz = level_nz[level];
+                    const dim3 level_grid = make_grid(lx, ly, lz, block);
+                    const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
+                    const float denom = 1.0f + 6.0f * alpha;
+                    for (int smooth = 0; smooth < coarse_steps; ++smooth) {
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1);
+                    }
+                }
+                for (int level = level_count - 2; level >= 0; --level) {
+                    const int lx = level_nx[level];
+                    const int ly = level_ny[level];
+                    const int lz = level_nz[level];
+                    const int cx = level_nx[level + 1];
+                    const int cy = level_ny[level + 1];
+                    const int cz = level_nz[level + 1];
+                    const dim3 level_grid = make_grid(lx, ly, lz, block);
+                    const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
+                    const float denom = 1.0f + 6.0f * alpha;
+                    prolongate_add_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_solution_levels[level + 1], lx, ly, lz, cx, cy, cz);
+                    for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0);
+                        diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1);
+                    }
+                }
+            }
+            if (cuda_code(cudaGetLastError()) != 0) return 5001;
+            {
+                const float alpha = dt * diffusion / (cell_size * cell_size);
+                const float denom = 1.0f + 6.0f * alpha;
                 diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 0);
-                if (cuda_code(cudaGetLastError()) != 0) return 5001;
                 diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 1);
                 if (cuda_code(cudaGetLastError()) != 0) return 5001;
             }
