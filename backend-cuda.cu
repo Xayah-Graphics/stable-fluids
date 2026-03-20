@@ -42,10 +42,6 @@ namespace stable_fluids {
             return dim3(static_cast<unsigned>((nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z)));
         }
 
-        __host__ __device__ int clampi(const int value, const int lo, const int hi) {
-            return value < lo ? lo : (value > hi ? hi : value);
-        }
-
         __host__ __device__ bool periodic_x_min(const uint32_t mask) {
             return (mask & boundary_x_min_bit) != 0;
         }
@@ -112,9 +108,9 @@ namespace stable_fluids {
         }
 
         __host__ __device__ float fetch_boundary(const float* field, int x, int y, int z, const int sx, const int sy, const int sz, const uint32_t boundary_mask) {
-            if (!map_index_or_fail(x, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask))) x = clampi(x, 0, sx - 1);
-            if (!map_index_or_fail(y, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask))) y = clampi(y, 0, sy - 1);
-            if (!map_index_or_fail(z, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask))) z = clampi(z, 0, sz - 1);
+            if (!map_index_or_fail(x, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask))) x = std::clamp(x, 0, sx - 1);
+            if (!map_index_or_fail(y, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask))) y = std::clamp(y, 0, sy - 1);
+            if (!map_index_or_fail(z, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask))) z = std::clamp(z, 0, sz - 1);
             return field[index_3d(x, y, z, sx, sy)];
         }
 
@@ -123,9 +119,9 @@ namespace stable_fluids {
             gy = wrap_or_clamp_coordinate(gy, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask));
             gz = wrap_or_clamp_coordinate(gz, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask));
 
-            const int x0 = clampi(static_cast<int>(floorf(gx)), 0, sx - 1);
-            const int y0 = clampi(static_cast<int>(floorf(gy)), 0, sy - 1);
-            const int z0 = clampi(static_cast<int>(floorf(gz)), 0, sz - 1);
+            const int x0 = std::clamp(static_cast<int>(floorf(gx)), 0, sx - 1);
+            const int y0 = std::clamp(static_cast<int>(floorf(gy)), 0, sy - 1);
+            const int z0 = std::clamp(static_cast<int>(floorf(gz)), 0, sz - 1);
             const int x1 = x0 + 1;
             const int y1 = y0 + 1;
             const int z1 = z0 + 1;

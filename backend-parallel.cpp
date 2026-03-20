@@ -16,14 +16,6 @@ constexpr uint32_t boundary_y_max_bit = 1u << 3;
 constexpr uint32_t boundary_z_min_bit = 1u << 4;
 constexpr uint32_t boundary_z_max_bit = 1u << 5;
 
-int clampi(const int value, const int lo, const int hi) {
-    return value < lo ? lo : (value > hi ? hi : value);
-}
-
-float clampf(const float value, const float lo, const float hi) {
-    return value < lo ? lo : (value > hi ? hi : value);
-}
-
 bool periodic_x_min(const uint32_t mask) {
     return (mask & boundary_x_min_bit) != 0;
 }
@@ -90,9 +82,9 @@ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, cons
 }
 
 float fetch_boundary(const float* field, int x, int y, int z, const int sx, const int sy, const int sz, const uint32_t boundary_mask) {
-    if (!map_index_or_fail(x, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask))) x = clampi(x, 0, sx - 1);
-    if (!map_index_or_fail(y, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask))) y = clampi(y, 0, sy - 1);
-    if (!map_index_or_fail(z, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask))) z = clampi(z, 0, sz - 1);
+    if (!map_index_or_fail(x, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask))) x = std::clamp(x, 0, sx - 1);
+    if (!map_index_or_fail(y, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask))) y = std::clamp(y, 0, sy - 1);
+    if (!map_index_or_fail(z, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask))) z = std::clamp(z, 0, sz - 1);
     return field[index_3d(x, y, z, sx, sy)];
 }
 
@@ -100,9 +92,9 @@ float sample_grid(const float* field, float gx, float gy, float gz, const int sx
     gx = wrap_or_clamp_coordinate(gx, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask));
     gy = wrap_or_clamp_coordinate(gy, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask));
     gz = wrap_or_clamp_coordinate(gz, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask));
-    const int x0 = clampi(static_cast<int>(std::floor(gx)), 0, sx - 1);
-    const int y0 = clampi(static_cast<int>(std::floor(gy)), 0, sy - 1);
-    const int z0 = clampi(static_cast<int>(std::floor(gz)), 0, sz - 1);
+    const int x0 = std::clamp(static_cast<int>(std::floor(gx)), 0, sx - 1);
+    const int y0 = std::clamp(static_cast<int>(std::floor(gy)), 0, sy - 1);
+    const int z0 = std::clamp(static_cast<int>(std::floor(gz)), 0, sz - 1);
     const int x1 = x0 + 1;
     const int y1 = y0 + 1;
     const int z1 = z0 + 1;
