@@ -2,41 +2,38 @@
 
 ## Pipeline Overview
 
-In the paper, the velocity update is written as
+For an incompressible velocity field $\mathbf{u}$, Stam writes
 
 $$
 \frac{\partial \mathbf{u}}{\partial t} = \mathbf{P}\left( -(\mathbf{u} \cdot \nabla)\mathbf{u} + \nu \nabla^2 \mathbf{u} + \mathbf{f} \right),
 $$
 
-where $\mathbf{P}$ is the projection onto divergence-free fields.
+where $\mathbf{P}$ denotes projection onto divergence-free fields.
 
-The paper then splits one step into
-
-$$
-\mathbf{w}_0 \rightarrow \mathbf{w}_1 \rightarrow \mathbf{w}_2 \rightarrow \mathbf{w}_3 \rightarrow \mathbf{w}_4,
-$$
-
-with
-
-1. add force,
-2. advect,
-3. diffuse,
-4. project.
-
-This repository uses the same split, except that the force step is done outside `stable_fluids_step_cuda`. The CUDA step therefore performs
+One step is split into
 
 $$
-\mathbf{w}_1 \rightarrow \mathbf{w}_2 \rightarrow \mathbf{w}_3 \rightarrow \mathbf{w}_4,
+\mathbf{w}_0
+\xrightarrow{\text{add force}}
+\mathbf{w}_1
+\xrightarrow{\text{advect}}
+\mathbf{w}_2
+\xrightarrow{\text{diffuse}}
+\mathbf{w}_3
+\xrightarrow{\text{project}}
+\mathbf{w}_4.
 $$
 
-followed by the same advection-diffusion split for the scalar density field.
+This repository follows the same split. The only difference is that `add force` is handled outside `stable_fluids_step_cuda`, so the CUDA step starts from $\mathbf{w}_1$.
 
-Field layout:
+The discrete fields are:
 
-- `density`: `(nx, ny, nz)`
-- `velocity_x`: `(nx + 1, ny, nz)`
-- `velocity_y`: `(nx, ny + 1, nz)`
-- `velocity_z`: `(nx, ny, nz + 1)`
+- `density`: $(nx, ny, nz)$
+- `velocity_x`: $(nx + 1, ny, nz)$
+- `velocity_y`: $(nx, ny + 1, nz)$
+- `velocity_z`: $(nx, ny, nz + 1)$
+
+Velocity uses a MAC staggered grid. Density is cell-centered.
 
 ## Method Details
 
@@ -44,31 +41,25 @@ Field layout:
 
 #### Theory
 
-The paper resolves the non-linear term
+The non-linear term is treated by the method of characteristics. For
 
 $$
--(\mathbf{u} \cdot \nabla)\mathbf{u}
+\frac{\partial a}{\partial t} = - \mathbf{u} \cdot \nabla a,
 $$
 
-with the method of characteristics. For a quantity $a(\mathbf{x}, t)$,
-
-$$
-\frac{\partial a}{\partial t} = - \mathbf{u} \cdot \nabla a
-$$
-
-is solved by tracing backward:
+the value at the new time is obtained by tracing backward:
 
 $$
 a(\mathbf{x}, t + \Delta t) = a(\mathbf{p}(\mathbf{x}, -\Delta t), t).
 $$
 
-In this implementation, all samples are taken in grid-index coordinates. If $h$ is the cell size, the traced point is
+In the CUDA implementation, the trace is carried out in grid-index coordinates. If $h$ is the cell size, then
 
 $$
 \mathbf{x}_d = \mathbf{x} - \frac{\Delta t}{h}\mathbf{u}(\mathbf{x}).
 $$
 
-Velocity is stored on a MAC grid, so the full vector field is reconstructed by
+Because the velocity is staggered, the vector field is reconstructed at an arbitrary point by
 
 $$
 \mathbf{u}(x,y,z) =
@@ -79,7 +70,31 @@ w(x - 0.5, y - 0.5, z)
 \end{bmatrix}.
 $$
 
+For the three face-centered components, the characteristic origins are
+
+$$
+\mathbf{x}_u = (i, j + 0.5, k + 0.5),
+$$
+
+$$
+\mathbf{x}_v = (i + 0.5, j, k + 0.5),
+$$
+
+$$
+\mathbf{x}_w = (i + 0.5, j + 0.5, k).
+$$
+
+For the scalar density, the characteristic origin is
+
+$$
+\mathbf{x}_\rho = (i + 0.5, j + 0.5, k + 0.5).
+$$
+
+Thus the advection stage is nothing more than backward tracing followed by interpolation on the old field.
+
 #### CUDA Implementation
+
+The implementation uses clamped trilinear interpolation and a MAC-to-collocated reconstruction of velocity. The key code is:
 
 ```cpp
 __device__ float sample_grid(
@@ -120,52 +135,28 @@ __device__ float3 sample_velocity(
         sample_v(v, p.x - 0.5f, p.y, p.z - 0.5f, nx, ny, nz),
         sample_w(w, p.x - 0.5f, p.y - 0.5f, p.z, nx, ny, nz));
 }
-
-__global__ void advect_u_kernel(float* const dst, const float* const src, const float* const u, const float* const v, const float* const w, const int nx, const int ny, const int nz, const float dt_over_h) {
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    const int j = blockIdx.y * blockDim.y + threadIdx.y;
-    const int k = blockIdx.z * blockDim.z + threadIdx.z;
-    if (i > nx || j >= ny || k >= nz) return;
-    const float3 p = make_float3(static_cast<float>(i), static_cast<float>(j) + 0.5f, static_cast<float>(k) + 0.5f);
-    const float3 vel = sample_velocity(u, v, w, p, nx, ny, nz);
-    const float3 back = clamp_domain(make_float3(p.x - dt_over_h * vel.x, p.y - dt_over_h * vel.y, p.z - dt_over_h * vel.z), nx, ny, nz);
-    dst[index_3d(i, j, k, nx + 1, ny)] = sample_u(src, back.x, back.y - 0.5f, back.z - 0.5f, nx, ny, nz);
-}
-
-__global__ void advect_v_kernel(float* const dst, const float* const src, const float* const u, const float* const v, const float* const w, const int nx, const int ny, const int nz, const float dt_over_h) {
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    const int j = blockIdx.y * blockDim.y + threadIdx.y;
-    const int k = blockIdx.z * blockDim.z + threadIdx.z;
-    if (i >= nx || j > ny || k >= nz) return;
-    const float3 p = make_float3(static_cast<float>(i) + 0.5f, static_cast<float>(j), static_cast<float>(k) + 0.5f);
-    const float3 vel = sample_velocity(u, v, w, p, nx, ny, nz);
-    const float3 back = clamp_domain(make_float3(p.x - dt_over_h * vel.x, p.y - dt_over_h * vel.y, p.z - dt_over_h * vel.z), nx, ny, nz);
-    dst[index_3d(i, j, k, nx, ny + 1)] = sample_v(src, back.x - 0.5f, back.y, back.z - 0.5f, nx, ny, nz);
-}
-
-__global__ void advect_w_kernel(float* const dst, const float* const src, const float* const u, const float* const v, const float* const w, const int nx, const int ny, const int nz, const float dt_over_h) {
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    const int j = blockIdx.y * blockDim.y + threadIdx.y;
-    const int k = blockIdx.z * blockDim.z + threadIdx.z;
-    if (i >= nx || j >= ny || k > nz) return;
-    const float3 p = make_float3(static_cast<float>(i) + 0.5f, static_cast<float>(j) + 0.5f, static_cast<float>(k));
-    const float3 vel = sample_velocity(u, v, w, p, nx, ny, nz);
-    const float3 back = clamp_domain(make_float3(p.x - dt_over_h * vel.x, p.y - dt_over_h * vel.y, p.z - dt_over_h * vel.z), nx, ny, nz);
-    dst[index_3d(i, j, k, nx, ny)] = sample_w(src, back.x - 0.5f, back.y - 0.5f, back.z, nx, ny, nz);
-}
 ```
 
-The step routine first copies the current velocity field into the previous-velocity buffers, then advects into the temporary-velocity buffers. In the paper's notation, this is the transition
+and the four advection kernels:
 
-$$
-\mathbf{w}_1 \rightarrow \mathbf{w}_2.
-$$
+```cpp
+__global__ void advect_u_kernel(...);
+__global__ void advect_v_kernel(...);
+__global__ void advect_w_kernel(...);
+__global__ void advect_scalar_kernel(...);
+```
+
+Operationally:
+
+- the current velocity field is first copied into the previous-velocity buffers,
+- `advect_u_kernel`, `advect_v_kernel`, and `advect_w_kernel` compute $\mathbf{w}_2$ from $\mathbf{w}_1$,
+- `advect_scalar_kernel` later advects density with the projected velocity field.
 
 ### 2. Diffusion
 
 #### Theory
 
-The paper writes the diffusion step as
+The diffusion step solves
 
 $$
 \frac{\partial \mathbf{w}_2}{\partial t} = \nu \nabla^2 \mathbf{w}_2.
@@ -177,7 +168,7 @@ $$
 (I - \nu \Delta t \nabla^2)\mathbf{w}_3 = \mathbf{w}_2.
 $$
 
-On a regular grid, one red-black Gauss-Seidel update is
+On the regular grid, one relaxation update is
 
 $$
 q_{i,j,k}^{m+1} =
@@ -193,13 +184,17 @@ q_{i-1,j,k}^{m} + q_{i+1,j,k}^{m}
 },
 $$
 
-where
+with
 
 $$
 a = \frac{\nu \Delta t}{h^2}.
 $$
 
+The same formula is used later for scalar diffusion, replacing $\nu$ by the scalar diffusion coefficient.
+
 #### CUDA Implementation
+
+The CUDA backend uses red-black Gauss-Seidel:
 
 ```cpp
 __global__ void diffuse_grid_kernel(float* const dst, const float* const src, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity) {
@@ -216,31 +211,30 @@ __global__ void diffuse_grid_kernel(float* const dst, const float* const src, co
 }
 ```
 
-The CUDA step:
+For velocity diffusion:
 
-1. copies `temporary_velocity_*` into `velocity_*`,
-2. sets `alpha = dt * viscosity / (cell_size * cell_size)`,
-3. sets `denom = 1 + 6 * alpha`,
-4. applies parity `0` then parity `1`,
-5. reapplies velocity boundary conditions after each sweep.
+- `src` is the advected velocity stored in the temporary velocity buffers,
+- `dst` is the persistent velocity field,
+- the solver alternates parity `0` and parity `1`,
+- the boundary kernels are reapplied after each sweep.
 
-This is the paper's transition
+For density diffusion:
 
-$$
-\mathbf{w}_2 \rightarrow \mathbf{w}_3.
-$$
+- `src` is `temporary_density`,
+- `dst` is `density`,
+- the same relaxation kernel is reused.
 
 ### 3. Projection
 
 #### Theory
 
-The paper defines the projection by
+The projection step is defined by
 
 $$
 \mathbf{w} = \mathbf{u} + \nabla q,
 $$
 
-where $\mathbf{u}$ has zero divergence. Applying divergence gives the Poisson equation
+where $\mathbf{u}$ is divergence-free. Taking divergence gives
 
 $$
 \nabla^2 q = \nabla \cdot \mathbf{w}.
@@ -252,7 +246,7 @@ $$
 \mathbf{u} = \mathbf{P}\mathbf{w} = \mathbf{w} - \nabla q.
 $$
 
-For the MAC layout used here,
+For the MAC grid, the discrete divergence is
 
 $$
 d_{i,j,k} =
@@ -263,7 +257,7 @@ u_{i+1,j,k} - u_{i,j,k}
 }{h}.
 $$
 
-The pressure update is
+The Poisson equation is solved iteratively by
 
 $$
 q_{i,j,k}^{m+1} =
@@ -275,9 +269,21 @@ q_{i-1,j,k} + q_{i+1,j,k}
 }{6}.
 $$
 
-Then subtract the gradient componentwise.
+Finally, the gradient of $q$ is subtracted componentwise on the staggered faces.
 
 #### CUDA Implementation
+
+The implementation is carried by five kernels:
+
+```cpp
+__global__ void compute_divergence_kernel(...);
+__global__ void pressure_rbgs_kernel(...);
+__global__ void subtract_gradient_u_kernel(...);
+__global__ void subtract_gradient_v_kernel(...);
+__global__ void subtract_gradient_w_kernel(...);
+```
+
+Their concrete code is:
 
 ```cpp
 __global__ void compute_divergence_kernel(float* const divergence, const float* const u, const float* const v, const float* const w, const int nx, const int ny, const int nz, const float inv_h) {
@@ -335,43 +341,51 @@ __global__ void subtract_gradient_w_kernel(float* const w, const float* const pr
 }
 ```
 
-The CUDA step:
+In the step routine:
 
-1. zeros `temporary_pressure`,
-2. computes `temporary_divergence`,
-3. runs `pressure_iterations` red-black sweeps,
-4. subtracts the pressure gradient from `velocity_x`, `velocity_y`, `velocity_z`,
-5. reapplies the boundary kernels.
+1. `temporary_pressure` is cleared,
+2. `temporary_divergence` is assembled,
+3. the pressure equation is iterated by red-black sweeps,
+4. the pressure gradient is subtracted from the velocity field,
+5. wall conditions are enforced again.
 
-This is the paper's transition
+This is the transition
 
 $$
 \mathbf{w}_3 \rightarrow \mathbf{w}_4.
 $$
 
-### 4. Density Advection
+### 4. Scalar Transport
 
 #### Theory
 
-For a scalar quantity $a$, the paper writes
+The paper treats transported substances with
 
 $$
 \frac{\partial a}{\partial t} = - \mathbf{u} \cdot \nabla a + \kappa_a \nabla^2 a - \alpha_a a + S_a.
 $$
 
-This implementation uses only the advection-diffusion part for density. The advection substep is
+This implementation uses only the advection-diffusion part for smoke density:
 
 $$
-\frac{\partial \rho}{\partial t} = - \mathbf{u} \cdot \nabla \rho,
+\frac{\partial \rho}{\partial t} = - \mathbf{u} \cdot \nabla \rho + \kappa \nabla^2 \rho.
 $$
 
-so
+The advection part again uses backward characteristics:
 
 $$
-\rho^{*}(\mathbf{x}, t + \Delta t) = \rho(\mathbf{p}(\mathbf{x}, -\Delta t), t).
+\rho^*(\mathbf{x}, t + \Delta t) = \rho(\mathbf{p}(\mathbf{x}, -\Delta t), t),
+$$
+
+and the diffusion part uses
+
+$$
+(I - \kappa \Delta t \nabla^2)\rho^{n+1} = \rho^*.
 $$
 
 #### CUDA Implementation
+
+The scalar advection kernel is:
 
 ```cpp
 __global__ void advect_scalar_kernel(float* const dst, const float* const src, const float* const u, const float* const v, const float* const w, const int nx, const int ny, const int nz, const float dt_over_h) {
@@ -386,49 +400,29 @@ __global__ void advect_scalar_kernel(float* const dst, const float* const src, c
 }
 ```
 
-The CUDA step copies `density` into `temporary_previous_density`, then advects into `temporary_density`.
+The scalar diffusion step reuses `diffuse_grid_kernel`.
 
-### 5. Density Diffusion
+Operationally:
 
-#### Theory
-
-The diffusion part of the scalar equation is
-
-$$
-\frac{\partial \rho}{\partial t} = \kappa \nabla^2 \rho.
-$$
-
-Backward Euler gives
-
-$$
-(I - \kappa \Delta t \nabla^2)\rho^{n+1} = \rho^{*}.
-$$
-
-The discrete relaxation formula is the same as for velocity, with
-
-$$
-a = \frac{\kappa \Delta t}{h^2}.
-$$
-
-#### CUDA Implementation
-
-The same `diffuse_grid_kernel` is reused for density.
-
-The CUDA step:
-
-1. copies `temporary_density` into `density`,
-2. sets `alpha = dt * diffusion / (cell_size * cell_size)`,
-3. sets `denom = 1 + 6 * alpha`,
-4. runs `diffuse_iterations` red-black sweeps on `density`, using `temporary_density` as the fixed right-hand side.
+1. `density` is copied to `temporary_previous_density`,
+2. `advect_scalar_kernel` writes the advected result into `temporary_density`,
+3. `diffuse_grid_kernel` relaxes from `temporary_density` into `density`.
 
 ## Reproduction Checklist
 
-To reproduce this CUDA implementation faithfully, keep the paper's split and the code's buffer flow:
+To reproduce the CUDA solver:
 
-1. external force is applied outside `stable_fluids_step_cuda`,
-2. `stable_fluids_step_cuda` performs advection, diffusion, and projection on velocity,
-3. then advection and diffusion on density,
-4. all advection uses backward characteristic tracing,
-5. all diffusion and projection solves use red-black Gauss-Seidel,
-6. all velocity operators use the MAC staggered layout,
-7. wall conditions set the normal velocity component to zero.
+1. store velocity on a MAC grid,
+2. reconstruct $\mathbf{u}$ at arbitrary points by half-cell shifts,
+3. advect by backward tracing,
+4. diffuse by red-black Gauss-Seidel,
+5. project by solving the Poisson equation for $q$ and subtracting $\nabla q$,
+6. advect and diffuse density with the projected velocity,
+7. enforce zero normal velocity at the box walls,
+8. keep the stage order
+
+$$
+\mathbf{w}_1 \rightarrow \mathbf{w}_2 \rightarrow \mathbf{w}_3 \rightarrow \mathbf{w}_4
+$$
+
+for velocity, followed by scalar advection and scalar diffusion.
