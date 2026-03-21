@@ -244,17 +244,15 @@ void advect_scalar(float* destination, const float* source, const float* velocit
     });
 }
 
-void diffuse_grid(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int diffuse_iterations, const uint32_t boundary_mask, const std::vector<int>& slices) {
-    for (int iteration = 0; iteration < diffuse_iterations; ++iteration)
-        for (int parity = 0; parity < 2; ++parity)
-            std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
-                for (int y = 0; y < sy; ++y)
-                    for (int x = 0; x < sx; ++x) {
-                        if (((x + y + z) & 1) != parity) continue;
-                        const float neighbors = fetch_boundary(destination, x - 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x + 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y - 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y + 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z - 1, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z + 1, sx, sy, sz, boundary_mask);
-                        destination[index_3d(x, y, z, sx, sy)] = (source[index_3d(x, y, z, sx, sy)] + alpha * neighbors) / denom;
-                    }
-            });
+void diffuse_grid(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask, const std::vector<int>& slices) {
+    std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
+        for (int y = 0; y < sy; ++y)
+            for (int x = 0; x < sx; ++x) {
+                if (((x + y + z) & 1) != parity) continue;
+                const float neighbors = fetch_boundary(destination, x - 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x + 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y - 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y + 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z - 1, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z + 1, sx, sy, sz, boundary_mask);
+                destination[index_3d(x, y, z, sx, sy)] = (source[index_3d(x, y, z, sx, sy)] + alpha * neighbors) / denom;
+            }
+    });
 }
 
 void diffuse_u(float* destination, const float* source, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask, const std::vector<int>& slices) {
@@ -355,6 +353,100 @@ void pressure_rbgs(float* pressure, const float* divergence, const int nx, const
     });
 }
 
+void restrict_poisson_residual(float* coarse_rhs, const float* fine_pressure, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const uint32_t boundary_mask, const std::vector<int>& coarse_slices) {
+    const int coarse_nx = std::max(1, (fine_nx + 1) / 2);
+    const int coarse_ny = std::max(1, (fine_ny + 1) / 2);
+    std::for_each(std::execution::par_unseq, coarse_slices.begin(), coarse_slices.end(), [&](const int z) {
+        for (int y = 0; y < coarse_ny; ++y)
+            for (int x = 0; x < coarse_nx; ++x) {
+                float residual_sum = 0.0f;
+                int samples = 0;
+                for (int fz = 2 * z; fz < std::min(2 * z + 2, fine_nz); ++fz)
+                    for (int fy = 2 * y; fy < std::min(2 * y + 2, fine_ny); ++fy)
+                        for (int fx = 2 * x; fx < std::min(2 * x + 2, fine_nx); ++fx) {
+                            float neighbors = 0.0f;
+                            int count = 0;
+                            if (fx > 0) {
+                                neighbors += fine_pressure[index_3d(fx - 1, fy, fz, fine_nx, fine_ny)];
+                                ++count;
+                            } else if (periodic_x_min(boundary_mask)) {
+                                neighbors += fine_pressure[index_3d(fine_nx - 1, fy, fz, fine_nx, fine_ny)];
+                                ++count;
+                            }
+                            if (fx + 1 < fine_nx) {
+                                neighbors += fine_pressure[index_3d(fx + 1, fy, fz, fine_nx, fine_ny)];
+                                ++count;
+                            } else if (periodic_x_max(boundary_mask)) {
+                                neighbors += fine_pressure[index_3d(0, fy, fz, fine_nx, fine_ny)];
+                                ++count;
+                            }
+                            if (fy > 0) {
+                                neighbors += fine_pressure[index_3d(fx, fy - 1, fz, fine_nx, fine_ny)];
+                                ++count;
+                            } else if (periodic_y_min(boundary_mask)) {
+                                neighbors += fine_pressure[index_3d(fx, fine_ny - 1, fz, fine_nx, fine_ny)];
+                                ++count;
+                            }
+                            if (fy + 1 < fine_ny) {
+                                neighbors += fine_pressure[index_3d(fx, fy + 1, fz, fine_nx, fine_ny)];
+                                ++count;
+                            } else if (periodic_y_max(boundary_mask)) {
+                                neighbors += fine_pressure[index_3d(fx, 0, fz, fine_nx, fine_ny)];
+                                ++count;
+                            }
+                            if (fz > 0) {
+                                neighbors += fine_pressure[index_3d(fx, fy, fz - 1, fine_nx, fine_ny)];
+                                ++count;
+                            } else if (periodic_z_min(boundary_mask)) {
+                                neighbors += fine_pressure[index_3d(fx, fy, fine_nz - 1, fine_nx, fine_ny)];
+                                ++count;
+                            }
+                            if (fz + 1 < fine_nz) {
+                                neighbors += fine_pressure[index_3d(fx, fy, fz + 1, fine_nx, fine_ny)];
+                                ++count;
+                            } else if (periodic_z_max(boundary_mask)) {
+                                neighbors += fine_pressure[index_3d(fx, fy, 0, fine_nx, fine_ny)];
+                                ++count;
+                            }
+                            const float applied = static_cast<float>(count) * fine_pressure[index_3d(fx, fy, fz, fine_nx, fine_ny)] - neighbors;
+                            residual_sum += fine_rhs[index_3d(fx, fy, fz, fine_nx, fine_ny)] - applied;
+                            ++samples;
+                        }
+                coarse_rhs[index_3d(x, y, z, coarse_nx, coarse_ny)] = samples > 0 ? residual_sum / static_cast<float>(samples) : 0.0f;
+            }
+    });
+}
+
+void restrict_diffusion_residual(float* coarse_rhs, const float* fine_solution, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const float alpha, const uint32_t boundary_mask, const std::vector<int>& coarse_slices) {
+    const int coarse_nx = std::max(1, (fine_nx + 1) / 2);
+    const int coarse_ny = std::max(1, (fine_ny + 1) / 2);
+    std::for_each(std::execution::par_unseq, coarse_slices.begin(), coarse_slices.end(), [&](const int z) {
+        for (int y = 0; y < coarse_ny; ++y)
+            for (int x = 0; x < coarse_nx; ++x) {
+                float residual_sum = 0.0f;
+                int samples = 0;
+                for (int fz = 2 * z; fz < std::min(2 * z + 2, fine_nz); ++fz)
+                    for (int fy = 2 * y; fy < std::min(2 * y + 2, fine_ny); ++fy)
+                        for (int fx = 2 * x; fx < std::min(2 * x + 2, fine_nx); ++fx) {
+                            const float center = fine_solution[index_3d(fx, fy, fz, fine_nx, fine_ny)];
+                            const float neighbors = fetch_boundary(fine_solution, fx - 1, fy, fz, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx + 1, fy, fz, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx, fy - 1, fz, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx, fy + 1, fz, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx, fy, fz - 1, fine_nx, fine_ny, fine_nz, boundary_mask) + fetch_boundary(fine_solution, fx, fy, fz + 1, fine_nx, fine_ny, fine_nz, boundary_mask);
+                            const float applied = (1.0f + 6.0f * alpha) * center - alpha * neighbors;
+                            residual_sum += fine_rhs[index_3d(fx, fy, fz, fine_nx, fine_ny)] - applied;
+                            ++samples;
+                        }
+                coarse_rhs[index_3d(x, y, z, coarse_nx, coarse_ny)] = samples > 0 ? residual_sum / static_cast<float>(samples) : 0.0f;
+            }
+    });
+}
+
+void prolongate_add(float* fine_solution, const float* coarse_solution, const int fine_nx, const int fine_ny, const int, const int coarse_nx, const int coarse_ny, const int coarse_nz, const uint32_t boundary_mask, const std::vector<int>& fine_slices) {
+    std::for_each(std::execution::par_unseq, fine_slices.begin(), fine_slices.end(), [&](const int z) {
+        for (int y = 0; y < fine_ny; ++y)
+            for (int x = 0; x < fine_nx; ++x)
+                fine_solution[index_3d(x, y, z, fine_nx, fine_ny)] += sample_grid(coarse_solution, 0.5f * static_cast<float>(x) - 0.25f, 0.5f * static_cast<float>(y) - 0.25f, 0.5f * static_cast<float>(z) - 0.25f, coarse_nx, coarse_ny, coarse_nz, boundary_mask);
+    });
+}
+
 void project_u(float* velocity_x, const float* pressure, const int nx, const int ny, const int, const float inv_h, const uint32_t boundary_mask, const std::vector<int>& slices) {
     std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
         for (int y = 0; y < ny; ++y)
@@ -432,12 +524,36 @@ int32_t stable_fluids_step_parallel(const StableFluidsStepDesc* desc) {
     const std::uint64_t velocity_x_field_bytes = static_cast<std::uint64_t>(nx + 1) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
     const std::uint64_t velocity_y_field_bytes = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny + 1) * static_cast<std::uint64_t>(nz) * sizeof(float);
     const std::uint64_t velocity_z_field_bytes = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz + 1) * sizeof(float);
+    auto* coarse_pressure_storage = density_temporary;
+    auto* coarse_rhs_storage = density_previous;
 
     std::vector<int> cell_slices(static_cast<std::size_t>(nz));
     std::vector<int> w_slices(static_cast<std::size_t>(nz + 1));
     std::iota(cell_slices.begin(), cell_slices.end(), 0);
     std::iota(w_slices.begin(), w_slices.end(), 0);
-
+    constexpr int max_levels = 16;
+    int level_count = 1;
+    int level_nx[max_levels]{nx};
+    int level_ny[max_levels]{ny};
+    int level_nz[max_levels]{nz};
+    float level_scale[max_levels]{1.0f};
+    float* pressure_levels[max_levels]{pressure};
+    float* rhs_levels[max_levels]{divergence};
+    std::vector<int> level_slices[max_levels];
+    level_slices[0] = cell_slices;
+    std::uint64_t coarse_offset = 0;
+    while (level_count < max_levels && (level_nx[level_count - 1] > 1 || level_ny[level_count - 1] > 1 || level_nz[level_count - 1] > 1)) {
+        level_nx[level_count] = std::max(1, (level_nx[level_count - 1] + 1) / 2);
+        level_ny[level_count] = std::max(1, (level_ny[level_count - 1] + 1) / 2);
+        level_nz[level_count] = std::max(1, (level_nz[level_count - 1] + 1) / 2);
+        level_scale[level_count] = level_scale[level_count - 1] * 0.25f;
+        pressure_levels[level_count] = coarse_pressure_storage + coarse_offset;
+        rhs_levels[level_count] = coarse_rhs_storage + coarse_offset;
+        level_slices[level_count].resize(static_cast<std::size_t>(level_nz[level_count]));
+        std::iota(level_slices[level_count].begin(), level_slices[level_count].end(), 0);
+        coarse_offset += static_cast<std::uint64_t>(level_nx[level_count]) * static_cast<std::uint64_t>(level_ny[level_count]) * static_cast<std::uint64_t>(level_nz[level_count]);
+        ++level_count;
+    }
     std::memcpy(velocity_x_previous, velocity_x_field, velocity_x_field_bytes);
     std::memcpy(velocity_y_previous, velocity_y_field, velocity_y_field_bytes);
     std::memcpy(velocity_z_previous, velocity_z_field, velocity_z_field_bytes);
@@ -467,9 +583,48 @@ int32_t stable_fluids_step_parallel(const StableFluidsStepDesc* desc) {
 
     std::memset(pressure, 0, static_cast<std::size_t>(cell_bytes));
     compute_divergence(divergence, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, boundary_mask, cell_slices);
-    for (int iteration = 0; iteration < pressure_iterations; ++iteration) {
-        pressure_rbgs(pressure, divergence, nx, ny, nz, 0, boundary_mask, cell_slices);
-        pressure_rbgs(pressure, divergence, nx, ny, nz, 1, boundary_mask, cell_slices);
+    const int pressure_v_cycles = std::max(1, pressure_iterations / 40);
+    const int pressure_smoothing_steps = 1;
+    const int pressure_coarse_steps = std::max(8, pressure_iterations / 10);
+    for (int cycle = 0; cycle < pressure_v_cycles; ++cycle) {
+        for (int level = 0; level + 1 < level_count; ++level) {
+            const int lx = level_nx[level];
+            const int ly = level_ny[level];
+            const int lz = level_nz[level];
+            for (int smooth = 0; smooth < pressure_smoothing_steps; ++smooth) {
+                pressure_rbgs(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0, boundary_mask, level_slices[level]);
+                pressure_rbgs(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1, boundary_mask, level_slices[level]);
+            }
+            const int cx = level_nx[level + 1];
+            const int cy = level_ny[level + 1];
+            const int cz = level_nz[level + 1];
+            const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
+            std::memset(pressure_levels[level + 1], 0, static_cast<std::size_t>(coarse_bytes));
+            restrict_poisson_residual(rhs_levels[level + 1], pressure_levels[level], rhs_levels[level], lx, ly, lz, boundary_mask, level_slices[level + 1]);
+        }
+        {
+            const int level = level_count - 1;
+            const int lx = level_nx[level];
+            const int ly = level_ny[level];
+            const int lz = level_nz[level];
+            for (int smooth = 0; smooth < pressure_coarse_steps; ++smooth) {
+                pressure_rbgs(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0, boundary_mask, level_slices[level]);
+                pressure_rbgs(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1, boundary_mask, level_slices[level]);
+            }
+        }
+        for (int level = level_count - 2; level >= 0; --level) {
+            const int lx = level_nx[level];
+            const int ly = level_ny[level];
+            const int lz = level_nz[level];
+            const int cx = level_nx[level + 1];
+            const int cy = level_ny[level + 1];
+            const int cz = level_nz[level + 1];
+            prolongate_add(pressure_levels[level], pressure_levels[level + 1], lx, ly, lz, cx, cy, cz, boundary_mask, level_slices[level]);
+            for (int smooth = 0; smooth < pressure_smoothing_steps; ++smooth) {
+                pressure_rbgs(pressure_levels[level], rhs_levels[level], lx, ly, lz, 0, boundary_mask, level_slices[level]);
+                pressure_rbgs(pressure_levels[level], rhs_levels[level], lx, ly, lz, 1, boundary_mask, level_slices[level]);
+            }
+        }
     }
     project_u(velocity_x_field, pressure, nx, ny, nz, 1.0f / cell_size, boundary_mask, cell_slices);
     project_v(velocity_y_field, pressure, nx, ny, nz, 1.0f / cell_size, boundary_mask, cell_slices);
@@ -481,9 +636,71 @@ int32_t stable_fluids_step_parallel(const StableFluidsStepDesc* desc) {
     if (diffusion <= 0.0f) std::memcpy(density_field, density_temporary, static_cast<std::size_t>(cell_bytes));
     else {
         std::memcpy(density_field, density_temporary, static_cast<std::size_t>(cell_bytes));
-        const float alpha = dt * diffusion / (cell_size * cell_size);
-        const float denom = 1.0f + 6.0f * alpha;
-        diffuse_grid(density_field, density_temporary, nx, ny, nz, alpha, denom, diffuse_iterations, boundary_mask, cell_slices);
+        auto* diffusion_coarse_solution = pressure;
+        auto* diffusion_coarse_rhs = divergence;
+        float* diffusion_solution_levels[max_levels]{density_field};
+        float* diffusion_rhs_levels[max_levels]{density_temporary};
+        std::uint64_t diffusion_offset = 0;
+        for (int level = 1; level < level_count; ++level) {
+            diffusion_solution_levels[level] = diffusion_coarse_solution + diffusion_offset;
+            diffusion_rhs_levels[level] = diffusion_coarse_rhs + diffusion_offset;
+            diffusion_offset += static_cast<std::uint64_t>(level_nx[level]) * static_cast<std::uint64_t>(level_ny[level]) * static_cast<std::uint64_t>(level_nz[level]);
+        }
+        const int diffusion_v_cycles = std::max(1, diffuse_iterations / 12);
+        const int diffusion_smoothing_steps = 1;
+        const int diffusion_coarse_steps = std::max(6, diffuse_iterations / 4);
+        for (int cycle = 0; cycle < diffusion_v_cycles; ++cycle) {
+            for (int level = 0; level + 1 < level_count; ++level) {
+                const int lx = level_nx[level];
+                const int ly = level_ny[level];
+                const int lz = level_nz[level];
+                const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
+                const float denom = 1.0f + 6.0f * alpha;
+                for (int smooth = 0; smooth < diffusion_smoothing_steps; ++smooth) {
+                    diffuse_grid(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, level_slices[level]);
+                    diffuse_grid(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, level_slices[level]);
+                }
+                const int cx = level_nx[level + 1];
+                const int cy = level_ny[level + 1];
+                const int cz = level_nz[level + 1];
+                const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
+                std::memset(diffusion_solution_levels[level + 1], 0, static_cast<std::size_t>(coarse_bytes));
+                restrict_diffusion_residual(diffusion_rhs_levels[level + 1], diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, boundary_mask, level_slices[level + 1]);
+            }
+            {
+                const int level = level_count - 1;
+                const int lx = level_nx[level];
+                const int ly = level_ny[level];
+                const int lz = level_nz[level];
+                const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
+                const float denom = 1.0f + 6.0f * alpha;
+                for (int smooth = 0; smooth < diffusion_coarse_steps; ++smooth) {
+                    diffuse_grid(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, level_slices[level]);
+                    diffuse_grid(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, level_slices[level]);
+                }
+            }
+            for (int level = level_count - 2; level >= 0; --level) {
+                const int lx = level_nx[level];
+                const int ly = level_ny[level];
+                const int lz = level_nz[level];
+                const int cx = level_nx[level + 1];
+                const int cy = level_ny[level + 1];
+                const int cz = level_nz[level + 1];
+                const float alpha = dt * diffusion / (cell_size * cell_size) * level_scale[level];
+                const float denom = 1.0f + 6.0f * alpha;
+                prolongate_add(diffusion_solution_levels[level], diffusion_solution_levels[level + 1], lx, ly, lz, cx, cy, cz, boundary_mask, level_slices[level]);
+                for (int smooth = 0; smooth < diffusion_smoothing_steps; ++smooth) {
+                    diffuse_grid(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, level_slices[level]);
+                    diffuse_grid(diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, level_slices[level]);
+                }
+            }
+        }
+        {
+            const float alpha = dt * diffusion / (cell_size * cell_size);
+            const float denom = 1.0f + 6.0f * alpha;
+            diffuse_grid(density_field, density_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask, cell_slices);
+            diffuse_grid(density_field, density_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask, cell_slices);
+        }
     }
 
     return 0;
