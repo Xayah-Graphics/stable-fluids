@@ -11,16 +11,11 @@
 
 $$
 \mathbf{w}^n_0
-\xrightarrow{\text{add force}}
-\mathbf{w}^n_1
-\xrightarrow{\text{advect}}
-\mathbf{w}^n_2
-\xrightarrow{\text{diffuse}}
-\mathbf{w}^n_3
-\xrightarrow{\text{project}}
-\mathbf{w}^n_4
-\Rightarrow{}
-\mathbf{w}^{n+1}_0.
+\xrightarrow{\text{add force}} \mathbf{w}^n_1
+\xrightarrow{\text{advect}} \mathbf{w}^n_2
+\xrightarrow{\text{diffuse}} \mathbf{w}^n_3
+\xrightarrow{\text{project}} \mathbf{w}^n_4
+\Rightarrow{} \mathbf{w}^{n+1}_0.
 $$
 
 #### Density Pipeline
