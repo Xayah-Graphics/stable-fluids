@@ -47,7 +47,6 @@ Error code scheme:
 2016  : invalid temporary divergence buffer
 5xxx  : CUDA runtime or kernel launch failure
 5001  : CUDA call failed
-5002  : CUDA backend unavailable
 */
 
 #define STABLE_FLUIDS_API_VERSION 1u

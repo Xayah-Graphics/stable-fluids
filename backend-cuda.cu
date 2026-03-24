@@ -256,6 +256,27 @@ namespace stable_fluids {
             } else if ((z == 0 && !periodic_z_min(boundary_mask)) || (z == sz - 1 && !periodic_z_max(boundary_mask))) field[index_3d(x, y, z, sx, sy)] = 0.0f;
         }
 
+        __global__ void diffuse_velocity_component_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask, const int axis) {
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+            if (x >= sx || y >= sy || z >= sz || ((x + y + z) & 1) != parity) return;
+            if (axis == 0 && ((x == 0 && !periodic_x_min(boundary_mask)) || (x == sx - 1 && !periodic_x_max(boundary_mask)))) {
+                destination[index_3d(x, y, z, sx, sy)] = 0.0f;
+                return;
+            }
+            if (axis == 1 && ((y == 0 && !periodic_y_min(boundary_mask)) || (y == sy - 1 && !periodic_y_max(boundary_mask)))) {
+                destination[index_3d(x, y, z, sx, sy)] = 0.0f;
+                return;
+            }
+            if (axis == 2 && ((z == 0 && !periodic_z_min(boundary_mask)) || (z == sz - 1 && !periodic_z_max(boundary_mask)))) {
+                destination[index_3d(x, y, z, sx, sy)] = 0.0f;
+                return;
+            }
+            const float neighbors = fetch_boundary(destination, x - 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x + 1, y, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y - 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y + 1, z, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z - 1, sx, sy, sz, boundary_mask) + fetch_boundary(destination, x, y, z + 1, sx, sy, sz, boundary_mask);
+            destination[index_3d(x, y, z, sx, sy)] = (source[index_3d(x, y, z, sx, sy)] + alpha * neighbors) / denom;
+        }
+
         __global__ void compute_poisson_rhs_kernel(float* rhs, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -570,7 +591,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                     ++component_level_count;
                 }
                 if (cuda_code(cudaMemcpyAsync(field, source, field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-                zero_velocity_component_boundaries_kernel<<<make_grid(sx, sy, sz, block), block, 0, stream>>>(field, sx, sy, sz, axis, boundary_mask);
+                const dim3 component_grid = make_grid(sx, sy, sz, block);
+                zero_velocity_component_boundaries_kernel<<<component_grid, block, 0, stream>>>(field, sx, sy, sz, axis, boundary_mask);
                 if (cuda_code(cudaGetLastError()) != 0) return 5001;
                 const int v_cycles = std::max(1, diffuse_iterations / 12);
                 const int smoothing_steps = 1;
@@ -584,10 +606,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                         const float alpha = dt * viscosity / (cell_size * cell_size) * component_scale[level];
                         const float denom = 1.0f + 6.0f * alpha;
                         for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
-                            diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask);
-                            zero_velocity_component_boundaries_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], lx, ly, lz, axis, boundary_mask);
-                            diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask);
-                            zero_velocity_component_boundaries_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], lx, ly, lz, axis, boundary_mask);
+                            diffuse_velocity_component_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, axis);
+                            diffuse_velocity_component_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, axis);
                         }
                         const int cx = component_nx[level + 1];
                         const int cy = component_ny[level + 1];
@@ -595,7 +615,6 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                         const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
                         if (cuda_code(cudaMemsetAsync(solution_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
                         restrict_diffusion_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(rhs_levels[level + 1], solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, boundary_mask);
-                        zero_velocity_component_boundaries_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(rhs_levels[level + 1], cx, cy, cz, axis, boundary_mask);
                     }
                     {
                         const int level = component_level_count - 1;
@@ -606,10 +625,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                         const float alpha = dt * viscosity / (cell_size * cell_size) * component_scale[level];
                         const float denom = 1.0f + 6.0f * alpha;
                         for (int smooth = 0; smooth < coarse_steps; ++smooth) {
-                            diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask);
-                            zero_velocity_component_boundaries_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], lx, ly, lz, axis, boundary_mask);
-                            diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask);
-                            zero_velocity_component_boundaries_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], lx, ly, lz, axis, boundary_mask);
+                            diffuse_velocity_component_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, axis);
+                            diffuse_velocity_component_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, axis);
                         }
                     }
                     for (int level = component_level_count - 2; level >= 0; --level) {
@@ -625,10 +642,8 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                         prolongate_add_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], solution_levels[level + 1], lx, ly, lz, cx, cy, cz, boundary_mask);
                         zero_velocity_component_boundaries_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], lx, ly, lz, axis, boundary_mask);
                         for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
-                            diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask);
-                            zero_velocity_component_boundaries_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], lx, ly, lz, axis, boundary_mask);
-                            diffuse_grid_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask);
-                            zero_velocity_component_boundaries_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], lx, ly, lz, axis, boundary_mask);
+                            diffuse_velocity_component_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, axis);
+                            diffuse_velocity_component_kernel<<<level_grid, block, 0, stream>>>(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, axis);
                         }
                     }
                 }

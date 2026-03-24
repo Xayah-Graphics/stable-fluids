@@ -28,10 +28,4 @@ int32_t stable_fluids_validate_desc(const StableFluidsStepDesc* desc) {
     return 0;
 }
 
-#if defined(STABLE_FLUIDS_NO_CUDA)
-int32_t stable_fluids_step_cuda(const StableFluidsStepDesc*) {
-    return 5002;
-}
-#endif
-
 } // extern "C"
