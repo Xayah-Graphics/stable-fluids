@@ -27,7 +27,6 @@ add_library(
         stable-fluids.h
         validate.cpp
         backend-cuda.cu
-        backend-parallel.cpp
 )
 
 add_executable(

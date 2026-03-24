@@ -111,119 +111,6 @@ int main() {
     const uint64_t velocity_y_bytes = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny + 1) * static_cast<uint64_t>(nz) * sizeof(float);
     const uint64_t velocity_z_bytes = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny) * static_cast<uint64_t>(nz + 1) * sizeof(float);
     const std::size_t scalar_count  = static_cast<std::size_t>(scalar_bytes / sizeof(float));
-    const std::size_t vx_count      = static_cast<std::size_t>(velocity_x_bytes / sizeof(float));
-    const std::size_t vy_count      = static_cast<std::size_t>(velocity_y_bytes / sizeof(float));
-    const std::size_t vz_count      = static_cast<std::size_t>(velocity_z_bytes / sizeof(float));
-
-    std::vector<float> parallel_density(scalar_count, 0.0f);
-    std::vector<float> parallel_velocity_x(vx_count, 0.0f);
-    std::vector<float> parallel_velocity_y(vy_count, 0.0f);
-    std::vector<float> parallel_velocity_z(vz_count, 0.0f);
-    std::vector<float> parallel_temporary_density(scalar_count, 0.0f);
-    std::vector<float> parallel_temporary_velocity_x(vx_count, 0.0f);
-    std::vector<float> parallel_temporary_velocity_y(vy_count, 0.0f);
-    std::vector<float> parallel_temporary_velocity_z(vz_count, 0.0f);
-    std::vector<float> parallel_temporary_previous_density(scalar_count, 0.0f);
-    std::vector<float> parallel_temporary_previous_velocity_x(vx_count, 0.0f);
-    std::vector<float> parallel_temporary_previous_velocity_y(vy_count, 0.0f);
-    std::vector<float> parallel_temporary_previous_velocity_z(vz_count, 0.0f);
-    std::vector<float> parallel_temporary_pressure(scalar_count, 0.0f);
-    std::vector<float> parallel_temporary_divergence(scalar_count, 0.0f);
-
-    auto add_source_host = [&](std::vector<float>& density, std::vector<float>& velocity_x, std::vector<float>& velocity_y, std::vector<float>& velocity_z, const float center_x, const float center_y, const float center_z, const float radius, const float density_amount, const float velocity_source_x,
-                              const float velocity_source_y, const float velocity_source_z) {
-        const float radius2 = radius * radius;
-        for (int z = 0; z < nz; ++z) {
-            for (int y = 0; y < ny; ++y) {
-                for (int x = 0; x < nx; ++x) {
-                    const float dx = (static_cast<float>(x) + 0.5f) - center_x;
-                    const float dy = (static_cast<float>(y) + 0.5f) - center_y;
-                    const float dz = (static_cast<float>(z) + 0.5f) - center_z;
-                    const float dist2 = dx * dx + dy * dy + dz * dz;
-                    if (dist2 > radius2) continue;
-                    density[static_cast<std::size_t>(z) * static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny) + static_cast<std::size_t>(y) * static_cast<std::size_t>(nx) + static_cast<std::size_t>(x)] += density_amount * std::max(0.0f, 1.0f - dist2 / radius2);
-                }
-            }
-        }
-        for (int z = 0; z < nz; ++z) {
-            for (int y = 0; y < ny; ++y) {
-                for (int x = 0; x <= nx; ++x) {
-                    const float dx = static_cast<float>(x) - center_x;
-                    const float dy = (static_cast<float>(y) + 0.5f) - center_y;
-                    const float dz = (static_cast<float>(z) + 0.5f) - center_z;
-                    const float dist2 = dx * dx + dy * dy + dz * dz;
-                    if (dist2 > radius2) continue;
-                    velocity_x[static_cast<std::size_t>(z) * static_cast<std::size_t>(nx + 1) * static_cast<std::size_t>(ny) + static_cast<std::size_t>(y) * static_cast<std::size_t>(nx + 1) + static_cast<std::size_t>(x)] += velocity_source_x * std::max(0.0f, 1.0f - dist2 / radius2);
-                }
-            }
-        }
-        for (int z = 0; z < nz; ++z) {
-            for (int y = 0; y <= ny; ++y) {
-                for (int x = 0; x < nx; ++x) {
-                    const float dx = (static_cast<float>(x) + 0.5f) - center_x;
-                    const float dy = static_cast<float>(y) - center_y;
-                    const float dz = (static_cast<float>(z) + 0.5f) - center_z;
-                    const float dist2 = dx * dx + dy * dy + dz * dz;
-                    if (dist2 > radius2) continue;
-                    velocity_y[static_cast<std::size_t>(z) * static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny + 1) + static_cast<std::size_t>(y) * static_cast<std::size_t>(nx) + static_cast<std::size_t>(x)] += velocity_source_y * std::max(0.0f, 1.0f - dist2 / radius2);
-                }
-            }
-        }
-        for (int z = 0; z <= nz; ++z) {
-            for (int y = 0; y < ny; ++y) {
-                for (int x = 0; x < nx; ++x) {
-                    const float dx = (static_cast<float>(x) + 0.5f) - center_x;
-                    const float dy = (static_cast<float>(y) + 0.5f) - center_y;
-                    const float dz = static_cast<float>(z) - center_z;
-                    const float dist2 = dx * dx + dy * dy + dz * dz;
-                    if (dist2 > radius2) continue;
-                    velocity_z[static_cast<std::size_t>(z) * static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny) + static_cast<std::size_t>(y) * static_cast<std::size_t>(nx) + static_cast<std::size_t>(x)] += velocity_source_z * std::max(0.0f, 1.0f - dist2 / radius2);
-                }
-            }
-        }
-    };
-
-    const auto parallel_begin = std::chrono::steady_clock::now();
-    for (int frame = 0; frame < frames; ++frame) {
-        add_source_host(parallel_density, parallel_velocity_x, parallel_velocity_y, parallel_velocity_z, static_cast<float>(nx) * 0.5f, static_cast<float>(ny) * 0.18f, static_cast<float>(nz) * 0.5f, 4.5f, 0.85f, 0.0f, 1.2f, 0.0f);
-
-        StableFluidsStepDesc parallel_desc{};
-        parallel_desc.struct_size                   = sizeof(StableFluidsStepDesc);
-        parallel_desc.api_version                   = STABLE_FLUIDS_API_VERSION;
-        parallel_desc.nx                            = nx;
-        parallel_desc.ny                            = ny;
-        parallel_desc.nz                            = nz;
-        parallel_desc.cell_size                     = cell_size;
-        parallel_desc.dt                            = dt;
-        parallel_desc.viscosity                     = viscosity;
-        parallel_desc.diffusion                     = diffusion;
-        parallel_desc.diffuse_iterations            = diffuse_iterations;
-        parallel_desc.pressure_iterations           = pressure_iterations;
-        parallel_desc.density                       = parallel_density.data();
-        parallel_desc.velocity_x                    = parallel_velocity_x.data();
-        parallel_desc.velocity_y                    = parallel_velocity_y.data();
-        parallel_desc.velocity_z                    = parallel_velocity_z.data();
-        parallel_desc.temporary_density             = parallel_temporary_density.data();
-        parallel_desc.temporary_velocity_x          = parallel_temporary_velocity_x.data();
-        parallel_desc.temporary_velocity_y          = parallel_temporary_velocity_y.data();
-        parallel_desc.temporary_velocity_z          = parallel_temporary_velocity_z.data();
-        parallel_desc.temporary_previous_density    = parallel_temporary_previous_density.data();
-        parallel_desc.temporary_previous_velocity_x = parallel_temporary_previous_velocity_x.data();
-        parallel_desc.temporary_previous_velocity_y = parallel_temporary_previous_velocity_y.data();
-        parallel_desc.temporary_previous_velocity_z = parallel_temporary_previous_velocity_z.data();
-        parallel_desc.temporary_pressure            = parallel_temporary_pressure.data();
-        parallel_desc.temporary_divergence          = parallel_temporary_divergence.data();
-        parallel_desc.block_x                       = block_x;
-        parallel_desc.block_y                       = block_y;
-        parallel_desc.block_z                       = block_z;
-        parallel_desc.stream                        = nullptr;
-        if (!stable_ok(stable_fluids_validate_desc(&parallel_desc), "stable_fluids_validate_desc")) return EXIT_FAILURE;
-        if (!stable_ok(stable_fluids_step_parallel(&parallel_desc), "stable_fluids_step_parallel")) return EXIT_FAILURE;
-    }
-    const auto parallel_end = std::chrono::steady_clock::now();
-
-    const float parallel_total_density = std::accumulate(parallel_density.begin(), parallel_density.end(), 0.0f);
-    const float parallel_peak_density  = parallel_density.empty() ? 0.0f : *std::max_element(parallel_density.begin(), parallel_density.end());
 
     float* density                       = nullptr;
     float* velocity_x                    = nullptr;
@@ -313,11 +200,6 @@ int main() {
 
     const float cuda_total_density = exit_code == EXIT_SUCCESS ? std::accumulate(host_density.begin(), host_density.end(), 0.0f) : 0.0f;
     const float cuda_peak_density  = exit_code == EXIT_SUCCESS && !host_density.empty() ? *std::max_element(host_density.begin(), host_density.end()) : 0.0f;
-    float cuda_density_l1_diff = 0.0f;
-    if (exit_code == EXIT_SUCCESS) {
-        for (std::size_t i = 0; i < scalar_count; ++i)
-            cuda_density_l1_diff += std::abs(parallel_density[i] - host_density[i]);
-    }
 
     cudaStreamDestroy(stream);
     cudaFree(density);
@@ -336,19 +218,17 @@ int main() {
     cudaFree(temporary_divergence);
     if (exit_code != EXIT_SUCCESS) return exit_code;
 
-    const double parallel_ms = std::chrono::duration<double, std::milli>(parallel_end - parallel_begin).count();
     const double cuda_ms = std::chrono::duration<double, std::milli>(cuda_end - cuda_begin).count();
 
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "stable-fluids benchmark\n";
     std::cout << "grid: " << nx << " x " << ny << " x " << nz << '\n';
     std::cout << "frames: " << frames << '\n';
-    std::cout << "| metric | parallel | cuda | extra |\n";
-    std::cout << "|---|---:|---:|---:|\n";
-    std::cout << "| total_ms | " << parallel_ms << " | " << cuda_ms << " | c=" << (cuda_ms > 0.0 ? parallel_ms / cuda_ms : 0.0) << "x |\n";
-    std::cout << "| step_ms | " << parallel_ms / static_cast<double>(frames) << " | " << cuda_ms / static_cast<double>(frames) << " | c=" << (cuda_ms > 0.0 ? parallel_ms / cuda_ms : 0.0) << "x |\n";
-    std::cout << "| total_density | " << parallel_total_density << " | " << cuda_total_density << " | - |\n";
-    std::cout << "| peak_density | " << parallel_peak_density << " | " << cuda_peak_density << " | - |\n";
-    std::cout << "| density_l1_diff_vs_parallel | 0.000 | " << cuda_density_l1_diff << " | - |\n";
+    std::cout << "| metric | cuda |\n";
+    std::cout << "|---|---:|\n";
+    std::cout << "| total_ms | " << cuda_ms << " |\n";
+    std::cout << "| step_ms | " << cuda_ms / static_cast<double>(frames) << " |\n";
+    std::cout << "| total_density | " << cuda_total_density << " |\n";
+    std::cout << "| peak_density | " << cuda_peak_density << " |\n";
     return EXIT_SUCCESS;
 }
