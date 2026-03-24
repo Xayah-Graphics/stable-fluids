@@ -29,6 +29,7 @@ Error code scheme:
 1003  : invalid dt
 1004  : invalid iteration count
 1005  : invalid boundary type
+1006  : unsupported api_version
 2xxx  : buffer errors
 2001  : invalid density buffer
 2003  : invalid velocity_x buffer
@@ -46,7 +47,10 @@ Error code scheme:
 2016  : invalid temporary divergence buffer
 5xxx  : CUDA runtime or kernel launch failure
 5001  : CUDA call failed
+5002  : CUDA backend unavailable
 */
+
+#define STABLE_FLUIDS_API_VERSION 1u
 
 typedef enum StableFluidsBoundaryType {
     STABLE_FLUIDS_BOUNDARY_FIXED = 0,

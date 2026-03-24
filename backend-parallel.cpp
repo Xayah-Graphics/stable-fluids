@@ -255,42 +255,6 @@ void diffuse_grid(float* destination, const float* source, const int sx, const i
     });
 }
 
-void diffuse_u(float* destination, const float* source, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask, const std::vector<int>& slices) {
-    std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
-        for (int y = 0; y < ny; ++y)
-            for (int x = 0; x <= nx; ++x)
-                if ((x == 0 && !periodic_x_min(boundary_mask)) || (x == nx && !periodic_x_max(boundary_mask))) destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
-                else if (((x + y + z) & 1) == parity) {
-                    const float neighbors = fetch_boundary(destination, x - 1, y, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(destination, x + 1, y, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(destination, x, y - 1, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(destination, x, y + 1, z, nx + 1, ny, nz, boundary_mask) + fetch_boundary(destination, x, y, z - 1, nx + 1, ny, nz, boundary_mask) + fetch_boundary(destination, x, y, z + 1, nx + 1, ny, nz, boundary_mask);
-                    destination[index_3d(x, y, z, nx + 1, ny)] = (source[index_3d(x, y, z, nx + 1, ny)] + alpha * neighbors) / denom;
-                }
-    });
-}
-
-void diffuse_v(float* destination, const float* source, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask, const std::vector<int>& slices) {
-    std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
-        for (int y = 0; y <= ny; ++y)
-            for (int x = 0; x < nx; ++x)
-                if ((y == 0 && !periodic_y_min(boundary_mask)) || (y == ny && !periodic_y_max(boundary_mask))) destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
-                else if (((x + y + z) & 1) == parity) {
-                    const float neighbors = fetch_boundary(destination, x - 1, y, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(destination, x + 1, y, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(destination, x, y - 1, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(destination, x, y + 1, z, nx, ny + 1, nz, boundary_mask) + fetch_boundary(destination, x, y, z - 1, nx, ny + 1, nz, boundary_mask) + fetch_boundary(destination, x, y, z + 1, nx, ny + 1, nz, boundary_mask);
-                    destination[index_3d(x, y, z, nx, ny + 1)] = (source[index_3d(x, y, z, nx, ny + 1)] + alpha * neighbors) / denom;
-                }
-    });
-}
-
-void diffuse_w(float* destination, const float* source, const int nx, const int ny, const int nz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask, const std::vector<int>& slices) {
-    std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
-        for (int y = 0; y < ny; ++y)
-            for (int x = 0; x < nx; ++x)
-                if ((z == 0 && !periodic_z_min(boundary_mask)) || (z == nz && !periodic_z_max(boundary_mask))) destination[index_3d(x, y, z, nx, ny)] = 0.0f;
-                else if (((x + y + z) & 1) == parity) {
-                    const float neighbors = fetch_boundary(destination, x - 1, y, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(destination, x + 1, y, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(destination, x, y - 1, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(destination, x, y + 1, z, nx, ny, nz + 1, boundary_mask) + fetch_boundary(destination, x, y, z - 1, nx, ny, nz + 1, boundary_mask) + fetch_boundary(destination, x, y, z + 1, nx, ny, nz + 1, boundary_mask);
-                    destination[index_3d(x, y, z, nx, ny)] = (source[index_3d(x, y, z, nx, ny)] + alpha * neighbors) / denom;
-                }
-    });
-}
-
 void compute_divergence(float* divergence, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask, const std::vector<int>& slices) {
     std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
         for (int y = 0; y < ny; ++y)
@@ -569,16 +533,122 @@ int32_t stable_fluids_step_parallel(const StableFluidsStepDesc* desc) {
         std::memcpy(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes);
         std::memcpy(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes);
         std::memcpy(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes);
-        const float alpha = dt * viscosity / (cell_size * cell_size);
-        const float denom = 1.0f + 6.0f * alpha;
-        for (int iteration = 0; iteration < diffuse_iterations; ++iteration) {
-            diffuse_u(velocity_x_field, velocity_x_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask, cell_slices);
-            diffuse_v(velocity_y_field, velocity_y_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask, cell_slices);
-            diffuse_w(velocity_z_field, velocity_z_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask, w_slices);
-            diffuse_u(velocity_x_field, velocity_x_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask, cell_slices);
-            diffuse_v(velocity_y_field, velocity_y_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask, cell_slices);
-            diffuse_w(velocity_z_field, velocity_z_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask, w_slices);
-        }
+        auto zero_velocity_component_boundaries = [&](float* field, const int sx, const int sy, const int sz, const int axis, const std::vector<int>& slices) {
+            std::for_each(std::execution::par_unseq, slices.begin(), slices.end(), [&](const int z) {
+                if (axis == 0) {
+                    if (!periodic_x_min(boundary_mask))
+                        for (int y = 0; y < sy; ++y)
+                            field[index_3d(0, y, z, sx, sy)] = 0.0f;
+                    if (!periodic_x_max(boundary_mask))
+                        for (int y = 0; y < sy; ++y)
+                            field[index_3d(sx - 1, y, z, sx, sy)] = 0.0f;
+                } else if (axis == 1) {
+                    if (!periodic_y_min(boundary_mask))
+                        for (int x = 0; x < sx; ++x)
+                            field[index_3d(x, 0, z, sx, sy)] = 0.0f;
+                    if (!periodic_y_max(boundary_mask))
+                        for (int x = 0; x < sx; ++x)
+                            field[index_3d(x, sy - 1, z, sx, sy)] = 0.0f;
+                } else {
+                    if (!periodic_z_min(boundary_mask) && z == 0)
+                        for (int y = 0; y < sy; ++y)
+                            for (int x = 0; x < sx; ++x)
+                                field[index_3d(x, y, 0, sx, sy)] = 0.0f;
+                    if (!periodic_z_max(boundary_mask) && z == sz - 1)
+                        for (int y = 0; y < sy; ++y)
+                            for (int x = 0; x < sx; ++x)
+                                field[index_3d(x, y, sz - 1, sx, sy)] = 0.0f;
+                }
+            });
+        };
+        auto diffuse_velocity_component = [&](float* field, const float* source, const std::uint64_t field_bytes, const int sx, const int sy, const int sz, const int axis) {
+            constexpr int component_max_levels = 16;
+            int component_level_count = 1;
+            int component_nx[component_max_levels]{sx};
+            int component_ny[component_max_levels]{sy};
+            int component_nz[component_max_levels]{sz};
+            float component_scale[component_max_levels]{1.0f};
+            float* solution_levels[component_max_levels]{field};
+            float* rhs_levels[component_max_levels]{const_cast<float*>(source)};
+            std::vector<int> component_slices[component_max_levels];
+            component_slices[0].resize(static_cast<std::size_t>(sz));
+            std::iota(component_slices[0].begin(), component_slices[0].end(), 0);
+            std::uint64_t coarse_offset = 0;
+            while (component_level_count < component_max_levels && (component_nx[component_level_count - 1] > 1 || component_ny[component_level_count - 1] > 1 || component_nz[component_level_count - 1] > 1)) {
+                component_nx[component_level_count] = std::max(1, (component_nx[component_level_count - 1] + 1) / 2);
+                component_ny[component_level_count] = std::max(1, (component_ny[component_level_count - 1] + 1) / 2);
+                component_nz[component_level_count] = std::max(1, (component_nz[component_level_count - 1] + 1) / 2);
+                component_scale[component_level_count] = component_scale[component_level_count - 1] * 0.25f;
+                solution_levels[component_level_count] = density_temporary + coarse_offset;
+                rhs_levels[component_level_count] = density_previous + coarse_offset;
+                component_slices[component_level_count].resize(static_cast<std::size_t>(component_nz[component_level_count]));
+                std::iota(component_slices[component_level_count].begin(), component_slices[component_level_count].end(), 0);
+                coarse_offset += static_cast<std::uint64_t>(component_nx[component_level_count]) * static_cast<std::uint64_t>(component_ny[component_level_count]) * static_cast<std::uint64_t>(component_nz[component_level_count]);
+                ++component_level_count;
+            }
+            std::memcpy(field, source, static_cast<std::size_t>(field_bytes));
+            zero_velocity_component_boundaries(field, sx, sy, sz, axis, component_slices[0]);
+            const int v_cycles = std::max(1, diffuse_iterations / 12);
+            const int smoothing_steps = 1;
+            const int coarse_steps = std::max(6, diffuse_iterations / 4);
+            for (int cycle = 0; cycle < v_cycles; ++cycle) {
+                for (int level = 0; level + 1 < component_level_count; ++level) {
+                    const int lx = component_nx[level];
+                    const int ly = component_ny[level];
+                    const int lz = component_nz[level];
+                    const float alpha = dt * viscosity / (cell_size * cell_size) * component_scale[level];
+                    const float denom = 1.0f + 6.0f * alpha;
+                    for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
+                        diffuse_grid(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, component_slices[level]);
+                        zero_velocity_component_boundaries(solution_levels[level], lx, ly, lz, axis, component_slices[level]);
+                        diffuse_grid(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, component_slices[level]);
+                        zero_velocity_component_boundaries(solution_levels[level], lx, ly, lz, axis, component_slices[level]);
+                    }
+                    const int cx = component_nx[level + 1];
+                    const int cy = component_ny[level + 1];
+                    const int cz = component_nz[level + 1];
+                    const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
+                    std::memset(solution_levels[level + 1], 0, static_cast<std::size_t>(coarse_bytes));
+                    restrict_diffusion_residual(rhs_levels[level + 1], solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, boundary_mask, component_slices[level + 1]);
+                    zero_velocity_component_boundaries(rhs_levels[level + 1], cx, cy, cz, axis, component_slices[level + 1]);
+                }
+                {
+                    const int level = component_level_count - 1;
+                    const int lx = component_nx[level];
+                    const int ly = component_ny[level];
+                    const int lz = component_nz[level];
+                    const float alpha = dt * viscosity / (cell_size * cell_size) * component_scale[level];
+                    const float denom = 1.0f + 6.0f * alpha;
+                    for (int smooth = 0; smooth < coarse_steps; ++smooth) {
+                        diffuse_grid(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, component_slices[level]);
+                        zero_velocity_component_boundaries(solution_levels[level], lx, ly, lz, axis, component_slices[level]);
+                        diffuse_grid(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, component_slices[level]);
+                        zero_velocity_component_boundaries(solution_levels[level], lx, ly, lz, axis, component_slices[level]);
+                    }
+                }
+                for (int level = component_level_count - 2; level >= 0; --level) {
+                    const int lx = component_nx[level];
+                    const int ly = component_ny[level];
+                    const int lz = component_nz[level];
+                    const int cx = component_nx[level + 1];
+                    const int cy = component_ny[level + 1];
+                    const int cz = component_nz[level + 1];
+                    const float alpha = dt * viscosity / (cell_size * cell_size) * component_scale[level];
+                    const float denom = 1.0f + 6.0f * alpha;
+                    prolongate_add(solution_levels[level], solution_levels[level + 1], lx, ly, lz, cx, cy, cz, boundary_mask, component_slices[level]);
+                    zero_velocity_component_boundaries(solution_levels[level], lx, ly, lz, axis, component_slices[level]);
+                    for (int smooth = 0; smooth < smoothing_steps; ++smooth) {
+                        diffuse_grid(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 0, boundary_mask, component_slices[level]);
+                        zero_velocity_component_boundaries(solution_levels[level], lx, ly, lz, axis, component_slices[level]);
+                        diffuse_grid(solution_levels[level], rhs_levels[level], lx, ly, lz, alpha, denom, 1, boundary_mask, component_slices[level]);
+                        zero_velocity_component_boundaries(solution_levels[level], lx, ly, lz, axis, component_slices[level]);
+                    }
+                }
+            }
+        };
+        diffuse_velocity_component(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, nx + 1, ny, nz, 0);
+        diffuse_velocity_component(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, nx, ny + 1, nz, 1);
+        diffuse_velocity_component(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, nx, ny, nz + 1, 2);
     }
 
     std::memset(pressure, 0, static_cast<std::size_t>(cell_bytes));

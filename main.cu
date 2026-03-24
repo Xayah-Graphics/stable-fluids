@@ -189,7 +189,7 @@ int main() {
 
         StableFluidsStepDesc parallel_desc{};
         parallel_desc.struct_size                   = sizeof(StableFluidsStepDesc);
-        parallel_desc.api_version                   = 1;
+        parallel_desc.api_version                   = STABLE_FLUIDS_API_VERSION;
         parallel_desc.nx                            = nx;
         parallel_desc.ny                            = ny;
         parallel_desc.nz                            = nz;
@@ -274,7 +274,7 @@ int main() {
 
         StableFluidsStepDesc cuda_desc{};
         cuda_desc.struct_size                   = sizeof(StableFluidsStepDesc);
-        cuda_desc.api_version                   = 1;
+        cuda_desc.api_version                   = STABLE_FLUIDS_API_VERSION;
         cuda_desc.nx                            = nx;
         cuda_desc.ny                            = ny;
         cuda_desc.nz                            = nz;
