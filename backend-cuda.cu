@@ -16,10 +16,6 @@ namespace stable_fluids {
         constexpr uint32_t boundary_z_min_bit = 1u << 4;
         constexpr uint32_t boundary_z_max_bit = 1u << 5;
 
-        int32_t cuda_code(const cudaError_t status) noexcept {
-            return status == cudaSuccess ? 0 : 5001;
-        }
-
         std::uint64_t scalar_bytes(const int32_t nx, const int32_t ny, const int32_t nz) {
             return static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
         }
@@ -555,18 +551,18 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
     nvtx3::scoped_range step_range{"stable.step"};
     {
         nvtx3::scoped_range range{"stable.step.advect_velocity"};
-        if (cuda_code(cudaMemcpyAsync(velocity_x_previous, velocity_x_field, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-        if (cuda_code(cudaMemcpyAsync(velocity_y_previous, velocity_y_field, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-        if (cuda_code(cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
+        if (cudaMemcpyAsync(velocity_x_previous, velocity_x_field, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+        if (cudaMemcpyAsync(velocity_y_previous, velocity_y_field, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+        if (cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
         advect_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt, boundary_mask);
-        if (cuda_code(cudaGetLastError()) != 0) return 5001;
+        if (cudaGetLastError() != cudaSuccess) return 5001;
     }
     {
         nvtx3::scoped_range range{"stable.step.diffuse_velocity"};
         if (viscosity <= 0.0f) {
-            if (cuda_code(cudaMemcpyAsync(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-            if (cuda_code(cudaMemcpyAsync(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
-            if (cuda_code(cudaMemcpyAsync(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
+            if (cudaMemcpyAsync(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+            if (cudaMemcpyAsync(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+            if (cudaMemcpyAsync(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
         } else {
             auto diffuse_velocity_component = [&](float* field, const float* source, const std::uint64_t field_bytes, const int sx, const int sy, const int sz, const int axis) {
                 constexpr int component_max_levels = 16;
@@ -588,10 +584,10 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                     component_coarse_offset += static_cast<std::uint64_t>(component_nx[component_level_count]) * static_cast<std::uint64_t>(component_ny[component_level_count]) * static_cast<std::uint64_t>(component_nz[component_level_count]);
                     ++component_level_count;
                 }
-                if (cuda_code(cudaMemcpyAsync(field, source, field_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
+                if (cudaMemcpyAsync(field, source, field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
                 const dim3 component_grid = make_grid(sx, sy, sz, block);
                 zero_velocity_component_boundaries_kernel<<<component_grid, block, 0, stream>>>(field, sx, sy, sz, axis, boundary_mask);
-                if (cuda_code(cudaGetLastError()) != 0) return 5001;
+                if (cudaGetLastError() != cudaSuccess) return 5001;
                 const int v_cycles = std::max(1, diffuse_iterations / 12);
                 const int smoothing_steps = 1;
                 const int coarse_steps = std::max(6, diffuse_iterations / 4);
@@ -611,7 +607,7 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                         const int cy = component_ny[level + 1];
                         const int cz = component_nz[level + 1];
                         const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
-                        if (cuda_code(cudaMemsetAsync(solution_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
+                        if (cudaMemsetAsync(solution_levels[level + 1], 0, coarse_bytes, stream) != cudaSuccess) return 5001;
                         restrict_diffusion_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(component_rhs_levels[level + 1], solution_levels[level], component_rhs_levels[level], lx, ly, lz, alpha, boundary_mask);
                     }
                     {
@@ -650,14 +646,14 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
             if (const int32_t code = diffuse_velocity_component(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, nx + 1, ny, nz, 0); code != 0) return code;
             if (const int32_t code = diffuse_velocity_component(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, nx, ny + 1, nz, 1); code != 0) return code;
             if (const int32_t code = diffuse_velocity_component(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, nx, ny, nz + 1, 2); code != 0) return code;
-            if (cuda_code(cudaGetLastError()) != 0) return 5001;
+            if (cudaGetLastError() != cudaSuccess) return 5001;
         }
     }
     {
         nvtx3::scoped_range range{"stable.step.project"};
-        if (cuda_code(cudaMemsetAsync(pressure, 0, cell_bytes, stream)) != 0) return 5001;
+        if (cudaMemsetAsync(pressure, 0, cell_bytes, stream) != cudaSuccess) return 5001;
         compute_poisson_rhs_kernel<<<cells, block, 0, stream>>>(divergence, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, boundary_mask);
-        if (cuda_code(cudaGetLastError()) != 0) return 5001;
+        if (cudaGetLastError() != cudaSuccess) return 5001;
         const int v_cycles = std::max(1, pressure_iterations / 40);
         const int smoothing_steps = 1;
         const int coarse_steps = std::max(8, pressure_iterations / 10);
@@ -675,7 +671,7 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                 const int cy = level_ny[level + 1];
                 const int cz = level_nz[level + 1];
                 const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
-                if (cuda_code(cudaMemsetAsync(pressure_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
+                if (cudaMemsetAsync(pressure_levels[level + 1], 0, coarse_bytes, stream) != cudaSuccess) return 5001;
                 restrict_poisson_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(rhs_levels[level + 1], pressure_levels[level], rhs_levels[level], lx, ly, lz, boundary_mask);
             }
             {
@@ -705,20 +701,20 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
             }
         }
         project_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, pressure, nx, ny, nz, 1.0f / cell_size, boundary_mask);
-        if (cuda_code(cudaGetLastError()) != 0) return 5001;
+        if (cudaGetLastError() != cudaSuccess) return 5001;
     }
     {
         nvtx3::scoped_range range{"stable.step.advect_density"};
-        if (cuda_code(cudaMemcpyAsync(density_previous, density_field, cell_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
+        if (cudaMemcpyAsync(density_previous, density_field, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
         advect_scalar_kernel<<<cells, block, 0, stream>>>(density_temporary, density_previous, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, dt, boundary_mask);
-        if (cuda_code(cudaGetLastError()) != 0) return 5001;
+        if (cudaGetLastError() != cudaSuccess) return 5001;
     }
     {
         nvtx3::scoped_range range{"stable.step.diffuse_density"};
         if (diffusion <= 0.0f) {
-            if (cuda_code(cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
+            if (cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
         } else {
-            if (cuda_code(cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream)) != 0) return 5001;
+            if (cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
             auto* diffusion_coarse_solution = pressure;
             auto* diffusion_coarse_rhs = divergence;
             float* diffusion_solution_levels[max_levels]{density_field};
@@ -748,7 +744,7 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                     const int cy = level_ny[level + 1];
                     const int cz = level_nz[level + 1];
                     const auto coarse_bytes = static_cast<std::uint64_t>(cx) * static_cast<std::uint64_t>(cy) * static_cast<std::uint64_t>(cz) * sizeof(float);
-                    if (cuda_code(cudaMemsetAsync(diffusion_solution_levels[level + 1], 0, coarse_bytes, stream)) != 0) return 5001;
+                    if (cudaMemsetAsync(diffusion_solution_levels[level + 1], 0, coarse_bytes, stream) != cudaSuccess) return 5001;
                     restrict_diffusion_residual_kernel<<<make_grid(cx, cy, cz, block), block, 0, stream>>>(diffusion_rhs_levels[level + 1], diffusion_solution_levels[level], diffusion_rhs_levels[level], lx, ly, lz, alpha, boundary_mask);
                 }
                 {
@@ -781,13 +777,13 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
                     }
                 }
             }
-            if (cuda_code(cudaGetLastError()) != 0) return 5001;
+            if (cudaGetLastError() != cudaSuccess) return 5001;
             {
                 const float alpha = dt * diffusion / (cell_size * cell_size);
                 const float denom = 1.0f + 6.0f * alpha;
                 diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask);
                 diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask);
-                if (cuda_code(cudaGetLastError()) != 0) return 5001;
+                if (cudaGetLastError() != cudaSuccess) return 5001;
             }
         }
     }
