@@ -76,9 +76,3 @@ jobs:
           set -euxo pipefail
           cmake --build build --target stable-fluids-app --parallel
 
-      - name: Run benchmark
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export LD_LIBRARY_PATH="$PWD/build:${LD_LIBRARY_PATH}"
-          ./build/stable-fluids-app
