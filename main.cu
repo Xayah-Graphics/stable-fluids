@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cuda_runtime.h>
 #include <iomanip>
@@ -36,12 +37,25 @@ int main() {
     constexpr int32_t block_y             = 8;
     constexpr int32_t block_z             = 4;
     constexpr int32_t frames              = 16;
+    constexpr uint32_t boundary_x_min     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
+    constexpr uint32_t boundary_x_max     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
+    constexpr uint32_t boundary_y_min     = STABLE_FLUIDS_BOUNDARY_NO_SLIP;
+    constexpr uint32_t boundary_y_max     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
+    constexpr uint32_t boundary_z_min     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
+    constexpr uint32_t boundary_z_max     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
+    constexpr float source_radius         = 4.5f;
+    constexpr float density_amount        = 0.42f;
+    constexpr float jet_speed             = 2.6f;
+    constexpr float upward_bias           = 0.20f;
+    constexpr float corner_inset          = 0.14f;
+    constexpr float source_height         = 0.10f;
+    constexpr float source_depth          = 0.14f;
 
     const uint64_t scalar_bytes     = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny) * static_cast<uint64_t>(nz) * sizeof(float);
     const uint64_t velocity_x_bytes = static_cast<uint64_t>(nx + 1) * static_cast<uint64_t>(ny) * static_cast<uint64_t>(nz) * sizeof(float);
     const uint64_t velocity_y_bytes = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny + 1) * static_cast<uint64_t>(nz) * sizeof(float);
     const uint64_t velocity_z_bytes = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny) * static_cast<uint64_t>(nz + 1) * sizeof(float);
-    const std::size_t scalar_count  = static_cast<std::size_t>(scalar_bytes / sizeof(float));
+    const auto scalar_count  = static_cast<std::size_t>(scalar_bytes / sizeof(float));
 
     float* density                       = nullptr;
     float* velocity_x                    = nullptr;
@@ -83,51 +97,69 @@ int main() {
 
     const auto cuda_begin = std::chrono::steady_clock::now();
     for (int frame = 0; exit_code == EXIT_SUCCESS && frame < frames; ++frame) {
-        StableFluidsAddScalarSourceDesc scalar_source_desc{
-            .struct_size     = sizeof(StableFluidsAddScalarSourceDesc),
-            .api_version     = STABLE_FLUIDS_API_VERSION,
-            .nx              = nx,
-            .ny              = ny,
-            .nz              = nz,
-            .scalar          = density,
-            .center_x        = static_cast<float>(nx) * 0.5f,
-            .center_y        = static_cast<float>(ny) * 0.18f,
-            .center_z        = static_cast<float>(nz) * 0.5f,
-            .radius          = 4.5f,
-            .amount          = 0.85f,
-            .sample_offset_x = 0.5f,
-            .sample_offset_y = 0.5f,
-            .sample_offset_z = 0.5f,
-            .block_x         = block_x,
-            .block_y         = block_y,
-            .block_z         = block_z,
-            .stream          = stream,
+        const float center_x = static_cast<float>(nx) * 0.5f;
+        const float center_y = static_cast<float>(ny) * 0.52f;
+        const float center_z = static_cast<float>(nz) * 0.5f;
+        const float source_y = static_cast<float>(ny) * source_height;
+        const float source_z = static_cast<float>(nz) * source_depth;
+        const float left_x   = static_cast<float>(nx) * corner_inset;
+        const float right_x  = static_cast<float>(nx) * (1.0f - corner_inset);
+
+        auto emit_source = [&](const float source_x) {
+            const float dir_x = center_x - source_x;
+            const float dir_y = center_y - source_y;
+            const float dir_z = center_z - source_z;
+            const float inv_len = 1.0f / (std::sqrt(dir_x * dir_x + dir_y * dir_y + dir_z * dir_z) + 1.0e-6f);
+
+            StableFluidsAddScalarSourceDesc scalar_source_desc{
+                .struct_size     = sizeof(StableFluidsAddScalarSourceDesc),
+                .api_version     = STABLE_FLUIDS_API_VERSION,
+                .nx              = nx,
+                .ny              = ny,
+                .nz              = nz,
+                .scalar          = density,
+                .center_x        = source_x,
+                .center_y        = source_y,
+                .center_z        = source_z,
+                .radius          = source_radius,
+                .amount          = density_amount,
+                .sample_offset_x = 0.5f,
+                .sample_offset_y = 0.5f,
+                .sample_offset_z = 0.5f,
+                .block_x         = block_x,
+                .block_y         = block_y,
+                .block_z         = block_z,
+                .stream          = stream,
+            };
+
+            StableFluidsAddVectorSourceDesc vector_source_desc{
+                .struct_size = sizeof(StableFluidsAddVectorSourceDesc),
+                .api_version = STABLE_FLUIDS_API_VERSION,
+                .nx          = nx,
+                .ny          = ny,
+                .nz          = nz,
+                .vector_x    = velocity_x,
+                .vector_y    = velocity_y,
+                .vector_z    = velocity_z,
+                .center_x    = source_x,
+                .center_y    = source_y,
+                .center_z    = source_z,
+                .radius      = source_radius,
+                .amount_x    = dir_x * inv_len * jet_speed,
+                .amount_y    = dir_y * inv_len * jet_speed + upward_bias,
+                .amount_z    = dir_z * inv_len * jet_speed,
+                .block_x     = block_x,
+                .block_y     = block_y,
+                .block_z     = block_z,
+                .stream      = stream,
+            };
+
+            if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_scalar_source_cuda(&scalar_source_desc), "stable_fluids_add_scalar_source_cuda")) exit_code = EXIT_FAILURE;
+            if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_vector_source_cuda(&vector_source_desc), "stable_fluids_add_vector_source_cuda")) exit_code = EXIT_FAILURE;
         };
 
-        StableFluidsAddVectorSourceDesc vector_source_desc{
-            .struct_size = sizeof(StableFluidsAddVectorSourceDesc),
-            .api_version = STABLE_FLUIDS_API_VERSION,
-            .nx          = nx,
-            .ny          = ny,
-            .nz          = nz,
-            .vector_x    = velocity_x,
-            .vector_y    = velocity_y,
-            .vector_z    = velocity_z,
-            .center_x    = scalar_source_desc.center_x,
-            .center_y    = scalar_source_desc.center_y,
-            .center_z    = scalar_source_desc.center_z,
-            .radius      = scalar_source_desc.radius,
-            .amount_x    = 0.0f,
-            .amount_y    = 1.2f,
-            .amount_z    = 0.0f,
-            .block_x     = block_x,
-            .block_y     = block_y,
-            .block_z     = block_z,
-            .stream      = stream,
-        };
-
-        if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_scalar_source_cuda(&scalar_source_desc), "stable_fluids_add_scalar_source_cuda")) exit_code = EXIT_FAILURE;
-        if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_vector_source_cuda(&vector_source_desc), "stable_fluids_add_vector_source_cuda")) exit_code = EXIT_FAILURE;
+        emit_source(left_x);
+        emit_source(right_x);
 
         StableFluidsAdvectVelocityDesc advect_velocity_desc{
             .struct_size                   = sizeof(StableFluidsAdvectVelocityDesc),
@@ -137,6 +169,18 @@ int main() {
             .nz                            = nz,
             .cell_size                     = cell_size,
             .dt                            = dt,
+            .boundary_x_min                = boundary_x_min,
+            .boundary_x_max                = boundary_x_max,
+            .boundary_y_min                = boundary_y_min,
+            .boundary_y_max                = boundary_y_max,
+            .boundary_z_min                = boundary_z_min,
+            .boundary_z_max                = boundary_z_max,
+            .inflow_velocity_x_min         = 0.0f,
+            .inflow_velocity_x_max         = 0.0f,
+            .inflow_velocity_y_min         = 0.0f,
+            .inflow_velocity_y_max         = 0.0f,
+            .inflow_velocity_z_min         = 0.0f,
+            .inflow_velocity_z_max         = 0.0f,
             .velocity_x                    = velocity_x,
             .velocity_y                    = velocity_y,
             .velocity_z                    = velocity_z,
@@ -162,6 +206,18 @@ int main() {
             .dt                         = dt,
             .viscosity                  = viscosity,
             .diffuse_iterations         = diffuse_iterations,
+            .boundary_x_min             = boundary_x_min,
+            .boundary_x_max             = boundary_x_max,
+            .boundary_y_min             = boundary_y_min,
+            .boundary_y_max             = boundary_y_max,
+            .boundary_z_min             = boundary_z_min,
+            .boundary_z_max             = boundary_z_max,
+            .inflow_velocity_x_min      = 0.0f,
+            .inflow_velocity_x_max      = 0.0f,
+            .inflow_velocity_y_min      = 0.0f,
+            .inflow_velocity_y_max      = 0.0f,
+            .inflow_velocity_z_min      = 0.0f,
+            .inflow_velocity_z_max      = 0.0f,
             .velocity_x                 = velocity_x,
             .velocity_y                 = velocity_y,
             .velocity_z                 = velocity_z,
@@ -184,6 +240,18 @@ int main() {
             .nz                         = nz,
             .cell_size                  = cell_size,
             .pressure_iterations        = pressure_iterations,
+            .boundary_x_min             = boundary_x_min,
+            .boundary_x_max             = boundary_x_max,
+            .boundary_y_min             = boundary_y_min,
+            .boundary_y_max             = boundary_y_max,
+            .boundary_z_min             = boundary_z_min,
+            .boundary_z_max             = boundary_z_max,
+            .inflow_velocity_x_min      = 0.0f,
+            .inflow_velocity_x_max      = 0.0f,
+            .inflow_velocity_y_min      = 0.0f,
+            .inflow_velocity_y_max      = 0.0f,
+            .inflow_velocity_z_min      = 0.0f,
+            .inflow_velocity_z_max      = 0.0f,
             .velocity_x                 = velocity_x,
             .velocity_y                 = velocity_y,
             .velocity_z                 = velocity_z,
@@ -219,6 +287,18 @@ int main() {
                 .nz                        = nz,
                 .cell_size                 = cell_size,
                 .dt                        = dt,
+                .boundary_x_min            = boundary_x_min,
+                .boundary_x_max            = boundary_x_max,
+                .boundary_y_min            = boundary_y_min,
+                .boundary_y_max            = boundary_y_max,
+                .boundary_z_min            = boundary_z_min,
+                .boundary_z_max            = boundary_z_max,
+                .inflow_scalar_x_min       = 0.0f,
+                .inflow_scalar_x_max       = 0.0f,
+                .inflow_scalar_y_min       = 0.0f,
+                .inflow_scalar_y_max       = 0.0f,
+                .inflow_scalar_z_min       = 0.0f,
+                .inflow_scalar_z_max       = 0.0f,
                 .scalar                    = scalar_field.field,
                 .temporary_scalar          = scalar_field.temporary_field,
                 .temporary_previous_scalar = scalar_field.previous_field,
@@ -242,6 +322,18 @@ int main() {
                 .dt                         = dt,
                 .diffusion                  = diffusion,
                 .diffuse_iterations         = diffuse_iterations,
+                .boundary_x_min             = boundary_x_min,
+                .boundary_x_max             = boundary_x_max,
+                .boundary_y_min             = boundary_y_min,
+                .boundary_y_max             = boundary_y_max,
+                .boundary_z_min             = boundary_z_min,
+                .boundary_z_max             = boundary_z_max,
+                .inflow_scalar_x_min        = 0.0f,
+                .inflow_scalar_x_max        = 0.0f,
+                .inflow_scalar_y_min        = 0.0f,
+                .inflow_scalar_y_max        = 0.0f,
+                .inflow_scalar_z_min        = 0.0f,
+                .inflow_scalar_z_max        = 0.0f,
                 .scalar                     = scalar_field.field,
                 .temporary_scalar           = scalar_field.temporary_field,
                 .temporary_solution_storage = temporary_pressure,
