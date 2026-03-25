@@ -100,28 +100,88 @@ int32_t stable_fluids_validate_project_desc(const StableFluidsProjectDesc* desc)
 
 int32_t stable_fluids_validate_advect_density_desc(const StableFluidsAdvectDensityDesc* desc) {
     if (desc == nullptr) return 1000;
-    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsAdvectDensityDesc), desc->api_version); code != 0) return code;
+    StableFluidsAdvectScalarDesc scalar_desc{};
+    scalar_desc.struct_size = sizeof(StableFluidsAdvectScalarDesc);
+    scalar_desc.api_version = desc->api_version;
+    scalar_desc.nx = desc->nx;
+    scalar_desc.ny = desc->ny;
+    scalar_desc.nz = desc->nz;
+    scalar_desc.cell_size = desc->cell_size;
+    scalar_desc.dt = desc->dt;
+    scalar_desc.boundary_x_min = desc->boundary_x_min;
+    scalar_desc.boundary_x_max = desc->boundary_x_max;
+    scalar_desc.boundary_y_min = desc->boundary_y_min;
+    scalar_desc.boundary_y_max = desc->boundary_y_max;
+    scalar_desc.boundary_z_min = desc->boundary_z_min;
+    scalar_desc.boundary_z_max = desc->boundary_z_max;
+    scalar_desc.scalar = desc->density;
+    scalar_desc.temporary_scalar = desc->temporary_density;
+    scalar_desc.temporary_previous_scalar = desc->temporary_previous_density;
+    scalar_desc.velocity_x = desc->velocity_x;
+    scalar_desc.velocity_y = desc->velocity_y;
+    scalar_desc.velocity_z = desc->velocity_z;
+    scalar_desc.clamp_non_negative = 1u;
+    scalar_desc.block_x = desc->block_x;
+    scalar_desc.block_y = desc->block_y;
+    scalar_desc.block_z = desc->block_z;
+    scalar_desc.stream = desc->stream;
+    return stable_fluids_validate_advect_scalar_desc(&scalar_desc);
+}
+
+int32_t stable_fluids_validate_diffuse_density_desc(const StableFluidsDiffuseDensityDesc* desc) {
+    if (desc == nullptr) return 1000;
+    StableFluidsDiffuseScalarDesc scalar_desc{};
+    scalar_desc.struct_size = sizeof(StableFluidsDiffuseScalarDesc);
+    scalar_desc.api_version = desc->api_version;
+    scalar_desc.nx = desc->nx;
+    scalar_desc.ny = desc->ny;
+    scalar_desc.nz = desc->nz;
+    scalar_desc.cell_size = desc->cell_size;
+    scalar_desc.dt = desc->dt;
+    scalar_desc.diffusion = desc->diffusion;
+    scalar_desc.diffuse_iterations = desc->diffuse_iterations;
+    scalar_desc.boundary_x_min = desc->boundary_x_min;
+    scalar_desc.boundary_x_max = desc->boundary_x_max;
+    scalar_desc.boundary_y_min = desc->boundary_y_min;
+    scalar_desc.boundary_y_max = desc->boundary_y_max;
+    scalar_desc.boundary_z_min = desc->boundary_z_min;
+    scalar_desc.boundary_z_max = desc->boundary_z_max;
+    scalar_desc.scalar = desc->density;
+    scalar_desc.temporary_scalar = desc->temporary_density;
+    scalar_desc.temporary_solution_storage = desc->temporary_pressure;
+    scalar_desc.temporary_rhs_storage = desc->temporary_divergence;
+    scalar_desc.clamp_non_negative = 1u;
+    scalar_desc.block_x = desc->block_x;
+    scalar_desc.block_y = desc->block_y;
+    scalar_desc.block_z = desc->block_z;
+    scalar_desc.stream = desc->stream;
+    return stable_fluids_validate_diffuse_scalar_desc(&scalar_desc);
+}
+
+int32_t stable_fluids_validate_advect_scalar_desc(const StableFluidsAdvectScalarDesc* desc) {
+    if (desc == nullptr) return 1000;
+    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsAdvectScalarDesc), desc->api_version); code != 0) return code;
     if (const int32_t code = validate_grid(desc->nx, desc->ny, desc->nz, desc->cell_size, desc->dt); code != 0) return code;
     if (const int32_t code = validate_boundaries(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max); code != 0) return code;
-    if (desc->density == nullptr) return 2001;
-    if (desc->temporary_density == nullptr) return 2007;
-    if (desc->temporary_previous_density == nullptr) return 2011;
+    if (desc->scalar == nullptr) return 2001;
+    if (desc->temporary_scalar == nullptr) return 2007;
+    if (desc->temporary_previous_scalar == nullptr) return 2011;
     if (desc->velocity_x == nullptr) return 2003;
     if (desc->velocity_y == nullptr) return 2004;
     if (desc->velocity_z == nullptr) return 2005;
     return 0;
 }
 
-int32_t stable_fluids_validate_diffuse_density_desc(const StableFluidsDiffuseDensityDesc* desc) {
+int32_t stable_fluids_validate_diffuse_scalar_desc(const StableFluidsDiffuseScalarDesc* desc) {
     if (desc == nullptr) return 1000;
-    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsDiffuseDensityDesc), desc->api_version); code != 0) return code;
+    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsDiffuseScalarDesc), desc->api_version); code != 0) return code;
     if (const int32_t code = validate_grid(desc->nx, desc->ny, desc->nz, desc->cell_size, desc->dt); code != 0) return code;
     if (desc->diffuse_iterations <= 0) return 1004;
     if (const int32_t code = validate_boundaries(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max); code != 0) return code;
-    if (desc->density == nullptr) return 2001;
-    if (desc->temporary_density == nullptr) return 2007;
-    if (desc->temporary_pressure == nullptr) return 2015;
-    if (desc->temporary_divergence == nullptr) return 2016;
+    if (desc->scalar == nullptr) return 2001;
+    if (desc->temporary_scalar == nullptr) return 2007;
+    if (desc->temporary_solution_storage == nullptr) return 2015;
+    if (desc->temporary_rhs_storage == nullptr) return 2016;
     return 0;
 }
 
