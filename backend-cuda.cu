@@ -489,15 +489,15 @@ namespace stable_fluids {
             destination_rgba[base + 3] = dye_b[index];
         }
 
-        __global__ void add_force_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const float* density, const float* temperature, const float* force_x, const float* force_y, const float* force_z, const int nx, const int ny, const int nz, const float ambient_temperature, const float density_buoyancy, const float temperature_buoyancy, const int use_density_buoyancy,
-            const int use_temperature_buoyancy, const float dt) {
+        __global__ void add_force_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const float* density, const float* temperature, const float* force_x, const float* force_y, const float* force_z, const int nx, const int ny, const int nz, const float ambient_temperature, const float density_buoyancy, const float temperature_buoyancy, const float uniform_force_x,
+            const float uniform_force_y, const float uniform_force_z, const int use_density_buoyancy, const int use_temperature_buoyancy, const float dt) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
 
             if (x > 0 && x < nx && y < ny && z < nz) {
-                float fx = 0.0f;
+                float fx = uniform_force_x;
                 if (force_x != nullptr) fx = 0.5f * (force_x[index_3d(x - 1, y, z, nx, ny)] + force_x[index_3d(x, y, z, nx, ny)]);
                 velocity_x[index_3d(x, y, z, nx + 1, ny)] += dt * fx;
             }
@@ -505,18 +505,18 @@ namespace stable_fluids {
             if (x < nx && y > 0 && y < ny && z < nz) {
                 const auto below = index_3d(x, y - 1, z, nx, ny);
                 const auto above = index_3d(x, y, z, nx, ny);
-                float fy = 0.0f;
+                float fy = uniform_force_y;
                 if (force_y != nullptr) fy = 0.5f * (force_y[below] + force_y[above]);
 
                 float buoyancy = 0.0f;
-                if (use_density_buoyancy != 0) buoyancy -= density_buoyancy * 0.5f * (density[below] + density[above]);
+                if (use_density_buoyancy != 0) buoyancy += density_buoyancy * 0.5f * (density[below] + density[above]);
                 if (use_temperature_buoyancy != 0) buoyancy += temperature_buoyancy * (0.5f * (temperature[below] + temperature[above]) - ambient_temperature);
 
                 velocity_y[index_3d(x, y, z, nx, ny + 1)] += dt * (fy + buoyancy);
             }
 
             if (x < nx && y < ny && z > 0 && z < nz) {
-                float fz = 0.0f;
+                float fz = uniform_force_z;
                 if (force_z != nullptr) fz = 0.5f * (force_z[index_3d(x, y, z - 1, nx, ny)] + force_z[index_3d(x, y, z, nx, ny)]);
                 velocity_z[index_3d(x, y, z, nx, ny)] += dt * fz;
             }
@@ -1287,7 +1287,7 @@ int32_t stable_fluids_add_force_cuda(const StableFluidsAddForceDesc* desc) {
 
     nvtx3::scoped_range range("stable.step.add_force");
     add_force_kernel<<<velocity_grid, block, 0, stream>>>(static_cast<float*>(desc->velocity_x), static_cast<float*>(desc->velocity_y), static_cast<float*>(desc->velocity_z), static_cast<const float*>(desc->density), static_cast<const float*>(desc->temperature), static_cast<const float*>(desc->force_x), static_cast<const float*>(desc->force_y), static_cast<const float*>(desc->force_z), desc->nx, desc->ny, desc->nz, desc->ambient_temperature,
-        desc->density_buoyancy, desc->temperature_buoyancy, desc->density != nullptr && desc->density_buoyancy != 0.0f ? 1 : 0, desc->temperature != nullptr && desc->temperature_buoyancy != 0.0f ? 1 : 0, desc->dt);
+        desc->density_buoyancy, desc->temperature_buoyancy, desc->uniform_force_x, desc->uniform_force_y, desc->uniform_force_z, desc->density != nullptr && desc->density_buoyancy != 0.0f ? 1 : 0, desc->temperature != nullptr && desc->temperature_buoyancy != 0.0f ? 1 : 0, desc->dt);
     enforce_velocity_boundaries_kernel<<<velocity_grid, block, 0, stream>>>(static_cast<float*>(desc->velocity_x), static_cast<float*>(desc->velocity_y), static_cast<float*>(desc->velocity_z), desc->nx, desc->ny, desc->nz, boundary_pack, inflow);
     if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;

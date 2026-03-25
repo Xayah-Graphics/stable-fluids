@@ -132,10 +132,13 @@ int32_t stable_fluids_validate_add_force_desc(const StableFluidsAddForceDesc* de
     if (desc->velocity_z == nullptr) return 2005;
 
     const bool has_buoyancy = desc->density_buoyancy != 0.0f || desc->temperature_buoyancy != 0.0f;
+    const bool has_uniform_force = desc->uniform_force_x != 0.0f || desc->uniform_force_y != 0.0f || desc->uniform_force_z != 0.0f;
+    const bool has_force_field = desc->force_x != nullptr || desc->force_y != nullptr || desc->force_z != nullptr;
 
-    if (desc->force_x == nullptr && (desc->force_y != nullptr || desc->force_z != nullptr)) return 2018;
-    if (desc->force_y == nullptr && (desc->force_x != nullptr || desc->force_z != nullptr)) return 2019;
-    if (desc->force_z == nullptr && (desc->force_x != nullptr || desc->force_y != nullptr)) return 2020;
+    if (desc->force_x == nullptr && has_force_field) return 2018;
+    if (desc->force_y == nullptr && has_force_field) return 2019;
+    if (desc->force_z == nullptr && has_force_field) return 2020;
+    if (!has_buoyancy && !has_uniform_force && !has_force_field) return 0;
 
     if (has_buoyancy && desc->density == nullptr) return 2001;
     if (desc->temperature_buoyancy != 0.0f && desc->temperature == nullptr) return 2017;

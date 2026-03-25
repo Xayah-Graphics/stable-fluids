@@ -299,6 +299,9 @@ typedef struct StableFluidsAddForceDesc {
     float ambient_temperature;
     float density_buoyancy;
     float temperature_buoyancy;
+    float uniform_force_x;
+    float uniform_force_y;
+    float uniform_force_z;
     void* velocity_x;
     void* velocity_y;
     void* velocity_z;
