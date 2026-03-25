@@ -58,30 +58,6 @@ namespace stable_fluids {
             return static_cast<std::uint64_t>(z) * static_cast<std::uint64_t>(sx) * static_cast<std::uint64_t>(sy) + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(sx) + static_cast<std::uint64_t>(x);
         }
 
-        __host__ __device__ int face_axis(const int face) {
-            if (face == boundary_x_min_face || face == boundary_x_max_face) return 0;
-            if (face == boundary_y_min_face || face == boundary_y_max_face) return 1;
-            return 2;
-        }
-
-        __host__ __device__ int face_interior_x(const int face, const int sx, const int x) {
-            if (face == boundary_x_min_face) return sx > 1 ? 1 : 0;
-            if (face == boundary_x_max_face) return sx > 1 ? sx - 2 : 0;
-            return std::clamp(x, 0, sx - 1);
-        }
-
-        __host__ __device__ int face_interior_y(const int face, const int sy, const int y) {
-            if (face == boundary_y_min_face) return sy > 1 ? 1 : 0;
-            if (face == boundary_y_max_face) return sy > 1 ? sy - 2 : 0;
-            return std::clamp(y, 0, sy - 1);
-        }
-
-        __host__ __device__ int face_interior_z(const int face, const int sz, const int z) {
-            if (face == boundary_z_min_face) return sz > 1 ? 1 : 0;
-            if (face == boundary_z_max_face) return sz > 1 ? sz - 2 : 0;
-            return std::clamp(z, 0, sz - 1);
-        }
-
         __device__ float scalar_boundary_cell_value(const float* field, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int cx = std::clamp(x, 0, sx - 1);
@@ -131,11 +107,11 @@ namespace stable_fluids {
         __device__ float velocity_boundary_value_for_face(const float* field, const int component_axis, const int face, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const uint32_t type   = (boundary_pack >> (face * 3)) & 0x7u;
-            const int normal_axis = face_axis(face);
+            const int normal_axis = (face == boundary_x_min_face || face == boundary_x_max_face) ? 0 : (face == boundary_y_min_face || face == boundary_y_max_face) ? 1 : 2;
 
-            const int ix         = face_interior_x(face, sx, x);
-            const int iy         = face_interior_y(face, sy, y);
-            const int iz         = face_interior_z(face, sz, z);
+            const int ix         = face == boundary_x_min_face ? (sx > 1 ? 1 : 0) : face == boundary_x_max_face ? (sx > 1 ? sx - 2 : 0) : std::clamp(x, 0, sx - 1);
+            const int iy         = face == boundary_y_min_face ? (sy > 1 ? 1 : 0) : face == boundary_y_max_face ? (sy > 1 ? sy - 2 : 0) : std::clamp(y, 0, sy - 1);
+            const int iz         = face == boundary_z_min_face ? (sz > 1 ? 1 : 0) : face == boundary_z_max_face ? (sz > 1 ? sz - 2 : 0) : std::clamp(z, 0, sz - 1);
             const float interior = field[index_3d(ix, iy, iz, sx, sy)];
 
             if (component_axis == normal_axis) {
