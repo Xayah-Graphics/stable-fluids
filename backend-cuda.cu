@@ -41,48 +41,8 @@ namespace stable_fluids {
             int coarse_smooth;
         };
 
-        std::uint64_t scalar_bytes(const int32_t nx, const int32_t ny, const int32_t nz) {
-            return static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
-        }
-
-        std::uint64_t velocity_x_bytes(const int32_t nx, const int32_t ny, const int32_t nz) {
-            return static_cast<std::uint64_t>(nx + 1) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
-        }
-
-        std::uint64_t velocity_y_bytes(const int32_t nx, const int32_t ny, const int32_t nz) {
-            return static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny + 1) * static_cast<std::uint64_t>(nz) * sizeof(float);
-        }
-
-        std::uint64_t velocity_z_bytes(const int32_t nx, const int32_t ny, const int32_t nz) {
-            return static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz + 1) * sizeof(float);
-        }
-
         dim3 make_grid(const int nx, const int ny, const int nz, const dim3& block) {
             return dim3(static_cast<unsigned>((nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z)));
-        }
-
-        __host__ __device__ bool periodic_x_min(const uint32_t mask) {
-            return (mask & boundary_x_min_bit) != 0;
-        }
-
-        __host__ __device__ bool periodic_x_max(const uint32_t mask) {
-            return (mask & boundary_x_max_bit) != 0;
-        }
-
-        __host__ __device__ bool periodic_y_min(const uint32_t mask) {
-            return (mask & boundary_y_min_bit) != 0;
-        }
-
-        __host__ __device__ bool periodic_y_max(const uint32_t mask) {
-            return (mask & boundary_y_max_bit) != 0;
-        }
-
-        __host__ __device__ bool periodic_z_min(const uint32_t mask) {
-            return (mask & boundary_z_min_bit) != 0;
-        }
-
-        __host__ __device__ bool periodic_z_max(const uint32_t mask) {
-            return (mask & boundary_z_max_bit) != 0;
         }
 
         __host__ __device__ bool map_index_or_fail(int& value, const int size, const bool periodic_min, const bool periodic_max) {
@@ -127,16 +87,16 @@ namespace stable_fluids {
         }
 
         __host__ __device__ float fetch_boundary(const float* field, int x, int y, int z, const int sx, const int sy, const int sz, const uint32_t boundary_mask) {
-            if (!map_index_or_fail(x, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask))) x = std::clamp(x, 0, sx - 1);
-            if (!map_index_or_fail(y, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask))) y = std::clamp(y, 0, sy - 1);
-            if (!map_index_or_fail(z, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask))) z = std::clamp(z, 0, sz - 1);
+            if (!map_index_or_fail(x, sx, (boundary_mask & boundary_x_min_bit) != 0, (boundary_mask & boundary_x_max_bit) != 0)) x = std::clamp(x, 0, sx - 1);
+            if (!map_index_or_fail(y, sy, (boundary_mask & boundary_y_min_bit) != 0, (boundary_mask & boundary_y_max_bit) != 0)) y = std::clamp(y, 0, sy - 1);
+            if (!map_index_or_fail(z, sz, (boundary_mask & boundary_z_min_bit) != 0, (boundary_mask & boundary_z_max_bit) != 0)) z = std::clamp(z, 0, sz - 1);
             return field[index_3d(x, y, z, sx, sy)];
         }
 
         __device__ float sample_grid(const float* field, float gx, float gy, float gz, const int sx, const int sy, const int sz, const uint32_t boundary_mask) {
-            gx = wrap_or_clamp_coordinate(gx, sx, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask));
-            gy = wrap_or_clamp_coordinate(gy, sy, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask));
-            gz = wrap_or_clamp_coordinate(gz, sz, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask));
+            gx = wrap_or_clamp_coordinate(gx, sx, (boundary_mask & boundary_x_min_bit) != 0, (boundary_mask & boundary_x_max_bit) != 0);
+            gy = wrap_or_clamp_coordinate(gy, sy, (boundary_mask & boundary_y_min_bit) != 0, (boundary_mask & boundary_y_max_bit) != 0);
+            gz = wrap_or_clamp_coordinate(gz, sz, (boundary_mask & boundary_z_min_bit) != 0, (boundary_mask & boundary_z_max_bit) != 0);
 
             const int x0   = std::clamp(static_cast<int>(floorf(gx)), 0, sx - 1);
             const int y0   = std::clamp(static_cast<int>(floorf(gy)), 0, sy - 1);
@@ -205,7 +165,7 @@ namespace stable_fluids {
                 }
                 return value;
             };
-            return make_float3(axis(pos.x, domain_x, periodic_x_min(boundary_mask), periodic_x_max(boundary_mask)), axis(pos.y, domain_y, periodic_y_min(boundary_mask), periodic_y_max(boundary_mask)), axis(pos.z, domain_z, periodic_z_min(boundary_mask), periodic_z_max(boundary_mask)));
+            return make_float3(axis(pos.x, domain_x, (boundary_mask & boundary_x_min_bit) != 0, (boundary_mask & boundary_x_max_bit) != 0), axis(pos.y, domain_y, (boundary_mask & boundary_y_min_bit) != 0, (boundary_mask & boundary_y_max_bit) != 0), axis(pos.z, domain_z, (boundary_mask & boundary_z_min_bit) != 0, (boundary_mask & boundary_z_max_bit) != 0));
         }
 
         __device__ float3 sample_velocity(const float* velocity_x, const float* velocity_y, const float* velocity_z, float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_mask) {
@@ -219,7 +179,7 @@ namespace stable_fluids {
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
 
             if (x <= nx && y < ny && z < nz) {
-                if ((x == 0 && !periodic_x_min(boundary_mask)) || (x == nx && !periodic_x_max(boundary_mask))) {
+                if ((x == 0 && (boundary_mask & boundary_x_min_bit) == 0) || (x == nx && (boundary_mask & boundary_x_max_bit) == 0)) {
                     velocity_x_destination[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
                 } else {
                     const float3 pos                                      = make_float3(static_cast<float>(x) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
@@ -229,7 +189,7 @@ namespace stable_fluids {
             }
 
             if (x < nx && y <= ny && z < nz) {
-                if ((y == 0 && !periodic_y_min(boundary_mask)) || (y == ny && !periodic_y_max(boundary_mask))) {
+                if ((y == 0 && (boundary_mask & boundary_y_min_bit) == 0) || (y == ny && (boundary_mask & boundary_y_max_bit) == 0)) {
                     velocity_y_destination[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
                 } else {
                     const float3 pos                                      = make_float3((static_cast<float>(x) + 0.5f) * h, static_cast<float>(y) * h, (static_cast<float>(z) + 0.5f) * h);
@@ -239,7 +199,7 @@ namespace stable_fluids {
             }
 
             if (x < nx && y < ny && z <= nz) {
-                if ((z == 0 && !periodic_z_min(boundary_mask)) || (z == nz && !periodic_z_max(boundary_mask))) {
+                if ((z == 0 && (boundary_mask & boundary_z_min_bit) == 0) || (z == nz && (boundary_mask & boundary_z_max_bit) == 0)) {
                     velocity_z_destination[index_3d(x, y, z, nx, ny)] = 0.0f;
                 } else {
                     const float3 pos                                  = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, static_cast<float>(z) * h);
@@ -275,11 +235,11 @@ namespace stable_fluids {
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= sx || y >= sy || z >= sz) return;
             if (axis == 0) {
-                if ((x == 0 && !periodic_x_min(boundary_mask)) || (x == sx - 1 && !periodic_x_max(boundary_mask))) field[index_3d(x, y, z, sx, sy)] = 0.0f;
+                if ((x == 0 && (boundary_mask & boundary_x_min_bit) == 0) || (x == sx - 1 && (boundary_mask & boundary_x_max_bit) == 0)) field[index_3d(x, y, z, sx, sy)] = 0.0f;
             } else if (axis == 1) {
-                if ((y == 0 && !periodic_y_min(boundary_mask)) || (y == sy - 1 && !periodic_y_max(boundary_mask))) field[index_3d(x, y, z, sx, sy)] = 0.0f;
+                if ((y == 0 && (boundary_mask & boundary_y_min_bit) == 0) || (y == sy - 1 && (boundary_mask & boundary_y_max_bit) == 0)) field[index_3d(x, y, z, sx, sy)] = 0.0f;
             } else {
-                if ((z == 0 && !periodic_z_min(boundary_mask)) || (z == sz - 1 && !periodic_z_max(boundary_mask))) field[index_3d(x, y, z, sx, sy)] = 0.0f;
+                if ((z == 0 && (boundary_mask & boundary_z_min_bit) == 0) || (z == sz - 1 && (boundary_mask & boundary_z_max_bit) == 0)) field[index_3d(x, y, z, sx, sy)] = 0.0f;
             }
         }
 
@@ -288,15 +248,15 @@ namespace stable_fluids {
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= sx || y >= sy || z >= sz || ((x + y + z) & 1) != parity) return;
-            if (axis == 0 && ((x == 0 && !periodic_x_min(boundary_mask)) || (x == sx - 1 && !periodic_x_max(boundary_mask)))) {
+            if (axis == 0 && ((x == 0 && (boundary_mask & boundary_x_min_bit) == 0) || (x == sx - 1 && (boundary_mask & boundary_x_max_bit) == 0))) {
                 destination[index_3d(x, y, z, sx, sy)] = 0.0f;
                 return;
             }
-            if (axis == 1 && ((y == 0 && !periodic_y_min(boundary_mask)) || (y == sy - 1 && !periodic_y_max(boundary_mask)))) {
+            if (axis == 1 && ((y == 0 && (boundary_mask & boundary_y_min_bit) == 0) || (y == sy - 1 && (boundary_mask & boundary_y_max_bit) == 0))) {
                 destination[index_3d(x, y, z, sx, sy)] = 0.0f;
                 return;
             }
-            if (axis == 2 && ((z == 0 && !periodic_z_min(boundary_mask)) || (z == sz - 1 && !periodic_z_max(boundary_mask)))) {
+            if (axis == 2 && ((z == 0 && (boundary_mask & boundary_z_min_bit) == 0) || (z == sz - 1 && (boundary_mask & boundary_z_max_bit) == 0))) {
                 destination[index_3d(x, y, z, sx, sy)] = 0.0f;
                 return;
             }
@@ -321,13 +281,20 @@ namespace stable_fluids {
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= nx || y >= ny || z >= nz || ((x + y + z) & 1) != parity) return;
 
+            const bool periodic_x_min = (boundary_mask & boundary_x_min_bit) != 0;
+            const bool periodic_x_max = (boundary_mask & boundary_x_max_bit) != 0;
+            const bool periodic_y_min = (boundary_mask & boundary_y_min_bit) != 0;
+            const bool periodic_y_max = (boundary_mask & boundary_y_max_bit) != 0;
+            const bool periodic_z_min = (boundary_mask & boundary_z_min_bit) != 0;
+            const bool periodic_z_max = (boundary_mask & boundary_z_max_bit) != 0;
+
             float sum = 0.0f;
             int count = 0;
 
             if (x > 0) {
                 sum += pressure[index_3d(x - 1, y, z, nx, ny)];
                 ++count;
-            } else if (periodic_x_min(boundary_mask)) {
+            } else if (periodic_x_min) {
                 sum += pressure[index_3d(nx - 1, y, z, nx, ny)];
                 ++count;
             }
@@ -335,7 +302,7 @@ namespace stable_fluids {
             if (x + 1 < nx) {
                 sum += pressure[index_3d(x + 1, y, z, nx, ny)];
                 ++count;
-            } else if (periodic_x_max(boundary_mask)) {
+            } else if (periodic_x_max) {
                 sum += pressure[index_3d(0, y, z, nx, ny)];
                 ++count;
             }
@@ -343,7 +310,7 @@ namespace stable_fluids {
             if (y > 0) {
                 sum += pressure[index_3d(x, y - 1, z, nx, ny)];
                 ++count;
-            } else if (periodic_y_min(boundary_mask)) {
+            } else if (periodic_y_min) {
                 sum += pressure[index_3d(x, ny - 1, z, nx, ny)];
                 ++count;
             }
@@ -351,7 +318,7 @@ namespace stable_fluids {
             if (y + 1 < ny) {
                 sum += pressure[index_3d(x, y + 1, z, nx, ny)];
                 ++count;
-            } else if (periodic_y_max(boundary_mask)) {
+            } else if (periodic_y_max) {
                 sum += pressure[index_3d(x, 0, z, nx, ny)];
                 ++count;
             }
@@ -359,7 +326,7 @@ namespace stable_fluids {
             if (z > 0) {
                 sum += pressure[index_3d(x, y, z - 1, nx, ny)];
                 ++count;
-            } else if (periodic_z_min(boundary_mask)) {
+            } else if (periodic_z_min) {
                 sum += pressure[index_3d(x, y, nz - 1, nx, ny)];
                 ++count;
             }
@@ -367,7 +334,7 @@ namespace stable_fluids {
             if (z + 1 < nz) {
                 sum += pressure[index_3d(x, y, z + 1, nx, ny)];
                 ++count;
-            } else if (periodic_z_max(boundary_mask)) {
+            } else if (periodic_z_max) {
                 sum += pressure[index_3d(x, y, 0, nx, ny)];
                 ++count;
             }
@@ -384,6 +351,13 @@ namespace stable_fluids {
             const int coarse_nz = max(1, (fine_nz + 1) / 2);
             if (x >= coarse_nx || y >= coarse_ny || z >= coarse_nz) return;
 
+            const bool periodic_x_min = (boundary_mask & boundary_x_min_bit) != 0;
+            const bool periodic_x_max = (boundary_mask & boundary_x_max_bit) != 0;
+            const bool periodic_y_min = (boundary_mask & boundary_y_min_bit) != 0;
+            const bool periodic_y_max = (boundary_mask & boundary_y_max_bit) != 0;
+            const bool periodic_z_min = (boundary_mask & boundary_z_min_bit) != 0;
+            const bool periodic_z_max = (boundary_mask & boundary_z_max_bit) != 0;
+
             float residual_sum = 0.0f;
             int samples        = 0;
 
@@ -396,7 +370,7 @@ namespace stable_fluids {
                         if (fx > 0) {
                             neighbors += fine_pressure[index_3d(fx - 1, fy, fz, fine_nx, fine_ny)];
                             ++count;
-                        } else if (periodic_x_min(boundary_mask)) {
+                        } else if (periodic_x_min) {
                             neighbors += fine_pressure[index_3d(fine_nx - 1, fy, fz, fine_nx, fine_ny)];
                             ++count;
                         }
@@ -404,7 +378,7 @@ namespace stable_fluids {
                         if (fx + 1 < fine_nx) {
                             neighbors += fine_pressure[index_3d(fx + 1, fy, fz, fine_nx, fine_ny)];
                             ++count;
-                        } else if (periodic_x_max(boundary_mask)) {
+                        } else if (periodic_x_max) {
                             neighbors += fine_pressure[index_3d(0, fy, fz, fine_nx, fine_ny)];
                             ++count;
                         }
@@ -412,7 +386,7 @@ namespace stable_fluids {
                         if (fy > 0) {
                             neighbors += fine_pressure[index_3d(fx, fy - 1, fz, fine_nx, fine_ny)];
                             ++count;
-                        } else if (periodic_y_min(boundary_mask)) {
+                        } else if (periodic_y_min) {
                             neighbors += fine_pressure[index_3d(fx, fine_ny - 1, fz, fine_nx, fine_ny)];
                             ++count;
                         }
@@ -420,7 +394,7 @@ namespace stable_fluids {
                         if (fy + 1 < fine_ny) {
                             neighbors += fine_pressure[index_3d(fx, fy + 1, fz, fine_nx, fine_ny)];
                             ++count;
-                        } else if (periodic_y_max(boundary_mask)) {
+                        } else if (periodic_y_max) {
                             neighbors += fine_pressure[index_3d(fx, 0, fz, fine_nx, fine_ny)];
                             ++count;
                         }
@@ -428,7 +402,7 @@ namespace stable_fluids {
                         if (fz > 0) {
                             neighbors += fine_pressure[index_3d(fx, fy, fz - 1, fine_nx, fine_ny)];
                             ++count;
-                        } else if (periodic_z_min(boundary_mask)) {
+                        } else if (periodic_z_min) {
                             neighbors += fine_pressure[index_3d(fx, fy, fine_nz - 1, fine_nx, fine_ny)];
                             ++count;
                         }
@@ -436,7 +410,7 @@ namespace stable_fluids {
                         if (fz + 1 < fine_nz) {
                             neighbors += fine_pressure[index_3d(fx, fy, fz + 1, fine_nx, fine_ny)];
                             ++count;
-                        } else if (periodic_z_max(boundary_mask)) {
+                        } else if (periodic_z_max) {
                             neighbors += fine_pressure[index_3d(fx, fy, 0, fine_nx, fine_ny)];
                             ++count;
                         }
@@ -492,15 +466,22 @@ namespace stable_fluids {
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
 
+            const bool periodic_x_min = (boundary_mask & boundary_x_min_bit) != 0;
+            const bool periodic_x_max = (boundary_mask & boundary_x_max_bit) != 0;
+            const bool periodic_y_min = (boundary_mask & boundary_y_min_bit) != 0;
+            const bool periodic_y_max = (boundary_mask & boundary_y_max_bit) != 0;
+            const bool periodic_z_min = (boundary_mask & boundary_z_min_bit) != 0;
+            const bool periodic_z_max = (boundary_mask & boundary_z_max_bit) != 0;
+
             if (x <= nx && y < ny && z < nz) {
                 if (x == 0) {
-                    if (!periodic_x_min(boundary_mask)) {
+                    if (!periodic_x_min) {
                         velocity_x[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
                     } else {
                         velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(0, y, z, nx, ny)] - pressure[index_3d(nx - 1, y, z, nx, ny)]) * inv_h;
                     }
                 } else if (x == nx) {
-                    if (!periodic_x_max(boundary_mask)) {
+                    if (!periodic_x_max) {
                         velocity_x[index_3d(x, y, z, nx + 1, ny)] = 0.0f;
                     } else {
                         velocity_x[index_3d(x, y, z, nx + 1, ny)] -= (pressure[index_3d(0, y, z, nx, ny)] - pressure[index_3d(nx - 1, y, z, nx, ny)]) * inv_h;
@@ -512,13 +493,13 @@ namespace stable_fluids {
 
             if (x < nx && y <= ny && z < nz) {
                 if (y == 0) {
-                    if (!periodic_y_min(boundary_mask)) {
+                    if (!periodic_y_min) {
                         velocity_y[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
                     } else {
                         velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, 0, z, nx, ny)] - pressure[index_3d(x, ny - 1, z, nx, ny)]) * inv_h;
                     }
                 } else if (y == ny) {
-                    if (!periodic_y_max(boundary_mask)) {
+                    if (!periodic_y_max) {
                         velocity_y[index_3d(x, y, z, nx, ny + 1)] = 0.0f;
                     } else {
                         velocity_y[index_3d(x, y, z, nx, ny + 1)] -= (pressure[index_3d(x, 0, z, nx, ny)] - pressure[index_3d(x, ny - 1, z, nx, ny)]) * inv_h;
@@ -530,13 +511,13 @@ namespace stable_fluids {
 
             if (x < nx && y < ny && z <= nz) {
                 if (z == 0) {
-                    if (!periodic_z_min(boundary_mask)) {
+                    if (!periodic_z_min) {
                         velocity_z[index_3d(x, y, z, nx, ny)] = 0.0f;
                     } else {
                         velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, 0, nx, ny)] - pressure[index_3d(x, y, nz - 1, nx, ny)]) * inv_h;
                     }
                 } else if (z == nz) {
-                    if (!periodic_z_max(boundary_mask)) {
+                    if (!periodic_z_max) {
                         velocity_z[index_3d(x, y, z, nx, ny)] = 0.0f;
                     } else {
                         velocity_z[index_3d(x, y, z, nx, ny)] -= (pressure[index_3d(x, y, 0, nx, ny)] - pressure[index_3d(x, y, nz - 1, nx, ny)]) * inv_h;
@@ -718,10 +699,10 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
     const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_min_bit : 0u)
                                  | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_max_bit : 0u);
 
-    const auto cell_bytes             = scalar_bytes(nx, ny, nz);
-    const auto velocity_x_field_bytes = velocity_x_bytes(nx, ny, nz);
-    const auto velocity_y_field_bytes = velocity_y_bytes(nx, ny, nz);
-    const auto velocity_z_field_bytes = velocity_z_bytes(nx, ny, nz);
+    const auto cell_bytes             = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
+    const auto velocity_x_field_bytes = static_cast<std::uint64_t>(nx + 1) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
+    const auto velocity_y_field_bytes = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny + 1) * static_cast<std::uint64_t>(nz) * sizeof(float);
+    const auto velocity_z_field_bytes = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz + 1) * sizeof(float);
 
     auto* density_field     = static_cast<float*>(desc->density);
     auto* density_temporary = static_cast<float*>(desc->temporary_density);
