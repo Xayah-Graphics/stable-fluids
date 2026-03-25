@@ -219,6 +219,24 @@ namespace stable_fluids {
             destination[index_3d(x, y, z, nx, ny)] = fmaxf(0.0f, sample_scalar(source, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask));
         }
 
+        __global__ void add_scalar_source_kernel(float* destination, const int sx, const int sy, const int sz, const float center_x, const float center_y, const float center_z, const float radius, const float amount, const float sample_offset_x, const float sample_offset_y, const float sample_offset_z) {
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+            if (x >= sx || y >= sy || z >= sz) return;
+
+            const float px = static_cast<float>(x) + sample_offset_x;
+            const float py = static_cast<float>(y) + sample_offset_y;
+            const float pz = static_cast<float>(z) + sample_offset_z;
+            const float dx = px - center_x;
+            const float dy = py - center_y;
+            const float dz = pz - center_z;
+            const float radius2 = radius * radius;
+            const float dist2 = dx * dx + dy * dy + dz * dz;
+            if (dist2 > radius2) return;
+            destination[index_3d(x, y, z, sx, sy)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
+        }
+
         __global__ void diffuse_grid_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -846,5 +864,28 @@ int32_t stable_fluids_diffuse_density_cuda(const StableFluidsDiffuseDensityDesc*
     diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, desc->nx, desc->ny, desc->nz, diffusion_alpha, denom, 1, boundary_mask);
     if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;
+}
+
+int32_t stable_fluids_add_scalar_source_cuda(const StableFluidsAddScalarSourceDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_add_scalar_source_desc(desc); code != 0) return code;
+
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const dim3 grid = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const auto stream = static_cast<Stream>(desc->stream);
+    add_scalar_source_kernel<<<grid, block, 0, stream>>>(static_cast<float*>(desc->scalar), desc->nx, desc->ny, desc->nz, desc->center_x, desc->center_y, desc->center_z, desc->radius, desc->amount, desc->sample_offset_x, desc->sample_offset_y, desc->sample_offset_z);
+    return cudaGetLastError() == cudaSuccess ? 0 : 5001;
+}
+
+int32_t stable_fluids_add_vector_source_cuda(const StableFluidsAddVectorSourceDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_add_vector_source_desc(desc); code != 0) return code;
+
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const auto stream = static_cast<Stream>(desc->stream);
+    add_scalar_source_kernel<<<make_grid(desc->nx + 1, desc->ny, desc->nz, block), block, 0, stream>>>(static_cast<float*>(desc->vector_x), desc->nx + 1, desc->ny, desc->nz, desc->center_x, desc->center_y, desc->center_z, desc->radius, desc->amount_x, 0.0f, 0.5f, 0.5f);
+    add_scalar_source_kernel<<<make_grid(desc->nx, desc->ny + 1, desc->nz, block), block, 0, stream>>>(static_cast<float*>(desc->vector_y), desc->nx, desc->ny + 1, desc->nz, desc->center_x, desc->center_y, desc->center_z, desc->radius, desc->amount_y, 0.5f, 0.0f, 0.5f);
+    add_scalar_source_kernel<<<make_grid(desc->nx, desc->ny, desc->nz + 1, block), block, 0, stream>>>(static_cast<float*>(desc->vector_z), desc->nx, desc->ny, desc->nz + 1, desc->center_x, desc->center_y, desc->center_z, desc->radius, desc->amount_z, 0.5f, 0.5f, 0.0f);
+    return cudaGetLastError() == cudaSuccess ? 0 : 5001;
 }
 }

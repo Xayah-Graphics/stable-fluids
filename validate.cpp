@@ -125,4 +125,22 @@ int32_t stable_fluids_validate_diffuse_density_desc(const StableFluidsDiffuseDen
     return 0;
 }
 
+int32_t stable_fluids_validate_add_scalar_source_desc(const StableFluidsAddScalarSourceDesc* desc) {
+    if (desc == nullptr) return 1000;
+    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsAddScalarSourceDesc), desc->api_version); code != 0) return code;
+    if (desc->nx <= 0 || desc->ny <= 0 || desc->nz <= 0) return 1001;
+    if (desc->scalar == nullptr) return 2001;
+    return 0;
+}
+
+int32_t stable_fluids_validate_add_vector_source_desc(const StableFluidsAddVectorSourceDesc* desc) {
+    if (desc == nullptr) return 1000;
+    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsAddVectorSourceDesc), desc->api_version); code != 0) return code;
+    if (desc->nx <= 0 || desc->ny <= 0 || desc->nz <= 0) return 1001;
+    if (desc->vector_x == nullptr) return 2003;
+    if (desc->vector_y == nullptr) return 2004;
+    if (desc->vector_z == nullptr) return 2005;
+    return 0;
+}
+
 } // extern "C"

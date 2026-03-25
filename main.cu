@@ -8,77 +8,7 @@
 #include <numeric>
 #include <vector>
 
-namespace {
-
-    dim3 make_grid(const int nx, const int ny, const int nz, const dim3& block) {
-        return dim3(static_cast<unsigned>((nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z)));
-    }
-
-    __device__ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, const int sy) {
-        return static_cast<std::uint64_t>(z) * static_cast<std::uint64_t>(sx) * static_cast<std::uint64_t>(sy) + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(sx) + static_cast<std::uint64_t>(x);
-    }
-
-    __global__ void source_cells_kernel(float* density, const float center_x, const float center_y, const float center_z, const float radius, const float amount, const int nx, const int ny, const int nz) {
-        const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-        const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-        const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-        if (x >= nx || y >= ny || z >= nz) return;
-
-        const float dx      = (static_cast<float>(x) + 0.5f) - center_x;
-        const float dy      = (static_cast<float>(y) + 0.5f) - center_y;
-        const float dz      = (static_cast<float>(z) + 0.5f) - center_z;
-        const float radius2 = radius * radius;
-        const float dist2   = dx * dx + dy * dy + dz * dz;
-        if (dist2 > radius2) return;
-        density[index_3d(x, y, z, nx, ny)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
-    }
-
-    __global__ void source_u_kernel(float* velocity_x, const int nx, const int ny, const int nz, const float center_x, const float center_y, const float center_z, const float radius, const float amount) {
-        const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-        const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-        const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-        if (x > nx || y >= ny || z >= nz) return;
-
-        const float dx      = static_cast<float>(x) - center_x;
-        const float dy      = (static_cast<float>(y) + 0.5f) - center_y;
-        const float dz      = (static_cast<float>(z) + 0.5f) - center_z;
-        const float radius2 = radius * radius;
-        const float dist2   = dx * dx + dy * dy + dz * dz;
-        if (dist2 > radius2) return;
-        velocity_x[index_3d(x, y, z, nx + 1, ny)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
-    }
-
-    __global__ void source_v_kernel(float* velocity_y, const int nx, const int ny, const int nz, const float center_x, const float center_y, const float center_z, const float radius, const float amount) {
-        const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-        const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-        const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-        if (x >= nx || y > ny || z >= nz) return;
-
-        const float dx      = (static_cast<float>(x) + 0.5f) - center_x;
-        const float dy      = static_cast<float>(y) - center_y;
-        const float dz      = (static_cast<float>(z) + 0.5f) - center_z;
-        const float radius2 = radius * radius;
-        const float dist2   = dx * dx + dy * dy + dz * dz;
-        if (dist2 > radius2) return;
-        velocity_y[index_3d(x, y, z, nx, ny + 1)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
-    }
-
-    __global__ void source_w_kernel(float* velocity_z, const int nx, const int ny, const int nz, const float center_x, const float center_y, const float center_z, const float radius, const float amount) {
-        const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-        const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-        const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-        if (x >= nx || y >= ny || z > nz) return;
-
-        const float dx      = (static_cast<float>(x) + 0.5f) - center_x;
-        const float dy      = (static_cast<float>(y) + 0.5f) - center_y;
-        const float dz      = static_cast<float>(z) - center_z;
-        const float radius2 = radius * radius;
-        const float dist2   = dx * dx + dy * dy + dz * dz;
-        if (dist2 > radius2) return;
-        velocity_z[index_3d(x, y, z, nx, ny)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
-    }
-
-} // namespace
+namespace {} // namespace
 
 int main() {
     auto cuda_ok = [](const cudaError_t status, const char* what) {
@@ -152,12 +82,49 @@ int main() {
 
     const auto cuda_begin = std::chrono::steady_clock::now();
     for (int frame = 0; exit_code == EXIT_SUCCESS && frame < frames; ++frame) {
-        const dim3 block{static_cast<unsigned>(block_x), static_cast<unsigned>(block_y), static_cast<unsigned>(block_z)};
-        source_cells_kernel<<<make_grid(nx, ny, nz, block), block, 0, stream>>>(density, static_cast<float>(nx) * 0.5f, static_cast<float>(ny) * 0.18f, static_cast<float>(nz) * 0.5f, 4.5f, 0.85f, nx, ny, nz);
-        source_u_kernel<<<make_grid(nx + 1, ny, nz, block), block, 0, stream>>>(velocity_x, nx, ny, nz, static_cast<float>(nx) * 0.5f, static_cast<float>(ny) * 0.18f, static_cast<float>(nz) * 0.5f, 4.5f, 0.0f);
-        source_v_kernel<<<make_grid(nx, ny + 1, nz, block), block, 0, stream>>>(velocity_y, nx, ny, nz, static_cast<float>(nx) * 0.5f, static_cast<float>(ny) * 0.18f, static_cast<float>(nz) * 0.5f, 4.5f, 1.2f);
-        source_w_kernel<<<make_grid(nx, ny, nz + 1, block), block, 0, stream>>>(velocity_z, nx, ny, nz, static_cast<float>(nx) * 0.5f, static_cast<float>(ny) * 0.18f, static_cast<float>(nz) * 0.5f, 4.5f, 0.0f);
-        if (!cuda_ok(cudaGetLastError(), "source kernels")) exit_code = EXIT_FAILURE;
+        StableFluidsAddScalarSourceDesc scalar_source_desc{};
+        scalar_source_desc.struct_size = sizeof(StableFluidsAddScalarSourceDesc);
+        scalar_source_desc.api_version = STABLE_FLUIDS_API_VERSION;
+        scalar_source_desc.nx = nx;
+        scalar_source_desc.ny = ny;
+        scalar_source_desc.nz = nz;
+        scalar_source_desc.scalar = density;
+        scalar_source_desc.center_x = static_cast<float>(nx) * 0.5f;
+        scalar_source_desc.center_y = static_cast<float>(ny) * 0.18f;
+        scalar_source_desc.center_z = static_cast<float>(nz) * 0.5f;
+        scalar_source_desc.radius = 4.5f;
+        scalar_source_desc.amount = 0.85f;
+        scalar_source_desc.sample_offset_x = 0.5f;
+        scalar_source_desc.sample_offset_y = 0.5f;
+        scalar_source_desc.sample_offset_z = 0.5f;
+        scalar_source_desc.block_x = block_x;
+        scalar_source_desc.block_y = block_y;
+        scalar_source_desc.block_z = block_z;
+        scalar_source_desc.stream = stream;
+
+        StableFluidsAddVectorSourceDesc vector_source_desc{};
+        vector_source_desc.struct_size = sizeof(StableFluidsAddVectorSourceDesc);
+        vector_source_desc.api_version = STABLE_FLUIDS_API_VERSION;
+        vector_source_desc.nx = nx;
+        vector_source_desc.ny = ny;
+        vector_source_desc.nz = nz;
+        vector_source_desc.vector_x = velocity_x;
+        vector_source_desc.vector_y = velocity_y;
+        vector_source_desc.vector_z = velocity_z;
+        vector_source_desc.center_x = scalar_source_desc.center_x;
+        vector_source_desc.center_y = scalar_source_desc.center_y;
+        vector_source_desc.center_z = scalar_source_desc.center_z;
+        vector_source_desc.radius = scalar_source_desc.radius;
+        vector_source_desc.amount_x = 0.0f;
+        vector_source_desc.amount_y = 1.2f;
+        vector_source_desc.amount_z = 0.0f;
+        vector_source_desc.block_x = block_x;
+        vector_source_desc.block_y = block_y;
+        vector_source_desc.block_z = block_z;
+        vector_source_desc.stream = stream;
+
+        if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_scalar_source_cuda(&scalar_source_desc), "stable_fluids_add_scalar_source_cuda")) exit_code = EXIT_FAILURE;
+        if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_vector_source_cuda(&vector_source_desc), "stable_fluids_add_vector_source_cuda")) exit_code = EXIT_FAILURE;
 
         StableFluidsAdvectVelocityDesc advect_velocity_desc{};
         advect_velocity_desc.struct_size = sizeof(StableFluidsAdvectVelocityDesc);
