@@ -675,182 +675,176 @@ namespace stable_fluids {
 
 extern "C" {
 
-int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
+int32_t stable_fluids_advect_velocity_cuda(const StableFluidsAdvectVelocityDesc* desc) {
     using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_advect_velocity_desc(desc); code != 0) return code;
 
-    const int32_t nx                  = desc->nx;
-    const int32_t ny                  = desc->ny;
-    const int32_t nz                  = desc->nz;
-    const float cell_size             = desc->cell_size;
-    const float dt                    = desc->dt;
-    const float viscosity             = desc->viscosity;
-    const float diffusion             = desc->diffusion;
-    const int32_t diffuse_iterations  = desc->diffuse_iterations;
-    const int32_t pressure_iterations = desc->pressure_iterations;
-    const int32_t block_x             = desc->block_x;
-    const int32_t block_y             = desc->block_y;
-    const int32_t block_z             = desc->block_z;
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
+                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const dim3 velocity_grid = make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block);
+    const auto stream        = static_cast<Stream>(desc->stream);
+
+    const auto velocity_x_field_bytes = static_cast<std::uint64_t>(desc->nx + 1) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
+    const auto velocity_y_field_bytes = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny + 1) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
+    const auto velocity_z_field_bytes = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz + 1) * sizeof(float);
+
+    auto* velocity_x_field     = static_cast<float*>(desc->velocity_x);
+    auto* velocity_y_field     = static_cast<float*>(desc->velocity_y);
+    auto* velocity_z_field     = static_cast<float*>(desc->velocity_z);
+    auto* velocity_x_temporary = static_cast<float*>(desc->temporary_velocity_x);
+    auto* velocity_y_temporary = static_cast<float*>(desc->temporary_velocity_y);
+    auto* velocity_z_temporary = static_cast<float*>(desc->temporary_velocity_z);
+    auto* velocity_x_previous  = static_cast<float*>(desc->temporary_previous_velocity_x);
+    auto* velocity_y_previous  = static_cast<float*>(desc->temporary_previous_velocity_y);
+    auto* velocity_z_previous  = static_cast<float*>(desc->temporary_previous_velocity_z);
+
+    nvtx3::scoped_range range("stable.step.advect_velocity");
+    if (cudaMemcpyAsync(velocity_x_previous, velocity_x_field, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+    if (cudaMemcpyAsync(velocity_y_previous, velocity_y_field, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+    if (cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+    advect_velocity<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, desc->nx, desc->ny, desc->nz, desc->cell_size, desc->dt, boundary_mask);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
+    return 0;
+}
+
+int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_diffuse_velocity_desc(desc); code != 0) return code;
+
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
+                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const auto stream = static_cast<Stream>(desc->stream);
+
+    const auto velocity_x_field_bytes = static_cast<std::uint64_t>(desc->nx + 1) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
+    const auto velocity_y_field_bytes = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny + 1) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
+    const auto velocity_z_field_bytes = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz + 1) * sizeof(float);
+
+    auto* velocity_x_field     = static_cast<float*>(desc->velocity_x);
+    auto* velocity_y_field     = static_cast<float*>(desc->velocity_y);
+    auto* velocity_z_field     = static_cast<float*>(desc->velocity_z);
+    auto* velocity_x_temporary = static_cast<float*>(desc->temporary_velocity_x);
+    auto* velocity_y_temporary = static_cast<float*>(desc->temporary_velocity_y);
+    auto* velocity_z_temporary = static_cast<float*>(desc->temporary_velocity_z);
+    auto* coarse_solution      = static_cast<float*>(desc->temporary_density);
+    auto* coarse_rhs           = static_cast<float*>(desc->temporary_previous_density);
+
+    nvtx3::scoped_range range("stable.step.diffuse_velocity");
+    if (desc->viscosity <= 0.0f) {
+        if (cudaMemcpyAsync(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+        if (cudaMemcpyAsync(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+        if (cudaMemcpyAsync(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+        return 0;
+    }
+
+    const float diffusion_alpha = desc->dt * desc->viscosity / (desc->cell_size * desc->cell_size);
+    const VCycleConfig diffusion_config{.cycles = std::max(1, desc->diffuse_iterations / 12), .pre_smooth = 1, .post_smooth = 1, .coarse_smooth = std::max(6, desc->diffuse_iterations / 4)};
+    auto diffuse_velocity_component = [&](float* field, const float* source, const std::uint64_t field_bytes, const int sx, const int sy, const int sz, const BoundaryAxis axis) -> int32_t {
+        GridHierarchy hierarchy = build_hierarchy(sx, sy, sz, field, const_cast<float*>(source), coarse_solution, coarse_rhs);
+        if (cudaMemcpyAsync(field, source, field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+        zero_velocity_component_boundaries_kernel<<<make_grid(sx, sy, sz, block), block, 0, stream>>>(field, sx, sy, sz, static_cast<int>(axis), boundary_mask);
+        if (cudaGetLastError() != cudaSuccess) return 5001;
+        const DiffusionVCycleOps ops{.coefficient = diffusion_alpha, .boundary_mask = boundary_mask, .boundary_axis = axis};
+        return run_v_cycle(hierarchy, diffusion_config, ops, block, stream);
+    };
+
+    if (const int32_t code = diffuse_velocity_component(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, desc->nx + 1, desc->ny, desc->nz, BoundaryAxis::x); code != 0) return code;
+    if (const int32_t code = diffuse_velocity_component(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, desc->nx, desc->ny + 1, desc->nz, BoundaryAxis::y); code != 0) return code;
+    if (const int32_t code = diffuse_velocity_component(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, desc->nx, desc->ny, desc->nz + 1, BoundaryAxis::z); code != 0) return code;
+    return 0;
+}
+
+int32_t stable_fluids_project_cuda(const StableFluidsProjectDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_project_desc(desc); code != 0) return code;
+
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
+                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const dim3 cells         = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const dim3 velocity_grid = make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block);
+    const auto stream        = static_cast<Stream>(desc->stream);
+    const auto cell_bytes    = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
+
+    auto* velocity_x = static_cast<float*>(desc->velocity_x);
+    auto* velocity_y = static_cast<float*>(desc->velocity_y);
+    auto* velocity_z = static_cast<float*>(desc->velocity_z);
+    auto* pressure   = static_cast<float*>(desc->temporary_pressure);
+    auto* divergence = static_cast<float*>(desc->temporary_divergence);
+    auto* coarse_pressure_storage = static_cast<float*>(desc->temporary_density);
+    auto* coarse_rhs_storage      = static_cast<float*>(desc->temporary_previous_density);
+
+    const GridHierarchy pressure_hierarchy = build_hierarchy(desc->nx, desc->ny, desc->nz, pressure, divergence, coarse_pressure_storage, coarse_rhs_storage);
+
+    nvtx3::scoped_range range("stable.step.project");
+    if (cudaMemsetAsync(pressure, 0, cell_bytes, stream) != cudaSuccess) return 5001;
+    compute_poisson_rhs_kernel<<<cells, block, 0, stream>>>(divergence, velocity_x, velocity_y, velocity_z, desc->nx, desc->ny, desc->nz, desc->cell_size, boundary_mask);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
+
+    const PoissonVCycleOps ops{.boundary_mask = boundary_mask};
+    const VCycleConfig config{.cycles = std::max(1, desc->pressure_iterations / 40), .pre_smooth = 1, .post_smooth = 1, .coarse_smooth = std::max(8, desc->pressure_iterations / 10)};
+    if (const int32_t code = run_v_cycle(pressure_hierarchy, config, ops, block, stream); code != 0) return code;
+    project_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x, velocity_y, velocity_z, pressure, desc->nx, desc->ny, desc->nz, 1.0f / desc->cell_size, boundary_mask);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
+    return 0;
+}
+
+int32_t stable_fluids_advect_density_cuda(const StableFluidsAdvectDensityDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_advect_density_desc(desc); code != 0) return code;
 
     const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_min_bit : 0u)
                                  | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_max_bit : 0u);
 
-    const auto cell_bytes             = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
-    const auto velocity_x_field_bytes = static_cast<std::uint64_t>(nx + 1) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz) * sizeof(float);
-    const auto velocity_y_field_bytes = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny + 1) * static_cast<std::uint64_t>(nz) * sizeof(float);
-    const auto velocity_z_field_bytes = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz + 1) * sizeof(float);
+    const auto cell_bytes             = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
+    auto* density_field               = static_cast<float*>(desc->density);
+    auto* density_temporary           = static_cast<float*>(desc->temporary_density);
+    auto* density_previous            = static_cast<float*>(desc->temporary_previous_density);
+    auto* velocity_x_field            = static_cast<float*>(desc->velocity_x);
+    auto* velocity_y_field            = static_cast<float*>(desc->velocity_y);
+    auto* velocity_z_field            = static_cast<float*>(desc->velocity_z);
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const dim3 cells = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const auto stream        = static_cast<stable_fluids::Stream>(desc->stream);
+
+    nvtx3::scoped_range range("stable.step.advect_density");
+    if (cudaMemcpyAsync(density_previous, density_field, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+    advect_scalar_kernel<<<cells, block, 0, stream>>>(density_temporary, density_previous, velocity_x_field, velocity_y_field, velocity_z_field, desc->nx, desc->ny, desc->nz, desc->cell_size, desc->dt, boundary_mask);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
+    return 0;
+}
+
+int32_t stable_fluids_diffuse_density_cuda(const StableFluidsDiffuseDensityDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_diffuse_density_desc(desc); code != 0) return code;
+
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
+                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const dim3 cells = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const auto stream = static_cast<Stream>(desc->stream);
+    const auto cell_bytes = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
 
     auto* density_field     = static_cast<float*>(desc->density);
     auto* density_temporary = static_cast<float*>(desc->temporary_density);
-    auto* density_previous  = static_cast<float*>(desc->temporary_previous_density);
+    auto* pressure          = static_cast<float*>(desc->temporary_pressure);
+    auto* divergence        = static_cast<float*>(desc->temporary_divergence);
 
-    auto* velocity_x_field = static_cast<float*>(desc->velocity_x);
-    auto* velocity_y_field = static_cast<float*>(desc->velocity_y);
-    auto* velocity_z_field = static_cast<float*>(desc->velocity_z);
+    nvtx3::scoped_range range("stable.step.diffuse_density");
+    if (cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+    if (desc->diffusion <= 0.0f) return 0;
 
-    auto* velocity_x_temporary = static_cast<float*>(desc->temporary_velocity_x);
-    auto* velocity_y_temporary = static_cast<float*>(desc->temporary_velocity_y);
-    auto* velocity_z_temporary = static_cast<float*>(desc->temporary_velocity_z);
+    GridHierarchy hierarchy = build_hierarchy(desc->nx, desc->ny, desc->nz, density_field, density_temporary, pressure, divergence);
+    const float diffusion_alpha = desc->dt * desc->diffusion / (desc->cell_size * desc->cell_size);
+    const DiffusionVCycleOps ops{.coefficient = diffusion_alpha, .boundary_mask = boundary_mask, .boundary_axis = BoundaryAxis::none};
+    const VCycleConfig config{.cycles = std::max(1, desc->diffuse_iterations / 12), .pre_smooth = 1, .post_smooth = 1, .coarse_smooth = std::max(6, desc->diffuse_iterations / 4)};
+    if (const int32_t code = run_v_cycle(hierarchy, config, ops, block, stream); code != 0) return code;
 
-    auto* velocity_x_previous = static_cast<float*>(desc->temporary_previous_velocity_x);
-    auto* velocity_y_previous = static_cast<float*>(desc->temporary_previous_velocity_y);
-    auto* velocity_z_previous = static_cast<float*>(desc->temporary_previous_velocity_z);
-
-    auto* pressure   = static_cast<float*>(desc->temporary_pressure);
-    auto* divergence = static_cast<float*>(desc->temporary_divergence);
-
-    auto* coarse_pressure_storage = static_cast<float*>(desc->temporary_density);
-    auto* coarse_rhs_storage      = static_cast<float*>(desc->temporary_previous_density);
-
-    const dim3 block(static_cast<unsigned>(std::max(block_x, 1)), static_cast<unsigned>(std::max(block_y, 1)), static_cast<unsigned>(std::max(block_z, 1)));
-
-    const dim3 cells         = make_grid(nx, ny, nz, block);
-    const dim3 velocity_grid = make_grid(nx + 1, ny + 1, nz + 1, block);
-    const auto stream        = static_cast<stable_fluids::Stream>(desc->stream);
-
-    const GridHierarchy pressure_hierarchy = build_hierarchy(nx, ny, nz, pressure, divergence, coarse_pressure_storage, coarse_rhs_storage);
-
-    nvtx3::scoped_range step_range("stable.step");
-
-    {
-        nvtx3::scoped_range range("stable.step.advect_velocity");
-        if (cudaMemcpyAsync(velocity_x_previous, velocity_x_field, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-        if (cudaMemcpyAsync(velocity_y_previous, velocity_y_field, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-        if (cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-
-        advect_velocity<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt, boundary_mask);
-        if (cudaGetLastError() != cudaSuccess) return 5001;
-    }
-
-    {
-        nvtx3::scoped_range range("stable.step.diffuse_velocity");
-
-        if (viscosity <= 0.0f) {
-            if (cudaMemcpyAsync(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-            if (cudaMemcpyAsync(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-            if (cudaMemcpyAsync(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-        } else {
-            const float diffusion_alpha = dt * viscosity / (cell_size * cell_size);
-            const VCycleConfig diffusion_config{
-                .cycles        = std::max(1, diffuse_iterations / 12),
-                .pre_smooth    = 1,
-                .post_smooth   = 1,
-                .coarse_smooth = std::max(6, diffuse_iterations / 4),
-            };
-
-            auto diffuse_velocity_component = [&](float* field, const float* source, const std::uint64_t field_bytes, const int sx, const int sy, const int sz, const BoundaryAxis axis) -> int32_t {
-                GridHierarchy hierarchy = build_hierarchy(sx, sy, sz, field, const_cast<float*>(source), density_temporary, density_previous);
-
-                if (cudaMemcpyAsync(field, source, field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-
-                zero_velocity_component_boundaries_kernel<<<make_grid(sx, sy, sz, block), block, 0, stream>>>(field, sx, sy, sz, static_cast<int>(axis), boundary_mask);
-                if (cudaGetLastError() != cudaSuccess) return 5001;
-
-                const DiffusionVCycleOps ops{
-                    .coefficient  = diffusion_alpha,
-                    .boundary_mask = boundary_mask,
-                    .boundary_axis = axis,
-                };
-                return run_v_cycle(hierarchy, diffusion_config, ops, block, stream);
-            };
-
-            if (const int32_t code = diffuse_velocity_component(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, nx + 1, ny, nz, BoundaryAxis::x); code != 0) return code;
-            if (const int32_t code = diffuse_velocity_component(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, nx, ny + 1, nz, BoundaryAxis::y); code != 0) return code;
-            if (const int32_t code = diffuse_velocity_component(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, nx, ny, nz + 1, BoundaryAxis::z); code != 0) return code;
-        }
-    }
-
-    {
-        nvtx3::scoped_range range("stable.step.project");
-
-        if (cudaMemsetAsync(pressure, 0, cell_bytes, stream) != cudaSuccess) return 5001;
-
-        compute_poisson_rhs_kernel<<<cells, block, 0, stream>>>(divergence, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, boundary_mask);
-        if (cudaGetLastError() != cudaSuccess) return 5001;
-
-        const PoissonVCycleOps ops{.boundary_mask = boundary_mask};
-        const VCycleConfig config{
-            .cycles        = std::max(1, pressure_iterations / 40),
-            .pre_smooth    = 1,
-            .post_smooth   = 1,
-            .coarse_smooth = std::max(8, pressure_iterations / 10),
-        };
-        if (const int32_t code = run_v_cycle(pressure_hierarchy, config, ops, block, stream); code != 0) return code;
-
-        project_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, pressure, nx, ny, nz, 1.0f / cell_size, boundary_mask);
-        if (cudaGetLastError() != cudaSuccess) return 5001;
-    }
-
-    {
-        nvtx3::scoped_range range("stable.step.advect_density");
-
-        if (cudaMemcpyAsync(density_previous, density_field, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-
-        advect_scalar_kernel<<<cells, block, 0, stream>>>(density_temporary, density_previous, velocity_x_field, velocity_y_field, velocity_z_field, nx, ny, nz, cell_size, dt, boundary_mask);
-        if (cudaGetLastError() != cudaSuccess) return 5001;
-    }
-
-    {
-        nvtx3::scoped_range range("stable.step.diffuse_density");
-
-        if (diffusion <= 0.0f) {
-            if (cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-        } else {
-            if (cudaMemcpyAsync(density_field, density_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
-
-            GridHierarchy hierarchy      = pressure_hierarchy;
-            hierarchy.levels[0].solution = density_field;
-            hierarchy.levels[0].rhs      = density_temporary;
-
-            std::uint64_t offset = 0;
-            for (int level = 1; level < hierarchy.level_count; ++level) {
-                hierarchy.levels[level].solution = pressure + offset;
-                hierarchy.levels[level].rhs      = divergence + offset;
-                offset += static_cast<std::uint64_t>(hierarchy.levels[level].nx) * static_cast<std::uint64_t>(hierarchy.levels[level].ny) * static_cast<std::uint64_t>(hierarchy.levels[level].nz);
-            }
-
-            const float diffusion_alpha = dt * diffusion / (cell_size * cell_size);
-            const DiffusionVCycleOps ops{
-                .coefficient  = diffusion_alpha,
-                .boundary_mask = boundary_mask,
-                .boundary_axis = BoundaryAxis::none,
-            };
-            const VCycleConfig config{
-                .cycles        = std::max(1, diffuse_iterations / 12),
-                .pre_smooth    = 1,
-                .post_smooth   = 1,
-                .coarse_smooth = std::max(6, diffuse_iterations / 4),
-            };
-
-            if (const int32_t code = run_v_cycle(hierarchy, config, ops, block, stream); code != 0) return code;
-
-            const float alpha = diffusion_alpha;
-            const float denom = 1.0f + 6.0f * alpha;
-            diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 0, boundary_mask);
-            diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, nx, ny, nz, alpha, denom, 1, boundary_mask);
-            if (cudaGetLastError() != cudaSuccess) return 5001;
-        }
-    }
-
+    const float denom = 1.0f + 6.0f * diffusion_alpha;
+    diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, desc->nx, desc->ny, desc->nz, diffusion_alpha, denom, 0, boundary_mask);
+    diffuse_grid_kernel<<<cells, block, 0, stream>>>(density_field, density_temporary, desc->nx, desc->ny, desc->nz, diffusion_alpha, denom, 1, boundary_mask);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;
 }
 }
