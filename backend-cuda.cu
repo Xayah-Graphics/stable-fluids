@@ -173,7 +173,7 @@ namespace stable_fluids {
             return make_float3(sample_u(velocity_x, pos, nx, ny, nz, h, boundary_mask), sample_v(velocity_y, pos, nx, ny, nz, h, boundary_mask), sample_w(velocity_z, pos, nx, ny, nz, h, boundary_mask));
         }
 
-        __global__ void advect_velocity_kernel(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_mask) {
+        __global__ void advect_velocity(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_mask) {
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
@@ -742,7 +742,7 @@ int32_t stable_fluids_step_cuda(const StableFluidsStepDesc* desc) {
         if (cudaMemcpyAsync(velocity_y_previous, velocity_y_field, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
         if (cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
 
-        advect_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt, boundary_mask);
+        advect_velocity<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, nx, ny, nz, cell_size, dt, boundary_mask);
         if (cudaGetLastError() != cudaSuccess) return 5001;
     }
 
