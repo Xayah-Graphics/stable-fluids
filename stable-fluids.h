@@ -53,44 +53,6 @@ Error code scheme:
 
 typedef enum StableFluidsBoundaryType { STABLE_FLUIDS_BOUNDARY_FIXED = 0, STABLE_FLUIDS_BOUNDARY_PERIODIC = 1 } StableFluidsBoundaryType;
 
-typedef struct StableFluidsStepDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
-    int32_t nx;
-    int32_t ny;
-    int32_t nz;
-    float cell_size;
-    float dt;
-    float viscosity;
-    float diffusion;
-    int32_t diffuse_iterations;
-    int32_t pressure_iterations;
-    uint32_t boundary_x_min;
-    uint32_t boundary_x_max;
-    uint32_t boundary_y_min;
-    uint32_t boundary_y_max;
-    uint32_t boundary_z_min;
-    uint32_t boundary_z_max;
-    void* density;
-    void* velocity_x;
-    void* velocity_y;
-    void* velocity_z;
-    void* temporary_density;
-    void* temporary_velocity_x;
-    void* temporary_velocity_y;
-    void* temporary_velocity_z;
-    void* temporary_previous_density;
-    void* temporary_previous_velocity_x;
-    void* temporary_previous_velocity_y;
-    void* temporary_previous_velocity_z;
-    void* temporary_pressure;
-    void* temporary_divergence;
-    int32_t block_x;
-    int32_t block_y;
-    int32_t block_z;
-    void* stream;
-} StableFluidsStepDesc;
-
 typedef struct StableFluidsAdvectVelocityDesc {
     uint32_t struct_size;
     uint32_t api_version;
@@ -176,58 +138,6 @@ typedef struct StableFluidsProjectDesc {
     int32_t block_z;
     void* stream;
 } StableFluidsProjectDesc;
-
-typedef struct StableFluidsAdvectDensityDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
-    int32_t nx;
-    int32_t ny;
-    int32_t nz;
-    float cell_size;
-    float dt;
-    uint32_t boundary_x_min;
-    uint32_t boundary_x_max;
-    uint32_t boundary_y_min;
-    uint32_t boundary_y_max;
-    uint32_t boundary_z_min;
-    uint32_t boundary_z_max;
-    void* density;
-    void* temporary_density;
-    void* temporary_previous_density;
-    void* velocity_x;
-    void* velocity_y;
-    void* velocity_z;
-    int32_t block_x;
-    int32_t block_y;
-    int32_t block_z;
-    void* stream;
-} StableFluidsAdvectDensityDesc;
-
-typedef struct StableFluidsDiffuseDensityDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
-    int32_t nx;
-    int32_t ny;
-    int32_t nz;
-    float cell_size;
-    float dt;
-    float diffusion;
-    int32_t diffuse_iterations;
-    uint32_t boundary_x_min;
-    uint32_t boundary_x_max;
-    uint32_t boundary_y_min;
-    uint32_t boundary_y_max;
-    uint32_t boundary_z_min;
-    uint32_t boundary_z_max;
-    void* density;
-    void* temporary_density;
-    void* temporary_pressure;
-    void* temporary_divergence;
-    int32_t block_x;
-    int32_t block_y;
-    int32_t block_z;
-    void* stream;
-} StableFluidsDiffuseDensityDesc;
 
 typedef struct StableFluidsAdvectScalarDesc {
     uint32_t struct_size;
@@ -326,12 +236,9 @@ typedef struct StableFluidsAddVectorSourceDesc {
     void* stream;
 } StableFluidsAddVectorSourceDesc;
 
-STABLE_FLUIDS_API int32_t stable_fluids_validate_desc(const StableFluidsStepDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_advect_velocity_desc(const StableFluidsAdvectVelocityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_diffuse_velocity_desc(const StableFluidsDiffuseVelocityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_project_desc(const StableFluidsProjectDesc* desc);
-STABLE_FLUIDS_API int32_t stable_fluids_validate_advect_density_desc(const StableFluidsAdvectDensityDesc* desc);
-STABLE_FLUIDS_API int32_t stable_fluids_validate_diffuse_density_desc(const StableFluidsDiffuseDensityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_advect_scalar_desc(const StableFluidsAdvectScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_diffuse_scalar_desc(const StableFluidsDiffuseScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_add_scalar_source_desc(const StableFluidsAddScalarSourceDesc* desc);
@@ -340,8 +247,6 @@ STABLE_FLUIDS_API int32_t stable_fluids_validate_add_vector_source_desc(const St
 STABLE_FLUIDS_API int32_t stable_fluids_advect_velocity_cuda(const StableFluidsAdvectVelocityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_project_cuda(const StableFluidsProjectDesc* desc);
-STABLE_FLUIDS_API int32_t stable_fluids_advect_density_cuda(const StableFluidsAdvectDensityDesc* desc);
-STABLE_FLUIDS_API int32_t stable_fluids_diffuse_density_cuda(const StableFluidsDiffuseDensityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdvectScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_add_scalar_source_cuda(const StableFluidsAddScalarSourceDesc* desc);

@@ -216,7 +216,7 @@ namespace stable_fluids {
             if (x >= nx || y >= ny || z >= nz) return;
             const float3 pos                       = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
             const float3 velocity                  = sample_velocity(velocity_x, velocity_y, velocity_z, pos, nx, ny, nz, h, boundary_mask);
-            const float value = sample_scalar(source, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask);
+            const float value                      = sample_scalar(source, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask);
             destination[index_3d(x, y, z, nx, ny)] = clamp_non_negative != 0 ? fmaxf(0.0f, value) : value;
         }
 
@@ -226,14 +226,14 @@ namespace stable_fluids {
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= sx || y >= sy || z >= sz) return;
 
-            const float px = static_cast<float>(x) + sample_offset_x;
-            const float py = static_cast<float>(y) + sample_offset_y;
-            const float pz = static_cast<float>(z) + sample_offset_z;
-            const float dx = px - center_x;
-            const float dy = py - center_y;
-            const float dz = pz - center_z;
+            const float px      = static_cast<float>(x) + sample_offset_x;
+            const float py      = static_cast<float>(y) + sample_offset_y;
+            const float pz      = static_cast<float>(z) + sample_offset_z;
+            const float dx      = px - center_x;
+            const float dy      = py - center_y;
+            const float dz      = pz - center_z;
             const float radius2 = radius * radius;
-            const float dist2 = dx * dx + dy * dy + dz * dz;
+            const float dist2   = dx * dx + dy * dy + dz * dz;
             if (dist2 > radius2) return;
             destination[index_3d(x, y, z, sx, sy)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
         }
@@ -698,8 +698,8 @@ int32_t stable_fluids_advect_velocity_cuda(const StableFluidsAdvectVelocityDesc*
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_advect_velocity_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
-                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
+                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
     const dim3 velocity_grid = make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block);
     const auto stream        = static_cast<Stream>(desc->stream);
@@ -731,8 +731,8 @@ int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDes
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_diffuse_velocity_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
-                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
+                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
     const auto stream = static_cast<Stream>(desc->stream);
 
@@ -778,19 +778,19 @@ int32_t stable_fluids_project_cuda(const StableFluidsProjectDesc* desc) {
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_project_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
-                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
+                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
     const dim3 cells         = make_grid(desc->nx, desc->ny, desc->nz, block);
     const dim3 velocity_grid = make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block);
     const auto stream        = static_cast<Stream>(desc->stream);
     const auto cell_bytes    = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
 
-    auto* velocity_x = static_cast<float*>(desc->velocity_x);
-    auto* velocity_y = static_cast<float*>(desc->velocity_y);
-    auto* velocity_z = static_cast<float*>(desc->velocity_z);
-    auto* pressure   = static_cast<float*>(desc->temporary_pressure);
-    auto* divergence = static_cast<float*>(desc->temporary_divergence);
+    auto* velocity_x              = static_cast<float*>(desc->velocity_x);
+    auto* velocity_y              = static_cast<float*>(desc->velocity_y);
+    auto* velocity_z              = static_cast<float*>(desc->velocity_z);
+    auto* pressure                = static_cast<float*>(desc->temporary_pressure);
+    auto* divergence              = static_cast<float*>(desc->temporary_divergence);
     auto* coarse_pressure_storage = static_cast<float*>(desc->temporary_density);
     auto* coarse_rhs_storage      = static_cast<float*>(desc->temporary_previous_density);
 
@@ -816,16 +816,16 @@ int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdvectScalarDesc* des
     const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_min_bit : 0u)
                                  | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_max_bit : 0u);
 
-    const auto cell_bytes             = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
-    auto* scalar_field                = static_cast<float*>(desc->scalar);
-    auto* scalar_temporary            = static_cast<float*>(desc->temporary_scalar);
-    auto* scalar_previous             = static_cast<float*>(desc->temporary_previous_scalar);
-    auto* velocity_x_field            = static_cast<float*>(desc->velocity_x);
-    auto* velocity_y_field            = static_cast<float*>(desc->velocity_y);
-    auto* velocity_z_field            = static_cast<float*>(desc->velocity_z);
+    const auto cell_bytes  = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
+    auto* scalar_field     = static_cast<float*>(desc->scalar);
+    auto* scalar_temporary = static_cast<float*>(desc->temporary_scalar);
+    auto* scalar_previous  = static_cast<float*>(desc->temporary_previous_scalar);
+    auto* velocity_x_field = static_cast<float*>(desc->velocity_x);
+    auto* velocity_y_field = static_cast<float*>(desc->velocity_y);
+    auto* velocity_z_field = static_cast<float*>(desc->velocity_z);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
-    const dim3 cells = make_grid(desc->nx, desc->ny, desc->nz, block);
-    const auto stream        = static_cast<stable_fluids::Stream>(desc->stream);
+    const dim3 cells  = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const auto stream = static_cast<stable_fluids::Stream>(desc->stream);
 
     nvtx3::scoped_range range("stable.step.advect_scalar");
     if (cudaMemcpyAsync(scalar_previous, scalar_field, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
@@ -838,23 +838,23 @@ int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* d
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_diffuse_scalar_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u) | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u)
-                                 | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
+                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
-    const dim3 cells = make_grid(desc->nx, desc->ny, desc->nz, block);
-    const auto stream = static_cast<Stream>(desc->stream);
+    const dim3 cells      = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const auto stream     = static_cast<Stream>(desc->stream);
     const auto cell_bytes = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
 
-    auto* scalar_field      = static_cast<float*>(desc->scalar);
-    auto* scalar_temporary  = static_cast<float*>(desc->temporary_scalar);
-    auto* pressure          = static_cast<float*>(desc->temporary_solution_storage);
-    auto* divergence        = static_cast<float*>(desc->temporary_rhs_storage);
+    auto* scalar_field     = static_cast<float*>(desc->scalar);
+    auto* scalar_temporary = static_cast<float*>(desc->temporary_scalar);
+    auto* pressure         = static_cast<float*>(desc->temporary_solution_storage);
+    auto* divergence       = static_cast<float*>(desc->temporary_rhs_storage);
 
     nvtx3::scoped_range range("stable.step.diffuse_scalar");
     if (cudaMemcpyAsync(scalar_field, scalar_temporary, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
     if (desc->diffusion <= 0.0f) return 0;
 
-    GridHierarchy hierarchy = build_hierarchy(desc->nx, desc->ny, desc->nz, scalar_field, scalar_temporary, pressure, divergence);
+    GridHierarchy hierarchy     = build_hierarchy(desc->nx, desc->ny, desc->nz, scalar_field, scalar_temporary, pressure, divergence);
     const float diffusion_alpha = desc->dt * desc->diffusion / (desc->cell_size * desc->cell_size);
     const DiffusionVCycleOps ops{.coefficient = diffusion_alpha, .boundary_mask = boundary_mask, .boundary_axis = BoundaryAxis::none};
     const VCycleConfig config{.cycles = std::max(1, desc->diffuse_iterations / 12), .pre_smooth = 1, .post_smooth = 1, .coarse_smooth = std::max(6, desc->diffuse_iterations / 4)};
@@ -867,72 +867,13 @@ int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* d
     return 0;
 }
 
-int32_t stable_fluids_advect_density_cuda(const StableFluidsAdvectDensityDesc* desc) {
-    if (const int32_t code = stable_fluids_validate_advect_density_desc(desc); code != 0) return code;
-    StableFluidsAdvectScalarDesc scalar_desc{};
-    scalar_desc.struct_size = sizeof(StableFluidsAdvectScalarDesc);
-    scalar_desc.api_version = desc->api_version;
-    scalar_desc.nx = desc->nx;
-    scalar_desc.ny = desc->ny;
-    scalar_desc.nz = desc->nz;
-    scalar_desc.cell_size = desc->cell_size;
-    scalar_desc.dt = desc->dt;
-    scalar_desc.boundary_x_min = desc->boundary_x_min;
-    scalar_desc.boundary_x_max = desc->boundary_x_max;
-    scalar_desc.boundary_y_min = desc->boundary_y_min;
-    scalar_desc.boundary_y_max = desc->boundary_y_max;
-    scalar_desc.boundary_z_min = desc->boundary_z_min;
-    scalar_desc.boundary_z_max = desc->boundary_z_max;
-    scalar_desc.scalar = desc->density;
-    scalar_desc.temporary_scalar = desc->temporary_density;
-    scalar_desc.temporary_previous_scalar = desc->temporary_previous_density;
-    scalar_desc.velocity_x = desc->velocity_x;
-    scalar_desc.velocity_y = desc->velocity_y;
-    scalar_desc.velocity_z = desc->velocity_z;
-    scalar_desc.clamp_non_negative = 1u;
-    scalar_desc.block_x = desc->block_x;
-    scalar_desc.block_y = desc->block_y;
-    scalar_desc.block_z = desc->block_z;
-    scalar_desc.stream = desc->stream;
-    return stable_fluids_advect_scalar_cuda(&scalar_desc);
-}
-
-int32_t stable_fluids_diffuse_density_cuda(const StableFluidsDiffuseDensityDesc* desc) {
-    if (const int32_t code = stable_fluids_validate_diffuse_density_desc(desc); code != 0) return code;
-    StableFluidsDiffuseScalarDesc scalar_desc{};
-    scalar_desc.struct_size = sizeof(StableFluidsDiffuseScalarDesc);
-    scalar_desc.api_version = desc->api_version;
-    scalar_desc.nx = desc->nx;
-    scalar_desc.ny = desc->ny;
-    scalar_desc.nz = desc->nz;
-    scalar_desc.cell_size = desc->cell_size;
-    scalar_desc.dt = desc->dt;
-    scalar_desc.diffusion = desc->diffusion;
-    scalar_desc.diffuse_iterations = desc->diffuse_iterations;
-    scalar_desc.boundary_x_min = desc->boundary_x_min;
-    scalar_desc.boundary_x_max = desc->boundary_x_max;
-    scalar_desc.boundary_y_min = desc->boundary_y_min;
-    scalar_desc.boundary_y_max = desc->boundary_y_max;
-    scalar_desc.boundary_z_min = desc->boundary_z_min;
-    scalar_desc.boundary_z_max = desc->boundary_z_max;
-    scalar_desc.scalar = desc->density;
-    scalar_desc.temporary_scalar = desc->temporary_density;
-    scalar_desc.temporary_solution_storage = desc->temporary_pressure;
-    scalar_desc.temporary_rhs_storage = desc->temporary_divergence;
-    scalar_desc.clamp_non_negative = 1u;
-    scalar_desc.block_x = desc->block_x;
-    scalar_desc.block_y = desc->block_y;
-    scalar_desc.block_z = desc->block_z;
-    scalar_desc.stream = desc->stream;
-    return stable_fluids_diffuse_scalar_cuda(&scalar_desc);
-}
 
 int32_t stable_fluids_add_scalar_source_cuda(const StableFluidsAddScalarSourceDesc* desc) {
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_add_scalar_source_desc(desc); code != 0) return code;
 
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
-    const dim3 grid = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const dim3 grid   = make_grid(desc->nx, desc->ny, desc->nz, block);
     const auto stream = static_cast<Stream>(desc->stream);
     add_scalar_source_kernel<<<grid, block, 0, stream>>>(static_cast<float*>(desc->scalar), desc->nx, desc->ny, desc->nz, desc->center_x, desc->center_y, desc->center_z, desc->radius, desc->amount, desc->sample_offset_x, desc->sample_offset_y, desc->sample_offset_z);
     return cudaGetLastError() == cudaSuccess ? 0 : 5001;
