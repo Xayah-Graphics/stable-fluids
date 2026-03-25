@@ -121,4 +121,15 @@ int32_t stable_fluids_validate_add_vector_source_desc(const StableFluidsAddVecto
     return 0;
 }
 
+int32_t stable_fluids_validate_compute_staggered_velocity_magnitude_desc(const StableFluidsComputeStaggeredVelocityMagnitudeDesc* desc) {
+    if (desc == nullptr) return 1000;
+    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsComputeStaggeredVelocityMagnitudeDesc), desc->api_version); code != 0) return code;
+    if (desc->nx <= 0 || desc->ny <= 0 || desc->nz <= 0) return 1001;
+    if (desc->destination == nullptr) return 2002;
+    if (desc->velocity_x == nullptr) return 2003;
+    if (desc->velocity_y == nullptr) return 2004;
+    if (desc->velocity_z == nullptr) return 2005;
+    return 0;
+}
+
 } // extern "C"

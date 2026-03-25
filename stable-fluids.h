@@ -32,6 +32,7 @@ Error code scheme:
 1006  : unsupported api_version
 2xxx  : buffer errors
 2001  : invalid density buffer
+2002  : invalid destination buffer
 2003  : invalid velocity_x buffer
 2004  : invalid velocity_y buffer
 2005  : invalid velocity_z buffer
@@ -271,6 +272,22 @@ typedef struct StableFluidsAddVectorSourceDesc {
     void* stream;
 } StableFluidsAddVectorSourceDesc;
 
+typedef struct StableFluidsComputeStaggeredVelocityMagnitudeDesc {
+    uint32_t struct_size;
+    uint32_t api_version;
+    int32_t nx;
+    int32_t ny;
+    int32_t nz;
+    void* destination;
+    void* velocity_x;
+    void* velocity_y;
+    void* velocity_z;
+    int32_t block_x;
+    int32_t block_y;
+    int32_t block_z;
+    void* stream;
+} StableFluidsComputeStaggeredVelocityMagnitudeDesc;
+
 STABLE_FLUIDS_API int32_t stable_fluids_validate_advect_velocity_desc(const StableFluidsAdvectVelocityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_diffuse_velocity_desc(const StableFluidsDiffuseVelocityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_project_desc(const StableFluidsProjectDesc* desc);
@@ -278,6 +295,7 @@ STABLE_FLUIDS_API int32_t stable_fluids_validate_advect_scalar_desc(const Stable
 STABLE_FLUIDS_API int32_t stable_fluids_validate_diffuse_scalar_desc(const StableFluidsDiffuseScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_add_scalar_source_desc(const StableFluidsAddScalarSourceDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_add_vector_source_desc(const StableFluidsAddVectorSourceDesc* desc);
+STABLE_FLUIDS_API int32_t stable_fluids_validate_compute_staggered_velocity_magnitude_desc(const StableFluidsComputeStaggeredVelocityMagnitudeDesc* desc);
 
 STABLE_FLUIDS_API int32_t stable_fluids_advect_velocity_cuda(const StableFluidsAdvectVelocityDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDesc* desc);
@@ -286,6 +304,7 @@ STABLE_FLUIDS_API int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdv
 STABLE_FLUIDS_API int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_add_scalar_source_cuda(const StableFluidsAddScalarSourceDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_add_vector_source_cuda(const StableFluidsAddVectorSourceDesc* desc);
+STABLE_FLUIDS_API int32_t stable_fluids_compute_staggered_velocity_magnitude_cuda(const StableFluidsComputeStaggeredVelocityMagnitudeDesc* desc);
 
 #ifdef __cplusplus
 }

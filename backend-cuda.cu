@@ -461,6 +461,19 @@ namespace stable_fluids {
             destination[index_3d(x, y, z, sx, sy)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
         }
 
+        __global__ void compute_staggered_velocity_magnitude_kernel(float* destination, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz) {
+
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+            if (x >= nx || y >= ny || z >= nz) return;
+
+            const float vx = 0.5f * (velocity_x[index_3d(x, y, z, nx + 1, ny)] + velocity_x[index_3d(x + 1, y, z, nx + 1, ny)]);
+            const float vy = 0.5f * (velocity_y[index_3d(x, y, z, nx, ny + 1)] + velocity_y[index_3d(x, y + 1, z, nx, ny + 1)]);
+            const float vz = 0.5f * (velocity_z[index_3d(x, y, z, nx, ny)] + velocity_z[index_3d(x, y, z + 1, nx, ny)]);
+            destination[index_3d(x, y, z, nx, ny)] = sqrtf(vx * vx + vy * vy + vz * vz);
+        }
+
         __global__ void diffuse_grid_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1202,6 +1215,19 @@ int32_t stable_fluids_add_vector_source_cuda(const StableFluidsAddVectorSourceDe
     add_scalar_source_kernel<<<make_grid(desc->nx, desc->ny + 1, desc->nz, block), block, 0, stream>>>(static_cast<float*>(desc->vector_y), desc->nx, desc->ny + 1, desc->nz, desc->center_x, desc->center_y, desc->center_z, desc->radius, desc->amount_y, 0.5f, 0.0f, 0.5f);
 
     add_scalar_source_kernel<<<make_grid(desc->nx, desc->ny, desc->nz + 1, block), block, 0, stream>>>(static_cast<float*>(desc->vector_z), desc->nx, desc->ny, desc->nz + 1, desc->center_x, desc->center_y, desc->center_z, desc->radius, desc->amount_z, 0.5f, 0.5f, 0.0f);
+
+    return cudaGetLastError() == cudaSuccess ? 0 : 5001;
+}
+
+int32_t stable_fluids_compute_staggered_velocity_magnitude_cuda(const StableFluidsComputeStaggeredVelocityMagnitudeDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_compute_staggered_velocity_magnitude_desc(desc); code != 0) return code;
+
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const dim3 grid = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const auto stream = static_cast<Stream>(desc->stream);
+
+    compute_staggered_velocity_magnitude_kernel<<<grid, block, 0, stream>>>(static_cast<float*>(desc->destination), static_cast<const float*>(desc->velocity_x), static_cast<const float*>(desc->velocity_y), static_cast<const float*>(desc->velocity_z), desc->nx, desc->ny, desc->nz);
 
     return cudaGetLastError() == cudaSuccess ? 0 : 5001;
 }
