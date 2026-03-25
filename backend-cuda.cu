@@ -54,28 +54,8 @@ namespace stable_fluids {
             return {static_cast<unsigned>((nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z))};
         }
 
-        __host__ __device__ uint32_t boundary_type(const uint32_t boundary_pack, const int face) {
-            return (boundary_pack >> (face * 3)) & 0x7u;
-        }
-
-        uint32_t make_boundary_pack(const uint32_t x_min, const uint32_t x_max, const uint32_t y_min, const uint32_t y_max, const uint32_t z_min, const uint32_t z_max) {
-            return (x_min << (boundary_x_min_face * 3)) | (x_max << (boundary_x_max_face * 3)) | (y_min << (boundary_y_min_face * 3)) | (y_max << (boundary_y_max_face * 3)) | (z_min << (boundary_z_min_face * 3)) | (z_max << (boundary_z_max_face * 3));
-        }
-
         __host__ __device__ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, const int sy) {
             return static_cast<std::uint64_t>(z) * static_cast<std::uint64_t>(sx) * static_cast<std::uint64_t>(sy) + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(sx) + static_cast<std::uint64_t>(x);
-        }
-
-        __host__ __device__ float inflow_value_for_face(const InflowValues& inflow, const int face) {
-            switch (face) {
-            case boundary_x_min_face: return inflow.x_min;
-            case boundary_x_max_face: return inflow.x_max;
-            case boundary_y_min_face: return inflow.y_min;
-            case boundary_y_max_face: return inflow.y_max;
-            case boundary_z_min_face: return inflow.z_min;
-            case boundary_z_max_face: return inflow.z_max;
-            default: return 0.0f;
-            }
         }
 
         __host__ __device__ int face_axis(const int face) {
@@ -111,27 +91,27 @@ namespace stable_fluids {
             float sum = 0.0f;
             int count = 0;
 
-            if (x < 0 && boundary_type(boundary_pack, boundary_x_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (x < 0 && ((boundary_pack >> (boundary_x_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.x_min;
                 ++count;
             }
-            if (x >= sx && boundary_type(boundary_pack, boundary_x_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (x >= sx && ((boundary_pack >> (boundary_x_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.x_max;
                 ++count;
             }
-            if (y < 0 && boundary_type(boundary_pack, boundary_y_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (y < 0 && ((boundary_pack >> (boundary_y_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.y_min;
                 ++count;
             }
-            if (y >= sy && boundary_type(boundary_pack, boundary_y_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (y >= sy && ((boundary_pack >> (boundary_y_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.y_max;
                 ++count;
             }
-            if (z < 0 && boundary_type(boundary_pack, boundary_z_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (z < 0 && ((boundary_pack >> (boundary_z_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.z_min;
                 ++count;
             }
-            if (z >= sz && boundary_type(boundary_pack, boundary_z_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (z >= sz && ((boundary_pack >> (boundary_z_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.z_max;
                 ++count;
             }
@@ -150,7 +130,7 @@ namespace stable_fluids {
 
         __device__ float velocity_boundary_value_for_face(const float* field, const int component_axis, const int face, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
-            const uint32_t type   = boundary_type(boundary_pack, face);
+            const uint32_t type   = (boundary_pack >> (face * 3)) & 0x7u;
             const int normal_axis = face_axis(face);
 
             const int ix         = face_interior_x(face, sx, x);
@@ -159,7 +139,17 @@ namespace stable_fluids {
             const float interior = field[index_3d(ix, iy, iz, sx, sy)];
 
             if (component_axis == normal_axis) {
-                if (type == STABLE_FLUIDS_BOUNDARY_INFLOW) return inflow_value_for_face(inflow, face);
+                if (type == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+                    switch (face) {
+                    case boundary_x_min_face: return inflow.x_min;
+                    case boundary_x_max_face: return inflow.x_max;
+                    case boundary_y_min_face: return inflow.y_min;
+                    case boundary_y_max_face: return inflow.y_max;
+                    case boundary_z_min_face: return inflow.z_min;
+                    case boundary_z_max_face: return inflow.z_max;
+                    default: return 0.0f;
+                    }
+                }
                 if (type == STABLE_FLUIDS_BOUNDARY_OUTFLOW) return interior;
                 return 0.0f;
             }
@@ -212,12 +202,12 @@ namespace stable_fluids {
 
         __device__ bool scalar_cell_is_inflow_boundary(const int x, const int y, const int z, const int nx, const int ny, const int nz, const uint32_t boundary_pack) {
 
-            if (x == 0 && boundary_type(boundary_pack, boundary_x_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
-            if (x == nx - 1 && boundary_type(boundary_pack, boundary_x_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
-            if (y == 0 && boundary_type(boundary_pack, boundary_y_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
-            if (y == ny - 1 && boundary_type(boundary_pack, boundary_y_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
-            if (z == 0 && boundary_type(boundary_pack, boundary_z_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
-            if (z == nz - 1 && boundary_type(boundary_pack, boundary_z_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
+            if (x == 0 && ((boundary_pack >> (boundary_x_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
+            if (x == nx - 1 && ((boundary_pack >> (boundary_x_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
+            if (y == 0 && ((boundary_pack >> (boundary_y_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
+            if (y == ny - 1 && ((boundary_pack >> (boundary_y_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
+            if (z == 0 && ((boundary_pack >> (boundary_z_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
+            if (z == nz - 1 && ((boundary_pack >> (boundary_z_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) return true;
             return false;
         }
 
@@ -226,27 +216,27 @@ namespace stable_fluids {
             float sum = 0.0f;
             int count = 0;
 
-            if (x == 0 && boundary_type(boundary_pack, boundary_x_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (x == 0 && ((boundary_pack >> (boundary_x_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.x_min;
                 ++count;
             }
-            if (x == nx - 1 && boundary_type(boundary_pack, boundary_x_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (x == nx - 1 && ((boundary_pack >> (boundary_x_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.x_max;
                 ++count;
             }
-            if (y == 0 && boundary_type(boundary_pack, boundary_y_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (y == 0 && ((boundary_pack >> (boundary_y_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.y_min;
                 ++count;
             }
-            if (y == ny - 1 && boundary_type(boundary_pack, boundary_y_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (y == ny - 1 && ((boundary_pack >> (boundary_y_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.y_max;
                 ++count;
             }
-            if (z == 0 && boundary_type(boundary_pack, boundary_z_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (z == 0 && ((boundary_pack >> (boundary_z_min_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.z_min;
                 ++count;
             }
-            if (z == nz - 1 && boundary_type(boundary_pack, boundary_z_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+            if (z == nz - 1 && ((boundary_pack >> (boundary_z_max_face * 3)) & 0x7u) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
                 sum += inflow.z_max;
                 ++count;
             }
@@ -543,7 +533,7 @@ namespace stable_fluids {
                     return;
                 }
 
-                const uint32_t type = boundary_type(boundary_pack, face_if_outside);
+                const uint32_t type = (boundary_pack >> (face_if_outside * 3)) & 0x7u;
                 if (type == STABLE_FLUIDS_BOUNDARY_INFLOW || type == STABLE_FLUIDS_BOUNDARY_OUTFLOW) {
                     ++diag;
                 }
@@ -708,7 +698,7 @@ namespace stable_fluids {
             if (x <= nx && y < ny && z < nz) {
                 float& u = velocity_x[index_3d(x, y, z, nx + 1, ny)];
                 if (x == 0) {
-                    const uint32_t type = boundary_type(boundary_pack, boundary_x_min_face);
+                    const uint32_t type = (boundary_pack >> (boundary_x_min_face * 3)) & 0x7u;
                     if (type == STABLE_FLUIDS_BOUNDARY_INFLOW)
                         u = inflow.x_min;
                     else if (type == STABLE_FLUIDS_BOUNDARY_OUTFLOW)
@@ -716,7 +706,7 @@ namespace stable_fluids {
                     else
                         u = 0.0f;
                 } else if (x == nx) {
-                    const uint32_t type = boundary_type(boundary_pack, boundary_x_max_face);
+                    const uint32_t type = (boundary_pack >> (boundary_x_max_face * 3)) & 0x7u;
                     if (type == STABLE_FLUIDS_BOUNDARY_INFLOW)
                         u = inflow.x_max;
                     else if (type == STABLE_FLUIDS_BOUNDARY_OUTFLOW)
@@ -731,7 +721,7 @@ namespace stable_fluids {
             if (x < nx && y <= ny && z < nz) {
                 float& v = velocity_y[index_3d(x, y, z, nx, ny + 1)];
                 if (y == 0) {
-                    const uint32_t type = boundary_type(boundary_pack, boundary_y_min_face);
+                    const uint32_t type = (boundary_pack >> (boundary_y_min_face * 3)) & 0x7u;
                     if (type == STABLE_FLUIDS_BOUNDARY_INFLOW)
                         v = inflow.y_min;
                     else if (type == STABLE_FLUIDS_BOUNDARY_OUTFLOW)
@@ -739,7 +729,7 @@ namespace stable_fluids {
                     else
                         v = 0.0f;
                 } else if (y == ny) {
-                    const uint32_t type = boundary_type(boundary_pack, boundary_y_max_face);
+                    const uint32_t type = (boundary_pack >> (boundary_y_max_face * 3)) & 0x7u;
                     if (type == STABLE_FLUIDS_BOUNDARY_INFLOW)
                         v = inflow.y_max;
                     else if (type == STABLE_FLUIDS_BOUNDARY_OUTFLOW)
@@ -754,7 +744,7 @@ namespace stable_fluids {
             if (x < nx && y < ny && z <= nz) {
                 float& w = velocity_z[index_3d(x, y, z, nx, ny)];
                 if (z == 0) {
-                    const uint32_t type = boundary_type(boundary_pack, boundary_z_min_face);
+                    const uint32_t type = (boundary_pack >> (boundary_z_min_face * 3)) & 0x7u;
                     if (type == STABLE_FLUIDS_BOUNDARY_INFLOW)
                         w = inflow.z_min;
                     else if (type == STABLE_FLUIDS_BOUNDARY_OUTFLOW)
@@ -762,7 +752,7 @@ namespace stable_fluids {
                     else
                         w = 0.0f;
                 } else if (z == nz) {
-                    const uint32_t type = boundary_type(boundary_pack, boundary_z_max_face);
+                    const uint32_t type = (boundary_pack >> (boundary_z_max_face * 3)) & 0x7u;
                     if (type == STABLE_FLUIDS_BOUNDARY_INFLOW)
                         w = inflow.z_max;
                     else if (type == STABLE_FLUIDS_BOUNDARY_OUTFLOW)
@@ -921,7 +911,7 @@ int32_t stable_fluids_advect_velocity_cuda(const StableFluidsAdvectVelocityDesc*
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_advect_velocity_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
+    const uint32_t boundary_pack = (desc->boundary_x_min << (boundary_x_min_face * 3)) | (desc->boundary_x_max << (boundary_x_max_face * 3)) | (desc->boundary_y_min << (boundary_y_min_face * 3)) | (desc->boundary_y_max << (boundary_y_max_face * 3)) | (desc->boundary_z_min << (boundary_z_min_face * 3)) | (desc->boundary_z_max << (boundary_z_max_face * 3));
     const InflowValues inflow{
         .x_min = desc->inflow_velocity_x_min,
         .x_max = desc->inflow_velocity_x_max,
@@ -971,7 +961,7 @@ int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDes
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_diffuse_velocity_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
+    const uint32_t boundary_pack = (desc->boundary_x_min << (boundary_x_min_face * 3)) | (desc->boundary_x_max << (boundary_x_max_face * 3)) | (desc->boundary_y_min << (boundary_y_min_face * 3)) | (desc->boundary_y_max << (boundary_y_max_face * 3)) | (desc->boundary_z_min << (boundary_z_min_face * 3)) | (desc->boundary_z_max << (boundary_z_max_face * 3));
     const InflowValues inflow{
         .x_min = desc->inflow_velocity_x_min,
         .x_max = desc->inflow_velocity_x_max,
@@ -1044,7 +1034,7 @@ int32_t stable_fluids_project_cuda(const StableFluidsProjectDesc* desc) {
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_project_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
+    const uint32_t boundary_pack = (desc->boundary_x_min << (boundary_x_min_face * 3)) | (desc->boundary_x_max << (boundary_x_max_face * 3)) | (desc->boundary_y_min << (boundary_y_min_face * 3)) | (desc->boundary_y_max << (boundary_y_max_face * 3)) | (desc->boundary_z_min << (boundary_z_min_face * 3)) | (desc->boundary_z_max << (boundary_z_max_face * 3));
     const InflowValues inflow{
         .x_min = desc->inflow_velocity_x_min,
         .x_max = desc->inflow_velocity_x_max,
@@ -1103,7 +1093,7 @@ int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdvectScalarDesc* des
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_advect_scalar_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
+    const uint32_t boundary_pack = (desc->boundary_x_min << (boundary_x_min_face * 3)) | (desc->boundary_x_max << (boundary_x_max_face * 3)) | (desc->boundary_y_min << (boundary_y_min_face * 3)) | (desc->boundary_y_max << (boundary_y_max_face * 3)) | (desc->boundary_z_min << (boundary_z_min_face * 3)) | (desc->boundary_z_max << (boundary_z_max_face * 3));
     const InflowValues inflow{
         .x_min = desc->inflow_scalar_x_min,
         .x_max = desc->inflow_scalar_x_max,
@@ -1155,7 +1145,7 @@ int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* d
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_diffuse_scalar_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
+    const uint32_t boundary_pack = (desc->boundary_x_min << (boundary_x_min_face * 3)) | (desc->boundary_x_max << (boundary_x_max_face * 3)) | (desc->boundary_y_min << (boundary_y_min_face * 3)) | (desc->boundary_y_max << (boundary_y_max_face * 3)) | (desc->boundary_z_min << (boundary_z_min_face * 3)) | (desc->boundary_z_max << (boundary_z_max_face * 3));
     const InflowValues inflow{
         .x_min = desc->inflow_scalar_x_min,
         .x_max = desc->inflow_scalar_x_max,
