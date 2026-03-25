@@ -254,14 +254,6 @@ namespace stable_fluids {
             return count > 0 ? sum / static_cast<float>(count) : 0.0f;
         }
 
-        __device__ bool velocity_entry_has_boundary_condition(const int /*component_axis*/, const int x, const int y, const int z, const int sx, const int sy, const int sz) {
-
-            if (x == 0 || x == sx - 1) return true;
-            if (y == 0 || y == sy - 1) return true;
-            if (z == 0 || z == sz - 1) return true;
-            return false;
-        }
-
         __device__ float velocity_boundary_value_at_index(const float* field, const int component_axis, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             float sum = 0.0f;
@@ -401,7 +393,7 @@ namespace stable_fluids {
                 const int sx = nx + 1;
                 const int sy = ny;
                 const int sz = nz;
-                if (velocity_entry_has_boundary_condition(0, x, y, z, sx, sy, sz)) {
+                if (x == 0 || x == sx - 1 || y == 0 || y == sy - 1 || z == 0 || z == sz - 1) {
                     velocity_x[index_3d(x, y, z, sx, sy)] = velocity_boundary_value_at_index(velocity_x, 0, x, y, z, sx, sy, sz, boundary_pack, inflow);
                 }
             }
@@ -410,7 +402,7 @@ namespace stable_fluids {
                 const int sx = nx;
                 const int sy = ny + 1;
                 const int sz = nz;
-                if (velocity_entry_has_boundary_condition(1, x, y, z, sx, sy, sz)) {
+                if (x == 0 || x == sx - 1 || y == 0 || y == sy - 1 || z == 0 || z == sz - 1) {
                     velocity_y[index_3d(x, y, z, sx, sy)] = velocity_boundary_value_at_index(velocity_y, 1, x, y, z, sx, sy, sz, boundary_pack, inflow);
                 }
             }
@@ -419,7 +411,7 @@ namespace stable_fluids {
                 const int sx = nx;
                 const int sy = ny;
                 const int sz = nz + 1;
-                if (velocity_entry_has_boundary_condition(2, x, y, z, sx, sy, sz)) {
+                if (x == 0 || x == sx - 1 || y == 0 || y == sy - 1 || z == 0 || z == sz - 1) {
                     velocity_z[index_3d(x, y, z, sx, sy)] = velocity_boundary_value_at_index(velocity_z, 2, x, y, z, sx, sy, sz, boundary_pack, inflow);
                 }
             }
@@ -528,7 +520,7 @@ namespace stable_fluids {
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
             if (x >= sx || y >= sy || z >= sz || ((x + y + z) & 1) != parity) return;
 
-            if (velocity_entry_has_boundary_condition(axis, x, y, z, sx, sy, sz)) {
+            if (x == 0 || x == sx - 1 || y == 0 || y == sy - 1 || z == 0 || z == sz - 1) {
                 destination[index_3d(x, y, z, sx, sy)] = velocity_boundary_value_at_index(destination, axis, x, y, z, sx, sy, sz, boundary_pack, inflow);
                 return;
             }
@@ -648,7 +640,7 @@ namespace stable_fluids {
                             const float applied = (1.0f + 6.0f * alpha) * center - alpha * neighbors;
                             residual_sum += fine_rhs[index_3d(fx, fy, fz, fine_nx, fine_ny)] - applied;
                         } else {
-                            if (velocity_entry_has_boundary_condition(boundary_axis, fx, fy, fz, fine_nx, fine_ny, fine_nz)) {
+                            if (fx == 0 || fx == fine_nx - 1 || fy == 0 || fy == fine_ny - 1 || fz == 0 || fz == fine_nz - 1) {
                                 ++samples;
                                 continue;
                             }
