@@ -132,4 +132,14 @@ int32_t stable_fluids_validate_compute_staggered_velocity_magnitude_desc(const S
     return 0;
 }
 
+int32_t stable_fluids_validate_pack_smoke_rgba_desc(const StableFluidsPackSmokeRgbaDesc* desc) {
+    if (desc == nullptr) return 1000;
+    if (const int32_t code = validate_base(desc->struct_size, sizeof(StableFluidsPackSmokeRgbaDesc), desc->api_version); code != 0) return code;
+    if (desc->nx <= 0 || desc->ny <= 0 || desc->nz <= 0) return 1001;
+    if (desc->destination_rgba == nullptr) return 2002;
+    if (desc->density == nullptr) return 2001;
+    if (desc->dye_r == nullptr || desc->dye_g == nullptr || desc->dye_b == nullptr) return 2006;
+    return 0;
+}
+
 } // extern "C"

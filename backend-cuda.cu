@@ -474,6 +474,21 @@ namespace stable_fluids {
             destination[index_3d(x, y, z, nx, ny)] = sqrtf(vx * vx + vy * vy + vz * vz);
         }
 
+        __global__ void pack_smoke_rgba_kernel(float* destination_rgba, const float* density, const float* dye_r, const float* dye_g, const float* dye_b, const int nx, const int ny, const int nz) {
+
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+            if (x >= nx || y >= ny || z >= nz) return;
+
+            const auto index = index_3d(x, y, z, nx, ny);
+            const auto base = static_cast<std::uint64_t>(4) * index;
+            destination_rgba[base + 0] = density[index];
+            destination_rgba[base + 1] = dye_r[index];
+            destination_rgba[base + 2] = dye_g[index];
+            destination_rgba[base + 3] = dye_b[index];
+        }
+
         __global__ void diffuse_grid_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1228,6 +1243,19 @@ int32_t stable_fluids_compute_staggered_velocity_magnitude_cuda(const StableFlui
     const auto stream = static_cast<Stream>(desc->stream);
 
     compute_staggered_velocity_magnitude_kernel<<<grid, block, 0, stream>>>(static_cast<float*>(desc->destination), static_cast<const float*>(desc->velocity_x), static_cast<const float*>(desc->velocity_y), static_cast<const float*>(desc->velocity_z), desc->nx, desc->ny, desc->nz);
+
+    return cudaGetLastError() == cudaSuccess ? 0 : 5001;
+}
+
+int32_t stable_fluids_pack_smoke_rgba_cuda(const StableFluidsPackSmokeRgbaDesc* desc) {
+    using namespace stable_fluids;
+    if (const int32_t code = stable_fluids_validate_pack_smoke_rgba_desc(desc); code != 0) return code;
+
+    const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
+    const dim3 grid = make_grid(desc->nx, desc->ny, desc->nz, block);
+    const auto stream = static_cast<Stream>(desc->stream);
+
+    pack_smoke_rgba_kernel<<<grid, block, 0, stream>>>(static_cast<float*>(desc->destination_rgba), static_cast<const float*>(desc->density), static_cast<const float*>(desc->dye_r), static_cast<const float*>(desc->dye_g), static_cast<const float*>(desc->dye_b), desc->nx, desc->ny, desc->nz);
 
     return cudaGetLastError() == cudaSuccess ? 0 : 5001;
 }
