@@ -50,24 +50,8 @@ namespace stable_fluids {
             float z_max;
         };
 
-        __host__ __device__ int mini(const int a, const int b) {
-            return a < b ? a : b;
-        }
-
-        __host__ __device__ int maxi(const int a, const int b) {
-            return a > b ? a : b;
-        }
-
-        __host__ __device__ int clampi(const int v, const int lo, const int hi) {
-            return v < lo ? lo : (v > hi ? hi : v);
-        }
-
-        __host__ __device__ float clampf(const float v, const float lo, const float hi) {
-            return v < lo ? lo : (v > hi ? hi : v);
-        }
-
         dim3 make_grid(const int nx, const int ny, const int nz, const dim3& block) {
-            return dim3(static_cast<unsigned>((nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z)));
+            return {static_cast<unsigned>((nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z))};
         }
 
         __host__ __device__ uint32_t boundary_type(const uint32_t boundary_pack, const int face) {
@@ -103,26 +87,26 @@ namespace stable_fluids {
         __host__ __device__ int face_interior_x(const int face, const int sx, const int x) {
             if (face == boundary_x_min_face) return sx > 1 ? 1 : 0;
             if (face == boundary_x_max_face) return sx > 1 ? sx - 2 : 0;
-            return clampi(x, 0, sx - 1);
+            return std::clamp(x, 0, sx - 1);
         }
 
         __host__ __device__ int face_interior_y(const int face, const int sy, const int y) {
             if (face == boundary_y_min_face) return sy > 1 ? 1 : 0;
             if (face == boundary_y_max_face) return sy > 1 ? sy - 2 : 0;
-            return clampi(y, 0, sy - 1);
+            return std::clamp(y, 0, sy - 1);
         }
 
         __host__ __device__ int face_interior_z(const int face, const int sz, const int z) {
             if (face == boundary_z_min_face) return sz > 1 ? 1 : 0;
             if (face == boundary_z_max_face) return sz > 1 ? sz - 2 : 0;
-            return clampi(z, 0, sz - 1);
+            return std::clamp(z, 0, sz - 1);
         }
 
-        __device__ float scalar_boundary_cell_value(const float* field, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float scalar_boundary_cell_value(const float* field, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
-            const int cx = clampi(x, 0, sx - 1);
-            const int cy = clampi(y, 0, sy - 1);
-            const int cz = clampi(z, 0, sz - 1);
+            const int cx = std::clamp(x, 0, sx - 1);
+            const int cy = std::clamp(y, 0, sy - 1);
+            const int cz = std::clamp(z, 0, sz - 1);
 
             float sum = 0.0f;
             int count = 0;
@@ -156,7 +140,7 @@ namespace stable_fluids {
             return field[index_3d(cx, cy, cz, sx, sy)];
         }
 
-        __device__ float fetch_scalar_boundary(const float* field, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float fetch_scalar_boundary(const float* field, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             if (x >= 0 && x < sx && y >= 0 && y < sy && z >= 0 && z < sz) {
                 return field[index_3d(x, y, z, sx, sy)];
@@ -164,7 +148,7 @@ namespace stable_fluids {
             return scalar_boundary_cell_value(field, x, y, z, sx, sy, sz, boundary_pack, inflow);
         }
 
-        __device__ float velocity_boundary_value_for_face(const float* field, const int component_axis, const int face, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float velocity_boundary_value_for_face(const float* field, const int component_axis, const int face, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const uint32_t type   = boundary_type(boundary_pack, face);
             const int normal_axis = face_axis(face);
@@ -184,7 +168,7 @@ namespace stable_fluids {
             return interior;
         }
 
-        __device__ float fetch_velocity_boundary(const float* field, const int component_axis, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float fetch_velocity_boundary(const float* field, const int component_axis, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             if (x >= 0 && x < sx && y >= 0 && y < sy && z >= 0 && z < sz) {
                 return field[index_3d(x, y, z, sx, sy)];
@@ -220,9 +204,9 @@ namespace stable_fluids {
 
             if (count > 0) return sum / static_cast<float>(count);
 
-            const int cx = clampi(x, 0, sx - 1);
-            const int cy = clampi(y, 0, sy - 1);
-            const int cz = clampi(z, 0, sz - 1);
+            const int cx = std::clamp(x, 0, sx - 1);
+            const int cy = std::clamp(y, 0, sy - 1);
+            const int cz = std::clamp(z, 0, sz - 1);
             return field[index_3d(cx, cy, cz, sx, sy)];
         }
 
@@ -237,7 +221,7 @@ namespace stable_fluids {
             return false;
         }
 
-        __device__ float scalar_inflow_boundary_value(const int x, const int y, const int z, const int nx, const int ny, const int nz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float scalar_inflow_boundary_value(const int x, const int y, const int z, const int nx, const int ny, const int nz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             float sum = 0.0f;
             int count = 0;
@@ -290,7 +274,7 @@ namespace stable_fluids {
             return false;
         }
 
-        __device__ float velocity_boundary_value_at_index(const float* field, const int component_axis, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float velocity_boundary_value_at_index(const float* field, const int component_axis, const int x, const int y, const int z, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             float sum = 0.0f;
             int count = 0;
@@ -375,11 +359,11 @@ namespace stable_fluids {
             return count > 0 ? (sum / static_cast<float>(count)) : field[index_3d(x, y, z, sx, sy)];
         }
 
-        __device__ float sample_scalar_grid(const float* field, float gx, float gy, float gz, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float sample_scalar_grid(const float* field, float gx, float gy, float gz, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
-            gx = clampf(gx, -0.5f, static_cast<float>(sx) - 0.5f);
-            gy = clampf(gy, -0.5f, static_cast<float>(sy) - 0.5f);
-            gz = clampf(gz, -0.5f, static_cast<float>(sz) - 0.5f);
+            gx = std::clamp(gx, -0.5f, static_cast<float>(sx) - 0.5f);
+            gy = std::clamp(gy, -0.5f, static_cast<float>(sy) - 0.5f);
+            gz = std::clamp(gz, -0.5f, static_cast<float>(sz) - 0.5f);
 
             const int x0 = static_cast<int>(floorf(gx));
             const int y0 = static_cast<int>(floorf(gy));
@@ -410,11 +394,11 @@ namespace stable_fluids {
             return c0 + (c1 - c0) * tz;
         }
 
-        __device__ float sample_velocity_component_grid(const float* field, const int component_axis, float gx, float gy, float gz, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float sample_velocity_component_grid(const float* field, const int component_axis, float gx, float gy, float gz, const int sx, const int sy, const int sz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
-            gx = clampf(gx, -0.5f, static_cast<float>(sx) - 0.5f);
-            gy = clampf(gy, -0.5f, static_cast<float>(sy) - 0.5f);
-            gz = clampf(gz, -0.5f, static_cast<float>(sz) - 0.5f);
+            gx = std::clamp(gx, -0.5f, static_cast<float>(sx) - 0.5f);
+            gy = std::clamp(gy, -0.5f, static_cast<float>(sy) - 0.5f);
+            gz = std::clamp(gz, -0.5f, static_cast<float>(sz) - 0.5f);
 
             const int x0 = static_cast<int>(floorf(gx));
             const int y0 = static_cast<int>(floorf(gy));
@@ -445,33 +429,33 @@ namespace stable_fluids {
             return c0 + (c1 - c0) * tz;
         }
 
-        __device__ float sample_scalar(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float sample_scalar(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues& inflow) {
             return sample_scalar_grid(field, pos.x / h - 0.5f, pos.y / h - 0.5f, pos.z / h - 0.5f, nx, ny, nz, boundary_pack, inflow);
         }
 
-        __device__ float sample_u(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float sample_u(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues& inflow) {
             return sample_velocity_component_grid(field, 0, pos.x / h, pos.y / h - 0.5f, pos.z / h - 0.5f, nx + 1, ny, nz, boundary_pack, inflow);
         }
 
-        __device__ float sample_v(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float sample_v(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues& inflow) {
             return sample_velocity_component_grid(field, 1, pos.x / h - 0.5f, pos.y / h, pos.z / h - 0.5f, nx, ny + 1, nz, boundary_pack, inflow);
         }
 
-        __device__ float sample_w(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float sample_w(const float* field, const float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues& inflow) {
             return sample_velocity_component_grid(field, 2, pos.x / h - 0.5f, pos.y / h - 0.5f, pos.z / h, nx, ny, nz + 1, boundary_pack, inflow);
         }
 
         __device__ float3 clamp_domain(const float3 pos, const int nx, const int ny, const int nz, const float h) {
-            return make_float3(clampf(pos.x, 0.0f, static_cast<float>(nx) * h), clampf(pos.y, 0.0f, static_cast<float>(ny) * h), clampf(pos.z, 0.0f, static_cast<float>(nz) * h));
+            return make_float3(std::clamp(pos.x, 0.0f, static_cast<float>(nx) * h), std::clamp(pos.y, 0.0f, static_cast<float>(ny) * h), std::clamp(pos.z, 0.0f, static_cast<float>(nz) * h));
         }
 
-        __device__ float3 sample_velocity(const float* velocity_x, const float* velocity_y, const float* velocity_z, float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues inflow) {
+        __device__ float3 sample_velocity(const float* velocity_x, const float* velocity_y, const float* velocity_z, float3 pos, const int nx, const int ny, const int nz, const float h, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             pos = clamp_domain(pos, nx, ny, nz, h);
             return make_float3(sample_u(velocity_x, pos, nx, ny, nz, h, boundary_pack, inflow), sample_v(velocity_y, pos, nx, ny, nz, h, boundary_pack, inflow), sample_w(velocity_z, pos, nx, ny, nz, h, boundary_pack, inflow));
         }
 
-        __global__ void enforce_velocity_boundaries_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const int nx, const int ny, const int nz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __global__ void enforce_velocity_boundaries_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const int nx, const int ny, const int nz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -505,7 +489,7 @@ namespace stable_fluids {
             }
         }
 
-        __global__ void advect_velocity(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_pack, const InflowValues inflow) {
+        __global__ void advect_velocity(float* velocity_x_destination, float* velocity_y_destination, float* velocity_z_destination, const float* source_x, const float* source_y, const float* source_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -533,7 +517,7 @@ namespace stable_fluids {
             }
         }
 
-        __global__ void advect_scalar_kernel(float* destination, const float* source, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_pack, const InflowValues inflow, const int clamp_non_negative) {
+        __global__ void advect_scalar_kernel(float* destination, const float* source, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz, const float h, const float dt, const uint32_t boundary_pack, const InflowValues& inflow, const int clamp_non_negative) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -552,7 +536,7 @@ namespace stable_fluids {
             destination[index_3d(x, y, z, nx, ny)] = clamp_non_negative != 0 ? fmaxf(0.0f, value) : value;
         }
 
-        __global__ void apply_scalar_inflow_boundaries_kernel(float* scalar, const int nx, const int ny, const int nz, const uint32_t boundary_pack, const InflowValues inflow) {
+        __global__ void apply_scalar_inflow_boundaries_kernel(float* scalar, const int nx, const int ny, const int nz, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -583,7 +567,7 @@ namespace stable_fluids {
             destination[index_3d(x, y, z, sx, sy)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
         }
 
-        __global__ void diffuse_grid_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_pack, const InflowValues inflow) {
+        __global__ void diffuse_grid_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -601,7 +585,7 @@ namespace stable_fluids {
             destination[index_3d(x, y, z, sx, sy)] = (source[index_3d(x, y, z, sx, sy)] + alpha * neighbors) / denom;
         }
 
-        __global__ void diffuse_velocity_component_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_pack, const InflowValues inflow, const int axis) {
+        __global__ void diffuse_velocity_component_kernel(float* destination, const float* source, const int sx, const int sy, const int sz, const float alpha, const float denom, const int parity, const uint32_t boundary_pack, const InflowValues& inflow, const int axis) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -675,17 +659,17 @@ namespace stable_fluids {
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
 
-            const int coarse_nx = maxi(1, (fine_nx + 1) / 2);
-            const int coarse_ny = maxi(1, (fine_ny + 1) / 2);
-            const int coarse_nz = maxi(1, (fine_nz + 1) / 2);
+            const int coarse_nx = std::max(1, (fine_nx + 1) / 2);
+            const int coarse_ny = std::max(1, (fine_ny + 1) / 2);
+            const int coarse_nz = std::max(1, (fine_nz + 1) / 2);
             if (x >= coarse_nx || y >= coarse_ny || z >= coarse_nz) return;
 
             float residual_sum = 0.0f;
             int samples        = 0;
 
-            for (int fz = 2 * z; fz < mini(2 * z + 2, fine_nz); ++fz) {
-                for (int fy = 2 * y; fy < mini(2 * y + 2, fine_ny); ++fy) {
-                    for (int fx = 2 * x; fx < mini(2 * x + 2, fine_nx); ++fx) {
+            for (int fz = 2 * z; fz < std::min(2 * z + 2, fine_nz); ++fz) {
+                for (int fy = 2 * y; fy < std::min(2 * y + 2, fine_ny); ++fy) {
+                    for (int fx = 2 * x; fx < std::min(2 * x + 2, fine_nx); ++fx) {
                         float sum = 0.0f;
                         int diag  = 0;
                         pressure_row_info(fine_pressure, fx, fy, fz, fine_nx, fine_ny, fine_nz, boundary_pack, sum, diag);
@@ -699,23 +683,23 @@ namespace stable_fluids {
             coarse_rhs[index_3d(x, y, z, coarse_nx, coarse_ny)] = samples > 0 ? residual_sum / static_cast<float>(samples) : 0.0f;
         }
 
-        __global__ void restrict_diffusion_residual_kernel(float* coarse_rhs, const float* fine_solution, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const float alpha, const uint32_t boundary_pack, const InflowValues inflow, const int boundary_axis) {
+        __global__ void restrict_diffusion_residual_kernel(float* coarse_rhs, const float* fine_solution, const float* fine_rhs, const int fine_nx, const int fine_ny, const int fine_nz, const float alpha, const uint32_t boundary_pack, const InflowValues& inflow, const int boundary_axis) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
             const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
 
-            const int coarse_nx = maxi(1, (fine_nx + 1) / 2);
-            const int coarse_ny = maxi(1, (fine_ny + 1) / 2);
-            const int coarse_nz = maxi(1, (fine_nz + 1) / 2);
+            const int coarse_nx = std::max(1, (fine_nx + 1) / 2);
+            const int coarse_ny = std::max(1, (fine_ny + 1) / 2);
+            const int coarse_nz = std::max(1, (fine_nz + 1) / 2);
             if (x >= coarse_nx || y >= coarse_ny || z >= coarse_nz) return;
 
             float residual_sum = 0.0f;
             int samples        = 0;
 
-            for (int fz = 2 * z; fz < mini(2 * z + 2, fine_nz); ++fz) {
-                for (int fy = 2 * y; fy < mini(2 * y + 2, fine_ny); ++fy) {
-                    for (int fx = 2 * x; fx < mini(2 * x + 2, fine_nx); ++fx) {
+            for (int fz = 2 * z; fz < std::min(2 * z + 2, fine_nz); ++fz) {
+                for (int fy = 2 * y; fy < std::min(2 * y + 2, fine_ny); ++fy) {
+                    for (int fx = 2 * x; fx < std::min(2 * x + 2, fine_nx); ++fx) {
                         if (boundary_axis < 0) {
                             if (scalar_cell_is_inflow_boundary(fx, fy, fz, fine_nx, fine_ny, fine_nz, boundary_pack)) {
                                 ++samples;
@@ -758,12 +742,12 @@ namespace stable_fluids {
             const float gy = 0.5f * static_cast<float>(y) - 0.25f;
             const float gz = 0.5f * static_cast<float>(z) - 0.25f;
 
-            const int x0 = clampi(static_cast<int>(floorf(gx)), 0, coarse_nx - 1);
-            const int y0 = clampi(static_cast<int>(floorf(gy)), 0, coarse_ny - 1);
-            const int z0 = clampi(static_cast<int>(floorf(gz)), 0, coarse_nz - 1);
-            const int x1 = clampi(x0 + 1, 0, coarse_nx - 1);
-            const int y1 = clampi(y0 + 1, 0, coarse_ny - 1);
-            const int z1 = clampi(z0 + 1, 0, coarse_nz - 1);
+            const int x0 = std::clamp(static_cast<int>(floorf(gx)), 0, coarse_nx - 1);
+            const int y0 = std::clamp(static_cast<int>(floorf(gy)), 0, coarse_ny - 1);
+            const int z0 = std::clamp(static_cast<int>(floorf(gz)), 0, coarse_nz - 1);
+            const int x1 = std::clamp(x0 + 1, 0, coarse_nx - 1);
+            const int y1 = std::clamp(y0 + 1, 0, coarse_ny - 1);
+            const int z1 = std::clamp(z0 + 1, 0, coarse_nz - 1);
 
             const float tx = gx - floorf(gx);
             const float ty = gy - floorf(gy);
@@ -787,7 +771,7 @@ namespace stable_fluids {
             fine_pressure[index_3d(x, y, z, fine_nx, fine_ny)] += c0 + (c1 - c0) * tz;
         }
 
-        __global__ void project_velocity_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const float* pressure, const int nx, const int ny, const int nz, const float inv_h, const uint32_t boundary_pack, const InflowValues inflow) {
+        __global__ void project_velocity_kernel(float* velocity_x, float* velocity_y, float* velocity_z, const float* pressure, const int nx, const int ny, const int nz, const float inv_h, const uint32_t boundary_pack, const InflowValues& inflow) {
 
             const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
             const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -880,9 +864,9 @@ namespace stable_fluids {
                 const GridLevel& previous = hierarchy.levels[hierarchy.level_count - 1];
                 if (previous.nx <= 1 && previous.ny <= 1 && previous.nz <= 1) break;
 
-                const int nx = maxi(1, (previous.nx + 1) / 2);
-                const int ny = maxi(1, (previous.ny + 1) / 2);
-                const int nz = maxi(1, (previous.nz + 1) / 2);
+                const int nx = std::max(1, (previous.nx + 1) / 2);
+                const int ny = std::max(1, (previous.ny + 1) / 2);
+                const int nz = std::max(1, (previous.nz + 1) / 2);
 
                 hierarchy.levels[hierarchy.level_count] = GridLevel{
                     .nx       = nx,
@@ -903,7 +887,7 @@ namespace stable_fluids {
         struct PoissonVCycleOps {
             uint32_t boundary_pack;
 
-            int clear_coarse_solution(const GridLevel& level, const Stream stream) const {
+            static int clear_coarse_solution(const GridLevel& level, const Stream stream) {
                 const auto bytes = static_cast<std::uint64_t>(level.nx) * static_cast<std::uint64_t>(level.ny) * static_cast<std::uint64_t>(level.nz) * sizeof(float);
                 return cudaMemsetAsync(level.solution, 0, bytes, stream) == cudaSuccess ? 0 : 5001;
             }
@@ -922,7 +906,7 @@ namespace stable_fluids {
                 return cudaGetLastError() == cudaSuccess ? 0 : 5001;
             }
 
-            int prolongate_and_postprocess(const GridLevel& fine, const GridLevel& coarse, const dim3& block, const Stream stream) const {
+            static int prolongate_and_postprocess(const GridLevel& fine, const GridLevel& coarse, const dim3& block, const Stream stream) {
                 prolongate_add_kernel<<<make_grid(fine.nx, fine.ny, fine.nz, block), block, 0, stream>>>(fine.solution, coarse.solution, fine.nx, fine.ny, fine.nz, coarse.nx, coarse.ny, coarse.nz);
                 return cudaGetLastError() == cudaSuccess ? 0 : 5001;
             }
@@ -934,7 +918,7 @@ namespace stable_fluids {
             InflowValues inflow;
             BoundaryAxis boundary_axis;
 
-            int clear_coarse_solution(const GridLevel& level, const Stream stream) const {
+            static int clear_coarse_solution(const GridLevel& level, const Stream stream) {
                 const auto bytes = static_cast<std::uint64_t>(level.nx) * static_cast<std::uint64_t>(level.ny) * static_cast<std::uint64_t>(level.nz) * sizeof(float);
                 return cudaMemsetAsync(level.solution, 0, bytes, stream) == cudaSuccess ? 0 : 5001;
             }
@@ -966,7 +950,7 @@ namespace stable_fluids {
                 return cudaGetLastError() == cudaSuccess ? 0 : 5001;
             }
 
-            int prolongate_and_postprocess(const GridLevel& fine, const GridLevel& coarse, const dim3& block, const Stream stream) const {
+            static int prolongate_and_postprocess(const GridLevel& fine, const GridLevel& coarse, const dim3& block, const Stream stream) {
                 prolongate_add_kernel<<<make_grid(fine.nx, fine.ny, fine.nz, block), block, 0, stream>>>(fine.solution, coarse.solution, fine.nx, fine.ny, fine.nz, coarse.nx, coarse.ny, coarse.nz);
                 if (cudaGetLastError() != cudaSuccess) return 5001;
                 return 0;
@@ -1218,7 +1202,7 @@ int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdvectScalarDesc* des
 
     if (cudaMemcpyAsync(scalar_previous, scalar_field, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
 
-    const InflowValues velocity_inflow{
+    constexpr InflowValues velocity_inflow{
         .x_min = 0.0f,
         .x_max = 0.0f,
         .y_min = 0.0f,
