@@ -254,20 +254,8 @@ namespace stable_fluids {
             return count > 0 ? sum / static_cast<float>(count) : 0.0f;
         }
 
-        __device__ bool velocity_entry_has_boundary_condition(const int component_axis, const int x, const int y, const int z, const int sx, const int sy, const int sz) {
+        __device__ bool velocity_entry_has_boundary_condition(const int /*component_axis*/, const int x, const int y, const int z, const int sx, const int sy, const int sz) {
 
-            if (component_axis == 0) {
-                if (x == 0 || x == sx - 1) return true;
-                if (y == 0 || y == sy - 1) return true;
-                if (z == 0 || z == sz - 1) return true;
-                return false;
-            }
-            if (component_axis == 1) {
-                if (x == 0 || x == sx - 1) return true;
-                if (y == 0 || y == sy - 1) return true;
-                if (z == 0 || z == sz - 1) return true;
-                return false;
-            }
             if (x == 0 || x == sx - 1) return true;
             if (y == 0 || y == sy - 1) return true;
             if (z == 0 || z == sz - 1) return true;
@@ -279,81 +267,29 @@ namespace stable_fluids {
             float sum = 0.0f;
             int count = 0;
 
-            if (component_axis == 0) {
-                if (x == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (x == sx - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (y == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (y == sy - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (z == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (z == sz - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-            } else if (component_axis == 1) {
-                if (x == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (x == sx - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (y == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (y == sy - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (z == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (z == sz - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-            } else {
-                if (x == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (x == sx - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (y == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (y == sy - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (z == 0) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
-                if (z == sz - 1) {
-                    sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
-                    ++count;
-                }
+            if (x == 0) {
+                sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
+                ++count;
+            }
+            if (x == sx - 1) {
+                sum += velocity_boundary_value_for_face(field, component_axis, boundary_x_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
+                ++count;
+            }
+            if (y == 0) {
+                sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
+                ++count;
+            }
+            if (y == sy - 1) {
+                sum += velocity_boundary_value_for_face(field, component_axis, boundary_y_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
+                ++count;
+            }
+            if (z == 0) {
+                sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_min_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
+                ++count;
+            }
+            if (z == sz - 1) {
+                sum += velocity_boundary_value_for_face(field, component_axis, boundary_z_max_face, x, y, z, sx, sy, sz, boundary_pack, inflow);
+                ++count;
             }
 
             return count > 0 ? (sum / static_cast<float>(count)) : field[index_3d(x, y, z, sx, sy)];
