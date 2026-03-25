@@ -34,6 +34,10 @@ Error code scheme:
 2001  : invalid density buffer
 2002  : invalid destination buffer
 2006  : invalid dye buffer
+2017  : invalid temperature buffer
+2018  : invalid force_x buffer
+2019  : invalid force_y buffer
+2020  : invalid force_z buffer
 2003  : invalid velocity_x buffer
 2004  : invalid velocity_y buffer
 2005  : invalid velocity_z buffer
@@ -273,6 +277,42 @@ typedef struct StableFluidsAddVectorSourceDesc {
     void* stream;
 } StableFluidsAddVectorSourceDesc;
 
+typedef struct StableFluidsAddForceDesc {
+    uint32_t struct_size;
+    uint32_t api_version;
+    int32_t nx;
+    int32_t ny;
+    int32_t nz;
+    float dt;
+    uint32_t boundary_x_min;
+    uint32_t boundary_x_max;
+    uint32_t boundary_y_min;
+    uint32_t boundary_y_max;
+    uint32_t boundary_z_min;
+    uint32_t boundary_z_max;
+    float inflow_velocity_x_min;
+    float inflow_velocity_x_max;
+    float inflow_velocity_y_min;
+    float inflow_velocity_y_max;
+    float inflow_velocity_z_min;
+    float inflow_velocity_z_max;
+    float ambient_temperature;
+    float density_buoyancy;
+    float temperature_buoyancy;
+    void* velocity_x;
+    void* velocity_y;
+    void* velocity_z;
+    void* density;
+    void* temperature;
+    void* force_x;
+    void* force_y;
+    void* force_z;
+    int32_t block_x;
+    int32_t block_y;
+    int32_t block_z;
+    void* stream;
+} StableFluidsAddForceDesc;
+
 typedef struct StableFluidsComputeStaggeredVelocityMagnitudeDesc {
     uint32_t struct_size;
     uint32_t api_version;
@@ -313,6 +353,7 @@ STABLE_FLUIDS_API int32_t stable_fluids_validate_advect_scalar_desc(const Stable
 STABLE_FLUIDS_API int32_t stable_fluids_validate_diffuse_scalar_desc(const StableFluidsDiffuseScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_add_scalar_source_desc(const StableFluidsAddScalarSourceDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_add_vector_source_desc(const StableFluidsAddVectorSourceDesc* desc);
+STABLE_FLUIDS_API int32_t stable_fluids_validate_add_force_desc(const StableFluidsAddForceDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_compute_staggered_velocity_magnitude_desc(const StableFluidsComputeStaggeredVelocityMagnitudeDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_validate_pack_smoke_rgba_desc(const StableFluidsPackSmokeRgbaDesc* desc);
 
@@ -323,6 +364,7 @@ STABLE_FLUIDS_API int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdv
 STABLE_FLUIDS_API int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_add_scalar_source_cuda(const StableFluidsAddScalarSourceDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_add_vector_source_cuda(const StableFluidsAddVectorSourceDesc* desc);
+STABLE_FLUIDS_API int32_t stable_fluids_add_force_cuda(const StableFluidsAddForceDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_compute_staggered_velocity_magnitude_cuda(const StableFluidsComputeStaggeredVelocityMagnitudeDesc* desc);
 STABLE_FLUIDS_API int32_t stable_fluids_pack_smoke_rgba_cuda(const StableFluidsPackSmokeRgbaDesc* desc);
 
