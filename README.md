@@ -47,7 +47,7 @@ $$
 #### diffuse
 
 $$
-(I - \nu \,\Delta t\, \nabla^2)\, \mathbf{w}_3(\mathbf{x}) = \mathbf{w}_2(\mathbf{x})
+(I - \nu \Delta t \nabla^2) \mathbf{w}_3(\mathbf{x}) = \mathbf{w}_2(\mathbf{x})
 $$
 
 where $\nu$ is the viscosity coefficient.
@@ -65,7 +65,7 @@ $$
 #### add source
 
 $$
-\mathbf{\rho}_1(\mathbf{x}) = \mathbf{\rho}_0(\mathbf{x}) + \Delta t\, S(\mathbf{x}, t)
+\mathbf{\rho}_1(\mathbf{x}) = \mathbf{\rho}_0(\mathbf{x}) + \Delta t S(\mathbf{x}, t)
 $$
 
 where $S(\mathbf{x}, t)$ is the scalar source term (e.g., injected smoke or dye).
@@ -79,7 +79,7 @@ $$
 #### diffuse
 
 $$
-(I - \kappa \,\Delta t\, \nabla^2)\, \mathbf{\rho}_3(\mathbf{x}) = \mathbf{\rho}_2(\mathbf{x})
+(I - \kappa \Delta t \nabla^2) \mathbf{\rho}_3(\mathbf{x}) = \mathbf{\rho}_2(\mathbf{x})
 $$
 
 where $\kappa$ is the diffusion coefficient (similar to viscosity for density dissipation).
@@ -110,7 +110,7 @@ Gradient, and multigrid. Their asymptotic costs are summarized below.
 | Jacobi             | $\mathcal{O}(N)$ per iteration | Simple and parallel-friendly, but converges slowly            |
 | Gauss-Seidel       | $\mathcal{O}(N)$ per iteration | Usually converges faster than Jacobi, but still slow overall  |
 | Conjugate Gradient | $\mathcal{O}(N)$ per iteration | For SPD systems; total cost depends on $\kappa$ and tolerance |
-| Multigrid          | Near-$\mathcal{O}(N)$ overall  | Near-optimal for Poisson/Helmholtz-type elliptic problems     |
+| Multigrid          | Near $\mathcal{O}(N)$ overall  | Near-optimal for Poisson/Helmholtz-type elliptic problems     |
 
 ### Multi-grid method
 
