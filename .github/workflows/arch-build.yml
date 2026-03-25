@@ -1,4 +1,4 @@
-name: stable-fluids Arch Build
+name: Linux Build (Arch)
 
 on:
   workflow_dispatch:
@@ -9,32 +9,76 @@ on:
     paths:
       - '**'
 
+concurrency:
+  group: linux-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   arch-build-and-benchmark:
-    runs-on: [self-hosted, Linux, X64, archlinux, cuda]
-    defaults:
-      run:
-        shell: bash
+    name: Build (Arch Linux, CMake+Ninja)
+    runs-on: ubuntu-latest
+
+    container:
+      image: archlinux:latest
+
+    env:
+      CMAKE_BUILD_TYPE: Release
+      CUDAToolkit_ROOT: /opt/cuda
+
     steps:
+      - name: Prepare Arch keyring + update system
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pacman -S --noconfirm --needed \
+            base-devel git \
+            cmake ninja pkgconf \
+            gcc \
+            ca-certificates curl tar unzip \
+            python \
+            cuda
+          pacman -Scc --noconfirm || true
+
+          echo "/opt/cuda/bin" >> "$GITHUB_PATH"
+          echo "CUDAToolkit_ROOT=/opt/cuda" >> "$GITHUB_ENV"
+
+      - name: Toolchain sanity
+        shell: bash
+        run: |
+          set -euxo pipefail
+          g++ --version
+          cmake --version
+          ninja --version
+          command -v nvcc
+          nvcc --version
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Arch environment
+      - name: Configure
+        shell: bash
         run: |
-          sudo pacman -Syu --noconfirm --needed
-          sudo pacman -S --noconfirm --needed base-devel cmake ninja cuda
-          nvcc --version
-          cmake --version
+          set -euxo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
 
-      - name: Configure CMake
+      - name: Build
+        shell: bash
         run: |
-          cmake -S . -B build-arch -G Ninja -DCMAKE_BUILD_TYPE=Release
+          set -euxo pipefail
+          cmake --build build --target stable-fluids-app --parallel
 
-      - name: Build benchmark target
+      - name: Run benchmark
+        shell: bash
         run: |
-          cmake --build build-arch --target stable-fluids-app --parallel
-
-      - name: Run benchmark executable
-        run: |
-          export LD_LIBRARY_PATH="$PWD/build-arch:${LD_LIBRARY_PATH}"
-          ./build-arch/stable-fluids-app
+          set -euxo pipefail
+          export LD_LIBRARY_PATH="$PWD/build:${LD_LIBRARY_PATH}"
+          ./build/stable-fluids-app

@@ -1,5 +1,7 @@
 # [SIGGRAPH 1999] Stable fluids. Jos Stam.
 
+[![Arch Build](https://github.com/Xayah-Graphics/stable-fluids/actions/workflows/arch-build.yml/badge.svg)](https://github.com/Xayah-Graphics/stable-fluids/actions/workflows/arch-build.yml)
+
 ## 1. Pipeline Overview
 
 #### Fields
