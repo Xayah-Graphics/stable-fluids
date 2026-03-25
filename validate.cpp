@@ -18,7 +18,7 @@ namespace {
     }
 
     int32_t validate_boundaries(const uint32_t boundary_x_min, const uint32_t boundary_x_max, const uint32_t boundary_y_min, const uint32_t boundary_y_max, const uint32_t boundary_z_min, const uint32_t boundary_z_max) {
-        if (boundary_x_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || boundary_x_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || boundary_y_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || boundary_y_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || boundary_z_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || boundary_z_max > STABLE_FLUIDS_BOUNDARY_PERIODIC) return 1005;
+        if (boundary_x_min > STABLE_FLUIDS_BOUNDARY_OUTFLOW || boundary_x_max > STABLE_FLUIDS_BOUNDARY_OUTFLOW || boundary_y_min > STABLE_FLUIDS_BOUNDARY_OUTFLOW || boundary_y_max > STABLE_FLUIDS_BOUNDARY_OUTFLOW || boundary_z_min > STABLE_FLUIDS_BOUNDARY_OUTFLOW || boundary_z_max > STABLE_FLUIDS_BOUNDARY_OUTFLOW) return 1005;
         return 0;
     }
 

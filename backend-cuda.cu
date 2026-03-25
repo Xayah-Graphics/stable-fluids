@@ -15,6 +15,12 @@ namespace stable_fluids {
         constexpr uint32_t boundary_y_max_bit = 1u << 3;
         constexpr uint32_t boundary_z_min_bit = 1u << 4;
         constexpr uint32_t boundary_z_max_bit = 1u << 5;
+        constexpr int boundary_x_min_face      = 0;
+        constexpr int boundary_x_max_face      = 1;
+        constexpr int boundary_y_min_face      = 2;
+        constexpr int boundary_y_max_face      = 3;
+        constexpr int boundary_z_min_face      = 4;
+        constexpr int boundary_z_max_face      = 5;
 
         constexpr int max_levels = 16;
 
@@ -43,6 +49,14 @@ namespace stable_fluids {
 
         dim3 make_grid(const int nx, const int ny, const int nz, const dim3& block) {
             return dim3(static_cast<unsigned>((nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z)));
+        }
+
+        __host__ __device__ uint32_t boundary_type(const uint32_t boundary_pack, const int face) {
+            return (boundary_pack >> (face * 3)) & 0x7u;
+        }
+
+        uint32_t make_boundary_pack(const uint32_t x_min, const uint32_t x_max, const uint32_t y_min, const uint32_t y_max, const uint32_t z_min, const uint32_t z_max) {
+            return (x_min << (boundary_x_min_face * 3)) | (x_max << (boundary_x_max_face * 3)) | (y_min << (boundary_y_min_face * 3)) | (y_max << (boundary_y_max_face * 3)) | (z_min << (boundary_z_min_face * 3)) | (z_max << (boundary_z_max_face * 3));
         }
 
         __host__ __device__ bool map_index_or_fail(int& value, const int size, const bool periodic_min, const bool periodic_max) {
@@ -218,6 +232,126 @@ namespace stable_fluids {
             const float3 velocity                  = sample_velocity(velocity_x, velocity_y, velocity_z, pos, nx, ny, nz, h, boundary_mask);
             const float value                      = sample_scalar(source, wrap_or_clamp_domain(make_float3(pos.x - dt * velocity.x, pos.y - dt * velocity.y, pos.z - dt * velocity.z), nx, ny, nz, h, boundary_mask), nx, ny, nz, h, boundary_mask);
             destination[index_3d(x, y, z, nx, ny)] = clamp_non_negative != 0 ? fmaxf(0.0f, value) : value;
+        }
+
+        __global__ void enforce_velocity_boundaries_kernel(
+            float* velocity_x,
+            float* velocity_y,
+            float* velocity_z,
+            const int nx,
+            const int ny,
+            const int nz,
+            const uint32_t boundary_pack,
+            const float inflow_velocity_x_min,
+            const float inflow_velocity_x_max,
+            const float inflow_velocity_y_min,
+            const float inflow_velocity_y_max,
+            const float inflow_velocity_z_min,
+            const float inflow_velocity_z_max) {
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+
+            const uint32_t bx_min = boundary_type(boundary_pack, boundary_x_min_face);
+            const uint32_t bx_max = boundary_type(boundary_pack, boundary_x_max_face);
+            const uint32_t by_min = boundary_type(boundary_pack, boundary_y_min_face);
+            const uint32_t by_max = boundary_type(boundary_pack, boundary_y_max_face);
+            const uint32_t bz_min = boundary_type(boundary_pack, boundary_z_min_face);
+            const uint32_t bz_max = boundary_type(boundary_pack, boundary_z_max_face);
+
+            if (x <= nx && y < ny && z < nz) {
+                const auto u_index = index_3d(x, y, z, nx + 1, ny);
+                const bool touches_no_slip_tangent = (y == 0 && by_min == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (y == ny - 1 && by_max == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (z == 0 && bz_min == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (z == nz - 1 && bz_max == STABLE_FLUIDS_BOUNDARY_NO_SLIP);
+                if (touches_no_slip_tangent) velocity_x[u_index] = 0.0f;
+                if (x == 0) {
+                    if (bx_min == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_x[u_index] = inflow_velocity_x_min;
+                    else if (bx_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_x[u_index] = velocity_x[index_3d(1, y, z, nx + 1, ny)];
+                    else velocity_x[u_index] = 0.0f;
+                }
+                if (x == nx) {
+                    if (bx_max == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_x[u_index] = inflow_velocity_x_max;
+                    else if (bx_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_x[u_index] = velocity_x[index_3d(nx - 1, y, z, nx + 1, ny)];
+                    else velocity_x[u_index] = 0.0f;
+                }
+            }
+
+            if (x < nx && y <= ny && z < nz) {
+                const auto v_index = index_3d(x, y, z, nx, ny + 1);
+                const bool touches_no_slip_tangent = (x == 0 && bx_min == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (x == nx - 1 && bx_max == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (z == 0 && bz_min == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (z == nz - 1 && bz_max == STABLE_FLUIDS_BOUNDARY_NO_SLIP);
+                if (touches_no_slip_tangent) velocity_y[v_index] = 0.0f;
+                if (y == 0) {
+                    if (by_min == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_y[v_index] = inflow_velocity_y_min;
+                    else if (by_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_y[v_index] = velocity_y[index_3d(x, 1, z, nx, ny + 1)];
+                    else velocity_y[v_index] = 0.0f;
+                }
+                if (y == ny) {
+                    if (by_max == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_y[v_index] = inflow_velocity_y_max;
+                    else if (by_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_y[v_index] = velocity_y[index_3d(x, ny - 1, z, nx, ny + 1)];
+                    else velocity_y[v_index] = 0.0f;
+                }
+            }
+
+            if (x < nx && y < ny && z <= nz) {
+                const auto w_index = index_3d(x, y, z, nx, ny);
+                const bool touches_no_slip_tangent = (x == 0 && bx_min == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (x == nx - 1 && bx_max == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (y == 0 && by_min == STABLE_FLUIDS_BOUNDARY_NO_SLIP) || (y == ny - 1 && by_max == STABLE_FLUIDS_BOUNDARY_NO_SLIP);
+                if (touches_no_slip_tangent) velocity_z[w_index] = 0.0f;
+                if (z == 0) {
+                    if (bz_min == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_z[w_index] = inflow_velocity_z_min;
+                    else if (bz_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_z[w_index] = velocity_z[index_3d(x, y, 1, nx, ny)];
+                    else velocity_z[w_index] = 0.0f;
+                }
+                if (z == nz) {
+                    if (bz_max == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_z[w_index] = inflow_velocity_z_max;
+                    else if (bz_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_z[w_index] = velocity_z[index_3d(x, y, nz - 1, nx, ny)];
+                    else velocity_z[w_index] = 0.0f;
+                }
+            }
+        }
+
+        __global__ void apply_scalar_inflow_boundaries_kernel(
+            float* scalar,
+            const int nx,
+            const int ny,
+            const int nz,
+            const uint32_t boundary_pack,
+            const float inflow_scalar_x_min,
+            const float inflow_scalar_x_max,
+            const float inflow_scalar_y_min,
+            const float inflow_scalar_y_max,
+            const float inflow_scalar_z_min,
+            const float inflow_scalar_z_max) {
+            const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+            const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+            const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+            if (x >= nx || y >= ny || z >= nz) return;
+
+            float sum = 0.0f;
+            int count = 0;
+            if (x == 0 && boundary_type(boundary_pack, boundary_x_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+                sum += inflow_scalar_x_min;
+                ++count;
+            }
+            if (x == nx - 1 && boundary_type(boundary_pack, boundary_x_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+                sum += inflow_scalar_x_max;
+                ++count;
+            }
+            if (y == 0 && boundary_type(boundary_pack, boundary_y_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+                sum += inflow_scalar_y_min;
+                ++count;
+            }
+            if (y == ny - 1 && boundary_type(boundary_pack, boundary_y_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+                sum += inflow_scalar_y_max;
+                ++count;
+            }
+            if (z == 0 && boundary_type(boundary_pack, boundary_z_min_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+                sum += inflow_scalar_z_min;
+                ++count;
+            }
+            if (z == nz - 1 && boundary_type(boundary_pack, boundary_z_max_face) == STABLE_FLUIDS_BOUNDARY_INFLOW) {
+                sum += inflow_scalar_z_max;
+                ++count;
+            }
+            if (count > 0) scalar[index_3d(x, y, z, nx, ny)] = sum / static_cast<float>(count);
         }
 
         __global__ void add_scalar_source_kernel(float* destination, const int sx, const int sy, const int sz, const float center_x, const float center_y, const float center_z, const float radius, const float amount, const float sample_offset_x, const float sample_offset_y, const float sample_offset_z) {
@@ -698,8 +832,8 @@ int32_t stable_fluids_advect_velocity_cuda(const StableFluidsAdvectVelocityDesc*
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_advect_velocity_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
-                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = 0u;
+    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
     const dim3 velocity_grid = make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block);
     const auto stream        = static_cast<Stream>(desc->stream);
@@ -724,6 +858,21 @@ int32_t stable_fluids_advect_velocity_cuda(const StableFluidsAdvectVelocityDesc*
     if (cudaMemcpyAsync(velocity_z_previous, velocity_z_field, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
     advect_velocity<<<velocity_grid, block, 0, stream>>>(velocity_x_temporary, velocity_y_temporary, velocity_z_temporary, velocity_x_previous, velocity_y_previous, velocity_z_previous, desc->nx, desc->ny, desc->nz, desc->cell_size, desc->dt, boundary_mask);
     if (cudaGetLastError() != cudaSuccess) return 5001;
+    enforce_velocity_boundaries_kernel<<<velocity_grid, block, 0, stream>>>(
+        velocity_x_temporary,
+        velocity_y_temporary,
+        velocity_z_temporary,
+        desc->nx,
+        desc->ny,
+        desc->nz,
+        boundary_pack,
+        desc->inflow_velocity_x_min,
+        desc->inflow_velocity_x_max,
+        desc->inflow_velocity_y_min,
+        desc->inflow_velocity_y_max,
+        desc->inflow_velocity_z_min,
+        desc->inflow_velocity_z_max);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;
 }
 
@@ -731,8 +880,8 @@ int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDes
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_diffuse_velocity_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
-                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = 0u;
+    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
     const auto stream = static_cast<Stream>(desc->stream);
 
@@ -754,6 +903,9 @@ int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDes
         if (cudaMemcpyAsync(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
         if (cudaMemcpyAsync(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
         if (cudaMemcpyAsync(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
+        enforce_velocity_boundaries_kernel<<<make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block), block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, desc->nx, desc->ny, desc->nz, boundary_pack, desc->inflow_velocity_x_min, desc->inflow_velocity_x_max, desc->inflow_velocity_y_min,
+            desc->inflow_velocity_y_max, desc->inflow_velocity_z_min, desc->inflow_velocity_z_max);
+        if (cudaGetLastError() != cudaSuccess) return 5001;
         return 0;
     }
 
@@ -771,6 +923,9 @@ int32_t stable_fluids_diffuse_velocity_cuda(const StableFluidsDiffuseVelocityDes
     if (const int32_t code = diffuse_velocity_component(velocity_x_field, velocity_x_temporary, velocity_x_field_bytes, desc->nx + 1, desc->ny, desc->nz, BoundaryAxis::x); code != 0) return code;
     if (const int32_t code = diffuse_velocity_component(velocity_y_field, velocity_y_temporary, velocity_y_field_bytes, desc->nx, desc->ny + 1, desc->nz, BoundaryAxis::y); code != 0) return code;
     if (const int32_t code = diffuse_velocity_component(velocity_z_field, velocity_z_temporary, velocity_z_field_bytes, desc->nx, desc->ny, desc->nz + 1, BoundaryAxis::z); code != 0) return code;
+    enforce_velocity_boundaries_kernel<<<make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block), block, 0, stream>>>(velocity_x_field, velocity_y_field, velocity_z_field, desc->nx, desc->ny, desc->nz, boundary_pack, desc->inflow_velocity_x_min, desc->inflow_velocity_x_max, desc->inflow_velocity_y_min,
+        desc->inflow_velocity_y_max, desc->inflow_velocity_z_min, desc->inflow_velocity_z_max);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;
 }
 
@@ -778,8 +933,8 @@ int32_t stable_fluids_project_cuda(const StableFluidsProjectDesc* desc) {
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_project_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
-                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = 0u;
+    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
     const dim3 cells         = make_grid(desc->nx, desc->ny, desc->nz, block);
     const dim3 velocity_grid = make_grid(desc->nx + 1, desc->ny + 1, desc->nz + 1, block);
@@ -806,6 +961,9 @@ int32_t stable_fluids_project_cuda(const StableFluidsProjectDesc* desc) {
     if (const int32_t code = run_v_cycle(pressure_hierarchy, config, ops, block, stream); code != 0) return code;
     project_velocity_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x, velocity_y, velocity_z, pressure, desc->nx, desc->ny, desc->nz, 1.0f / desc->cell_size, boundary_mask);
     if (cudaGetLastError() != cudaSuccess) return 5001;
+    enforce_velocity_boundaries_kernel<<<velocity_grid, block, 0, stream>>>(velocity_x, velocity_y, velocity_z, desc->nx, desc->ny, desc->nz, boundary_pack, desc->inflow_velocity_x_min, desc->inflow_velocity_x_max, desc->inflow_velocity_y_min, desc->inflow_velocity_y_max, desc->inflow_velocity_z_min,
+        desc->inflow_velocity_z_max);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;
 }
 
@@ -813,8 +971,8 @@ int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdvectScalarDesc* des
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_advect_scalar_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_min_bit : 0u)
-                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? stable_fluids::boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = 0u;
+    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
 
     const auto cell_bytes  = static_cast<std::uint64_t>(desc->nx) * static_cast<std::uint64_t>(desc->ny) * static_cast<std::uint64_t>(desc->nz) * sizeof(float);
     auto* scalar_field     = static_cast<float*>(desc->scalar);
@@ -831,6 +989,8 @@ int32_t stable_fluids_advect_scalar_cuda(const StableFluidsAdvectScalarDesc* des
     if (cudaMemcpyAsync(scalar_previous, scalar_field, cell_bytes, cudaMemcpyDeviceToDevice, stream) != cudaSuccess) return 5001;
     advect_scalar_kernel<<<cells, block, 0, stream>>>(scalar_temporary, scalar_previous, velocity_x_field, velocity_y_field, velocity_z_field, desc->nx, desc->ny, desc->nz, desc->cell_size, desc->dt, boundary_mask, static_cast<int>(desc->clamp_non_negative));
     if (cudaGetLastError() != cudaSuccess) return 5001;
+    apply_scalar_inflow_boundaries_kernel<<<cells, block, 0, stream>>>(scalar_temporary, desc->nx, desc->ny, desc->nz, boundary_pack, desc->inflow_scalar_x_min, desc->inflow_scalar_x_max, desc->inflow_scalar_y_min, desc->inflow_scalar_y_max, desc->inflow_scalar_z_min, desc->inflow_scalar_z_max);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;
 }
 
@@ -838,8 +998,8 @@ int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* d
     using namespace stable_fluids;
     if (const int32_t code = stable_fluids_validate_diffuse_scalar_desc(desc); code != 0) return code;
 
-    const uint32_t boundary_mask = (desc->boundary_x_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_min_bit : 0u) | (desc->boundary_x_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_x_max_bit : 0u) | (desc->boundary_y_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_min_bit : 0u)
-                                 | (desc->boundary_y_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_y_max_bit : 0u) | (desc->boundary_z_min == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_min_bit : 0u) | (desc->boundary_z_max == STABLE_FLUIDS_BOUNDARY_PERIODIC ? boundary_z_max_bit : 0u);
+    const uint32_t boundary_mask = 0u;
+    const uint32_t boundary_pack = make_boundary_pack(desc->boundary_x_min, desc->boundary_x_max, desc->boundary_y_min, desc->boundary_y_max, desc->boundary_z_min, desc->boundary_z_max);
     const dim3 block(static_cast<unsigned>(std::max(desc->block_x, 1)), static_cast<unsigned>(std::max(desc->block_y, 1)), static_cast<unsigned>(std::max(desc->block_z, 1)));
     const dim3 cells      = make_grid(desc->nx, desc->ny, desc->nz, block);
     const auto stream     = static_cast<Stream>(desc->stream);
@@ -863,6 +1023,8 @@ int32_t stable_fluids_diffuse_scalar_cuda(const StableFluidsDiffuseScalarDesc* d
     const float denom = 1.0f + 6.0f * diffusion_alpha;
     diffuse_grid_kernel<<<cells, block, 0, stream>>>(scalar_field, scalar_temporary, desc->nx, desc->ny, desc->nz, diffusion_alpha, denom, 0, boundary_mask);
     diffuse_grid_kernel<<<cells, block, 0, stream>>>(scalar_field, scalar_temporary, desc->nx, desc->ny, desc->nz, diffusion_alpha, denom, 1, boundary_mask);
+    if (cudaGetLastError() != cudaSuccess) return 5001;
+    apply_scalar_inflow_boundaries_kernel<<<cells, block, 0, stream>>>(scalar_field, desc->nx, desc->ny, desc->nz, boundary_pack, desc->inflow_scalar_x_min, desc->inflow_scalar_x_max, desc->inflow_scalar_y_min, desc->inflow_scalar_y_max, desc->inflow_scalar_z_min, desc->inflow_scalar_z_max);
     if (cudaGetLastError() != cudaSuccess) return 5001;
     return 0;
 }

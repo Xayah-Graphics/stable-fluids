@@ -51,7 +51,12 @@ Error code scheme:
 
 #define STABLE_FLUIDS_API_VERSION 1u
 
-typedef enum StableFluidsBoundaryType { STABLE_FLUIDS_BOUNDARY_FIXED = 0, STABLE_FLUIDS_BOUNDARY_PERIODIC = 1 } StableFluidsBoundaryType;
+typedef enum StableFluidsBoundaryType {
+    STABLE_FLUIDS_BOUNDARY_NO_SLIP   = 0,
+    STABLE_FLUIDS_BOUNDARY_FREE_SLIP = 1,
+    STABLE_FLUIDS_BOUNDARY_INFLOW    = 2,
+    STABLE_FLUIDS_BOUNDARY_OUTFLOW   = 3,
+} StableFluidsBoundaryType;
 
 typedef struct StableFluidsAdvectVelocityDesc {
     uint32_t struct_size;
@@ -67,6 +72,12 @@ typedef struct StableFluidsAdvectVelocityDesc {
     uint32_t boundary_y_max;
     uint32_t boundary_z_min;
     uint32_t boundary_z_max;
+    float inflow_velocity_x_min;
+    float inflow_velocity_x_max;
+    float inflow_velocity_y_min;
+    float inflow_velocity_y_max;
+    float inflow_velocity_z_min;
+    float inflow_velocity_z_max;
     void* velocity_x;
     void* velocity_y;
     void* velocity_z;
@@ -98,6 +109,12 @@ typedef struct StableFluidsDiffuseVelocityDesc {
     uint32_t boundary_y_max;
     uint32_t boundary_z_min;
     uint32_t boundary_z_max;
+    float inflow_velocity_x_min;
+    float inflow_velocity_x_max;
+    float inflow_velocity_y_min;
+    float inflow_velocity_y_max;
+    float inflow_velocity_z_min;
+    float inflow_velocity_z_max;
     void* velocity_x;
     void* velocity_y;
     void* velocity_z;
@@ -126,6 +143,12 @@ typedef struct StableFluidsProjectDesc {
     uint32_t boundary_y_max;
     uint32_t boundary_z_min;
     uint32_t boundary_z_max;
+    float inflow_velocity_x_min;
+    float inflow_velocity_x_max;
+    float inflow_velocity_y_min;
+    float inflow_velocity_y_max;
+    float inflow_velocity_z_min;
+    float inflow_velocity_z_max;
     void* velocity_x;
     void* velocity_y;
     void* velocity_z;
@@ -153,6 +176,12 @@ typedef struct StableFluidsAdvectScalarDesc {
     uint32_t boundary_y_max;
     uint32_t boundary_z_min;
     uint32_t boundary_z_max;
+    float inflow_scalar_x_min;
+    float inflow_scalar_x_max;
+    float inflow_scalar_y_min;
+    float inflow_scalar_y_max;
+    float inflow_scalar_z_min;
+    float inflow_scalar_z_max;
     void* scalar;
     void* temporary_scalar;
     void* temporary_previous_scalar;
@@ -182,6 +211,12 @@ typedef struct StableFluidsDiffuseScalarDesc {
     uint32_t boundary_y_max;
     uint32_t boundary_z_min;
     uint32_t boundary_z_max;
+    float inflow_scalar_x_min;
+    float inflow_scalar_x_max;
+    float inflow_scalar_y_min;
+    float inflow_scalar_y_max;
+    float inflow_scalar_z_min;
+    float inflow_scalar_z_max;
     void* scalar;
     void* temporary_scalar;
     void* temporary_solution_storage;
