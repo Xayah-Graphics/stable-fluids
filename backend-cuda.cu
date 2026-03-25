@@ -265,12 +265,12 @@ namespace stable_fluids {
                 if (touches_no_slip_tangent) velocity_x[u_index] = 0.0f;
                 if (x == 0) {
                     if (bx_min == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_x[u_index] = inflow_velocity_x_min;
-                    else if (bx_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_x[u_index] = velocity_x[index_3d(1, y, z, nx + 1, ny)];
+                    else if (bx_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_x[u_index] = fminf(velocity_x[index_3d(1, y, z, nx + 1, ny)], 0.0f);
                     else velocity_x[u_index] = 0.0f;
                 }
                 if (x == nx) {
                     if (bx_max == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_x[u_index] = inflow_velocity_x_max;
-                    else if (bx_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_x[u_index] = velocity_x[index_3d(nx - 1, y, z, nx + 1, ny)];
+                    else if (bx_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_x[u_index] = fmaxf(velocity_x[index_3d(nx - 1, y, z, nx + 1, ny)], 0.0f);
                     else velocity_x[u_index] = 0.0f;
                 }
             }
@@ -281,12 +281,12 @@ namespace stable_fluids {
                 if (touches_no_slip_tangent) velocity_y[v_index] = 0.0f;
                 if (y == 0) {
                     if (by_min == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_y[v_index] = inflow_velocity_y_min;
-                    else if (by_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_y[v_index] = velocity_y[index_3d(x, 1, z, nx, ny + 1)];
+                    else if (by_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_y[v_index] = fminf(velocity_y[index_3d(x, 1, z, nx, ny + 1)], 0.0f);
                     else velocity_y[v_index] = 0.0f;
                 }
                 if (y == ny) {
                     if (by_max == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_y[v_index] = inflow_velocity_y_max;
-                    else if (by_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_y[v_index] = velocity_y[index_3d(x, ny - 1, z, nx, ny + 1)];
+                    else if (by_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_y[v_index] = fmaxf(velocity_y[index_3d(x, ny - 1, z, nx, ny + 1)], 0.0f);
                     else velocity_y[v_index] = 0.0f;
                 }
             }
@@ -297,12 +297,12 @@ namespace stable_fluids {
                 if (touches_no_slip_tangent) velocity_z[w_index] = 0.0f;
                 if (z == 0) {
                     if (bz_min == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_z[w_index] = inflow_velocity_z_min;
-                    else if (bz_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_z[w_index] = velocity_z[index_3d(x, y, 1, nx, ny)];
+                    else if (bz_min == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_z[w_index] = fminf(velocity_z[index_3d(x, y, 1, nx, ny)], 0.0f);
                     else velocity_z[w_index] = 0.0f;
                 }
                 if (z == nz) {
                     if (bz_max == STABLE_FLUIDS_BOUNDARY_INFLOW) velocity_z[w_index] = inflow_velocity_z_max;
-                    else if (bz_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_z[w_index] = velocity_z[index_3d(x, y, nz - 1, nx, ny)];
+                    else if (bz_max == STABLE_FLUIDS_BOUNDARY_OUTFLOW) velocity_z[w_index] = fmaxf(velocity_z[index_3d(x, y, nz - 1, nx, ny)], 0.0f);
                     else velocity_z[w_index] = 0.0f;
                 }
             }
