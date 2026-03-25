@@ -24,11 +24,11 @@ namespace {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
 
-        const float dx = (static_cast<float>(x) + 0.5f) - center_x;
-        const float dy = (static_cast<float>(y) + 0.5f) - center_y;
-        const float dz = (static_cast<float>(z) + 0.5f) - center_z;
+        const float dx      = (static_cast<float>(x) + 0.5f) - center_x;
+        const float dy      = (static_cast<float>(y) + 0.5f) - center_y;
+        const float dz      = (static_cast<float>(z) + 0.5f) - center_z;
         const float radius2 = radius * radius;
-        const float dist2 = dx * dx + dy * dy + dz * dz;
+        const float dist2   = dx * dx + dy * dy + dz * dz;
         if (dist2 > radius2) return;
         density[index_3d(x, y, z, nx, ny)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
     }
@@ -39,11 +39,11 @@ namespace {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x > nx || y >= ny || z >= nz) return;
 
-        const float dx = static_cast<float>(x) - center_x;
-        const float dy = (static_cast<float>(y) + 0.5f) - center_y;
-        const float dz = (static_cast<float>(z) + 0.5f) - center_z;
+        const float dx      = static_cast<float>(x) - center_x;
+        const float dy      = (static_cast<float>(y) + 0.5f) - center_y;
+        const float dz      = (static_cast<float>(z) + 0.5f) - center_z;
         const float radius2 = radius * radius;
-        const float dist2 = dx * dx + dy * dy + dz * dz;
+        const float dist2   = dx * dx + dy * dy + dz * dz;
         if (dist2 > radius2) return;
         velocity_x[index_3d(x, y, z, nx + 1, ny)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
     }
@@ -54,11 +54,11 @@ namespace {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y > ny || z >= nz) return;
 
-        const float dx = (static_cast<float>(x) + 0.5f) - center_x;
-        const float dy = static_cast<float>(y) - center_y;
-        const float dz = (static_cast<float>(z) + 0.5f) - center_z;
+        const float dx      = (static_cast<float>(x) + 0.5f) - center_x;
+        const float dy      = static_cast<float>(y) - center_y;
+        const float dz      = (static_cast<float>(z) + 0.5f) - center_z;
         const float radius2 = radius * radius;
-        const float dist2 = dx * dx + dy * dy + dz * dz;
+        const float dist2   = dx * dx + dy * dy + dz * dz;
         if (dist2 > radius2) return;
         velocity_y[index_3d(x, y, z, nx, ny + 1)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
     }
@@ -69,11 +69,11 @@ namespace {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z > nz) return;
 
-        const float dx = (static_cast<float>(x) + 0.5f) - center_x;
-        const float dy = (static_cast<float>(y) + 0.5f) - center_y;
-        const float dz = static_cast<float>(z) - center_z;
+        const float dx      = (static_cast<float>(x) + 0.5f) - center_x;
+        const float dy      = (static_cast<float>(y) + 0.5f) - center_y;
+        const float dz      = static_cast<float>(z) - center_z;
         const float radius2 = radius * radius;
-        const float dist2 = dx * dx + dy * dy + dz * dz;
+        const float dist2   = dx * dx + dy * dy + dz * dz;
         if (dist2 > radius2) return;
         velocity_z[index_3d(x, y, z, nx, ny)] += amount * fmaxf(0.0f, 1.0f - dist2 / radius2);
     }

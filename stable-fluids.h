@@ -51,10 +51,7 @@ Error code scheme:
 
 #define STABLE_FLUIDS_API_VERSION 1u
 
-typedef enum StableFluidsBoundaryType {
-    STABLE_FLUIDS_BOUNDARY_FIXED = 0,
-    STABLE_FLUIDS_BOUNDARY_PERIODIC = 1
-} StableFluidsBoundaryType;
+typedef enum StableFluidsBoundaryType { STABLE_FLUIDS_BOUNDARY_FIXED = 0, STABLE_FLUIDS_BOUNDARY_PERIODIC = 1 } StableFluidsBoundaryType;
 
 typedef struct StableFluidsStepDesc {
     uint32_t struct_size;

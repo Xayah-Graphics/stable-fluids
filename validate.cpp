@@ -10,7 +10,8 @@ int32_t stable_fluids_validate_desc(const StableFluidsStepDesc* desc) {
     if (desc->cell_size <= 0.0f) return 1002;
     if (desc->dt <= 0.0f) return 1003;
     if (desc->diffuse_iterations <= 0 || desc->pressure_iterations <= 0) return 1004;
-    if (desc->boundary_x_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_x_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_y_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_y_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_z_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_z_max > STABLE_FLUIDS_BOUNDARY_PERIODIC) return 1005;
+    if (desc->boundary_x_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_x_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_y_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_y_max > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_z_min > STABLE_FLUIDS_BOUNDARY_PERIODIC || desc->boundary_z_max > STABLE_FLUIDS_BOUNDARY_PERIODIC)
+        return 1005;
     if (desc->density == nullptr) return 2001;
     if (desc->velocity_x == nullptr) return 2003;
     if (desc->velocity_y == nullptr) return 2004;
