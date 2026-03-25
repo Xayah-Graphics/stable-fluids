@@ -83,114 +83,119 @@ int main() {
 
     const auto cuda_begin = std::chrono::steady_clock::now();
     for (int frame = 0; exit_code == EXIT_SUCCESS && frame < frames; ++frame) {
-        StableFluidsAddScalarSourceDesc scalar_source_desc{};
-        scalar_source_desc.struct_size     = sizeof(StableFluidsAddScalarSourceDesc);
-        scalar_source_desc.api_version     = STABLE_FLUIDS_API_VERSION;
-        scalar_source_desc.nx              = nx;
-        scalar_source_desc.ny              = ny;
-        scalar_source_desc.nz              = nz;
-        scalar_source_desc.scalar          = density;
-        scalar_source_desc.center_x        = static_cast<float>(nx) * 0.5f;
-        scalar_source_desc.center_y        = static_cast<float>(ny) * 0.18f;
-        scalar_source_desc.center_z        = static_cast<float>(nz) * 0.5f;
-        scalar_source_desc.radius          = 4.5f;
-        scalar_source_desc.amount          = 0.85f;
-        scalar_source_desc.sample_offset_x = 0.5f;
-        scalar_source_desc.sample_offset_y = 0.5f;
-        scalar_source_desc.sample_offset_z = 0.5f;
-        scalar_source_desc.block_x         = block_x;
-        scalar_source_desc.block_y         = block_y;
-        scalar_source_desc.block_z         = block_z;
-        scalar_source_desc.stream          = stream;
+        StableFluidsAddScalarSourceDesc scalar_source_desc{
+            .struct_size     = sizeof(StableFluidsAddScalarSourceDesc),
+            .api_version     = STABLE_FLUIDS_API_VERSION,
+            .nx              = nx,
+            .ny              = ny,
+            .nz              = nz,
+            .scalar          = density,
+            .center_x        = static_cast<float>(nx) * 0.5f,
+            .center_y        = static_cast<float>(ny) * 0.18f,
+            .center_z        = static_cast<float>(nz) * 0.5f,
+            .radius          = 4.5f,
+            .amount          = 0.85f,
+            .sample_offset_x = 0.5f,
+            .sample_offset_y = 0.5f,
+            .sample_offset_z = 0.5f,
+            .block_x         = block_x,
+            .block_y         = block_y,
+            .block_z         = block_z,
+            .stream          = stream,
+        };
 
-        StableFluidsAddVectorSourceDesc vector_source_desc{};
-        vector_source_desc.struct_size = sizeof(StableFluidsAddVectorSourceDesc);
-        vector_source_desc.api_version = STABLE_FLUIDS_API_VERSION;
-        vector_source_desc.nx          = nx;
-        vector_source_desc.ny          = ny;
-        vector_source_desc.nz          = nz;
-        vector_source_desc.vector_x    = velocity_x;
-        vector_source_desc.vector_y    = velocity_y;
-        vector_source_desc.vector_z    = velocity_z;
-        vector_source_desc.center_x    = scalar_source_desc.center_x;
-        vector_source_desc.center_y    = scalar_source_desc.center_y;
-        vector_source_desc.center_z    = scalar_source_desc.center_z;
-        vector_source_desc.radius      = scalar_source_desc.radius;
-        vector_source_desc.amount_x    = 0.0f;
-        vector_source_desc.amount_y    = 1.2f;
-        vector_source_desc.amount_z    = 0.0f;
-        vector_source_desc.block_x     = block_x;
-        vector_source_desc.block_y     = block_y;
-        vector_source_desc.block_z     = block_z;
-        vector_source_desc.stream      = stream;
+        StableFluidsAddVectorSourceDesc vector_source_desc{
+            .struct_size = sizeof(StableFluidsAddVectorSourceDesc),
+            .api_version = STABLE_FLUIDS_API_VERSION,
+            .nx          = nx,
+            .ny          = ny,
+            .nz          = nz,
+            .vector_x    = velocity_x,
+            .vector_y    = velocity_y,
+            .vector_z    = velocity_z,
+            .center_x    = scalar_source_desc.center_x,
+            .center_y    = scalar_source_desc.center_y,
+            .center_z    = scalar_source_desc.center_z,
+            .radius      = scalar_source_desc.radius,
+            .amount_x    = 0.0f,
+            .amount_y    = 1.2f,
+            .amount_z    = 0.0f,
+            .block_x     = block_x,
+            .block_y     = block_y,
+            .block_z     = block_z,
+            .stream      = stream,
+        };
 
         if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_scalar_source_cuda(&scalar_source_desc), "stable_fluids_add_scalar_source_cuda")) exit_code = EXIT_FAILURE;
         if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_vector_source_cuda(&vector_source_desc), "stable_fluids_add_vector_source_cuda")) exit_code = EXIT_FAILURE;
 
-        StableFluidsAdvectVelocityDesc advect_velocity_desc{};
-        advect_velocity_desc.struct_size                   = sizeof(StableFluidsAdvectVelocityDesc);
-        advect_velocity_desc.api_version                   = STABLE_FLUIDS_API_VERSION;
-        advect_velocity_desc.nx                            = nx;
-        advect_velocity_desc.ny                            = ny;
-        advect_velocity_desc.nz                            = nz;
-        advect_velocity_desc.cell_size                     = cell_size;
-        advect_velocity_desc.dt                            = dt;
-        advect_velocity_desc.velocity_x                    = velocity_x;
-        advect_velocity_desc.velocity_y                    = velocity_y;
-        advect_velocity_desc.velocity_z                    = velocity_z;
-        advect_velocity_desc.temporary_velocity_x          = temporary_velocity_x;
-        advect_velocity_desc.temporary_velocity_y          = temporary_velocity_y;
-        advect_velocity_desc.temporary_velocity_z          = temporary_velocity_z;
-        advect_velocity_desc.temporary_previous_velocity_x = temporary_previous_velocity_x;
-        advect_velocity_desc.temporary_previous_velocity_y = temporary_previous_velocity_y;
-        advect_velocity_desc.temporary_previous_velocity_z = temporary_previous_velocity_z;
-        advect_velocity_desc.block_x                       = block_x;
-        advect_velocity_desc.block_y                       = block_y;
-        advect_velocity_desc.block_z                       = block_z;
-        advect_velocity_desc.stream                        = stream;
+        StableFluidsAdvectVelocityDesc advect_velocity_desc{
+            .struct_size                   = sizeof(StableFluidsAdvectVelocityDesc),
+            .api_version                   = STABLE_FLUIDS_API_VERSION,
+            .nx                            = nx,
+            .ny                            = ny,
+            .nz                            = nz,
+            .cell_size                     = cell_size,
+            .dt                            = dt,
+            .velocity_x                    = velocity_x,
+            .velocity_y                    = velocity_y,
+            .velocity_z                    = velocity_z,
+            .temporary_velocity_x          = temporary_velocity_x,
+            .temporary_velocity_y          = temporary_velocity_y,
+            .temporary_velocity_z          = temporary_velocity_z,
+            .temporary_previous_velocity_x = temporary_previous_velocity_x,
+            .temporary_previous_velocity_y = temporary_previous_velocity_y,
+            .temporary_previous_velocity_z = temporary_previous_velocity_z,
+            .block_x                       = block_x,
+            .block_y                       = block_y,
+            .block_z                       = block_z,
+            .stream                        = stream,
+        };
 
-        StableFluidsDiffuseVelocityDesc diffuse_velocity_desc{};
-        diffuse_velocity_desc.struct_size                = sizeof(StableFluidsDiffuseVelocityDesc);
-        diffuse_velocity_desc.api_version                = STABLE_FLUIDS_API_VERSION;
-        diffuse_velocity_desc.nx                         = nx;
-        diffuse_velocity_desc.ny                         = ny;
-        diffuse_velocity_desc.nz                         = nz;
-        diffuse_velocity_desc.cell_size                  = cell_size;
-        diffuse_velocity_desc.dt                         = dt;
-        diffuse_velocity_desc.viscosity                  = viscosity;
-        diffuse_velocity_desc.diffuse_iterations         = diffuse_iterations;
-        diffuse_velocity_desc.velocity_x                 = velocity_x;
-        diffuse_velocity_desc.velocity_y                 = velocity_y;
-        diffuse_velocity_desc.velocity_z                 = velocity_z;
-        diffuse_velocity_desc.temporary_velocity_x       = temporary_velocity_x;
-        diffuse_velocity_desc.temporary_velocity_y       = temporary_velocity_y;
-        diffuse_velocity_desc.temporary_velocity_z       = temporary_velocity_z;
-        diffuse_velocity_desc.temporary_density          = temporary_density;
-        diffuse_velocity_desc.temporary_previous_density = temporary_previous_density;
-        diffuse_velocity_desc.block_x                    = block_x;
-        diffuse_velocity_desc.block_y                    = block_y;
-        diffuse_velocity_desc.block_z                    = block_z;
-        diffuse_velocity_desc.stream                     = stream;
+        StableFluidsDiffuseVelocityDesc diffuse_velocity_desc{
+            .struct_size                = sizeof(StableFluidsDiffuseVelocityDesc),
+            .api_version                = STABLE_FLUIDS_API_VERSION,
+            .nx                         = nx,
+            .ny                         = ny,
+            .nz                         = nz,
+            .cell_size                  = cell_size,
+            .dt                         = dt,
+            .viscosity                  = viscosity,
+            .diffuse_iterations         = diffuse_iterations,
+            .velocity_x                 = velocity_x,
+            .velocity_y                 = velocity_y,
+            .velocity_z                 = velocity_z,
+            .temporary_velocity_x       = temporary_velocity_x,
+            .temporary_velocity_y       = temporary_velocity_y,
+            .temporary_velocity_z       = temporary_velocity_z,
+            .temporary_density          = temporary_density,
+            .temporary_previous_density = temporary_previous_density,
+            .block_x                    = block_x,
+            .block_y                    = block_y,
+            .block_z                    = block_z,
+            .stream                     = stream,
+        };
 
-        StableFluidsProjectDesc project_desc{};
-        project_desc.struct_size                = sizeof(StableFluidsProjectDesc);
-        project_desc.api_version                = STABLE_FLUIDS_API_VERSION;
-        project_desc.nx                         = nx;
-        project_desc.ny                         = ny;
-        project_desc.nz                         = nz;
-        project_desc.cell_size                  = cell_size;
-        project_desc.pressure_iterations        = pressure_iterations;
-        project_desc.velocity_x                 = velocity_x;
-        project_desc.velocity_y                 = velocity_y;
-        project_desc.velocity_z                 = velocity_z;
-        project_desc.temporary_pressure         = temporary_pressure;
-        project_desc.temporary_divergence       = temporary_divergence;
-        project_desc.temporary_density          = temporary_density;
-        project_desc.temporary_previous_density = temporary_previous_density;
-        project_desc.block_x                    = block_x;
-        project_desc.block_y                    = block_y;
-        project_desc.block_z                    = block_z;
-        project_desc.stream                     = stream;
+        StableFluidsProjectDesc project_desc{
+            .struct_size                = sizeof(StableFluidsProjectDesc),
+            .api_version                = STABLE_FLUIDS_API_VERSION,
+            .nx                         = nx,
+            .ny                         = ny,
+            .nz                         = nz,
+            .cell_size                  = cell_size,
+            .pressure_iterations        = pressure_iterations,
+            .velocity_x                 = velocity_x,
+            .velocity_y                 = velocity_y,
+            .velocity_z                 = velocity_z,
+            .temporary_pressure         = temporary_pressure,
+            .temporary_divergence       = temporary_divergence,
+            .temporary_density          = temporary_density,
+            .temporary_previous_density = temporary_previous_density,
+            .block_x                    = block_x,
+            .block_y                    = block_y,
+            .block_z                    = block_z,
+            .stream                     = stream,
+        };
 
         struct ScalarFieldBatch {
             float* field;
@@ -206,45 +211,47 @@ int main() {
         if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_diffuse_velocity_cuda(&diffuse_velocity_desc), "stable_fluids_diffuse_velocity_cuda")) exit_code = EXIT_FAILURE;
         if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_project_cuda(&project_desc), "stable_fluids_project_cuda")) exit_code = EXIT_FAILURE;
         for (const auto& scalar_field : scalar_fields) {
-            StableFluidsAdvectScalarDesc advect_scalar_desc{};
-            advect_scalar_desc.struct_size               = sizeof(StableFluidsAdvectScalarDesc);
-            advect_scalar_desc.api_version               = STABLE_FLUIDS_API_VERSION;
-            advect_scalar_desc.nx                        = nx;
-            advect_scalar_desc.ny                        = ny;
-            advect_scalar_desc.nz                        = nz;
-            advect_scalar_desc.cell_size                 = cell_size;
-            advect_scalar_desc.dt                        = dt;
-            advect_scalar_desc.scalar                    = scalar_field.field;
-            advect_scalar_desc.temporary_scalar          = scalar_field.temporary_field;
-            advect_scalar_desc.temporary_previous_scalar = scalar_field.previous_field;
-            advect_scalar_desc.velocity_x                = velocity_x;
-            advect_scalar_desc.velocity_y                = velocity_y;
-            advect_scalar_desc.velocity_z                = velocity_z;
-            advect_scalar_desc.clamp_non_negative        = scalar_field.clamp_non_negative;
-            advect_scalar_desc.block_x                   = block_x;
-            advect_scalar_desc.block_y                   = block_y;
-            advect_scalar_desc.block_z                   = block_z;
-            advect_scalar_desc.stream                    = stream;
+            StableFluidsAdvectScalarDesc advect_scalar_desc{
+                .struct_size               = sizeof(StableFluidsAdvectScalarDesc),
+                .api_version               = STABLE_FLUIDS_API_VERSION,
+                .nx                        = nx,
+                .ny                        = ny,
+                .nz                        = nz,
+                .cell_size                 = cell_size,
+                .dt                        = dt,
+                .scalar                    = scalar_field.field,
+                .temporary_scalar          = scalar_field.temporary_field,
+                .temporary_previous_scalar = scalar_field.previous_field,
+                .velocity_x                = velocity_x,
+                .velocity_y                = velocity_y,
+                .velocity_z                = velocity_z,
+                .clamp_non_negative        = scalar_field.clamp_non_negative,
+                .block_x                   = block_x,
+                .block_y                   = block_y,
+                .block_z                   = block_z,
+                .stream                    = stream,
+            };
 
-            StableFluidsDiffuseScalarDesc diffuse_scalar_desc{};
-            diffuse_scalar_desc.struct_size                = sizeof(StableFluidsDiffuseScalarDesc);
-            diffuse_scalar_desc.api_version                = STABLE_FLUIDS_API_VERSION;
-            diffuse_scalar_desc.nx                         = nx;
-            diffuse_scalar_desc.ny                         = ny;
-            diffuse_scalar_desc.nz                         = nz;
-            diffuse_scalar_desc.cell_size                  = cell_size;
-            diffuse_scalar_desc.dt                         = dt;
-            diffuse_scalar_desc.diffusion                  = diffusion;
-            diffuse_scalar_desc.diffuse_iterations         = diffuse_iterations;
-            diffuse_scalar_desc.scalar                     = scalar_field.field;
-            diffuse_scalar_desc.temporary_scalar           = scalar_field.temporary_field;
-            diffuse_scalar_desc.temporary_solution_storage = temporary_pressure;
-            diffuse_scalar_desc.temporary_rhs_storage      = temporary_divergence;
-            diffuse_scalar_desc.clamp_non_negative         = scalar_field.clamp_non_negative;
-            diffuse_scalar_desc.block_x                    = block_x;
-            diffuse_scalar_desc.block_y                    = block_y;
-            diffuse_scalar_desc.block_z                    = block_z;
-            diffuse_scalar_desc.stream                     = stream;
+            StableFluidsDiffuseScalarDesc diffuse_scalar_desc{
+                .struct_size                = sizeof(StableFluidsDiffuseScalarDesc),
+                .api_version                = STABLE_FLUIDS_API_VERSION,
+                .nx                         = nx,
+                .ny                         = ny,
+                .nz                         = nz,
+                .cell_size                  = cell_size,
+                .dt                         = dt,
+                .diffusion                  = diffusion,
+                .diffuse_iterations         = diffuse_iterations,
+                .scalar                     = scalar_field.field,
+                .temporary_scalar           = scalar_field.temporary_field,
+                .temporary_solution_storage = temporary_pressure,
+                .temporary_rhs_storage      = temporary_divergence,
+                .clamp_non_negative         = scalar_field.clamp_non_negative,
+                .block_x                    = block_x,
+                .block_y                    = block_y,
+                .block_z                    = block_z,
+                .stream                     = stream,
+            };
 
             if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_advect_scalar_cuda(&advect_scalar_desc), "stable_fluids_advect_scalar_cuda")) exit_code = EXIT_FAILURE;
             if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_diffuse_scalar_cuda(&diffuse_scalar_desc), "stable_fluids_diffuse_scalar_cuda")) exit_code = EXIT_FAILURE;
