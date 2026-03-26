@@ -200,6 +200,7 @@ STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_alpha_rgb_rgba_cuda(
     StableFluidsFieldHandle rgb_field,
     void* destination
 );
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_velocity_cuda(StableFluidsContext context, void* destination);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_velocity_magnitude_cuda(StableFluidsContext context, void* destination);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_solid_mask_cuda(StableFluidsContext context, void* destination);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_pressure_cuda(StableFluidsContext context, void* destination);

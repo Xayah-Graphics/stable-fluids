@@ -914,6 +914,24 @@ namespace stable_fluids {
         destination[index] = sqrtf(ux * ux + vy * vy + wz * wz);
     }
 
+    __global__ void export_velocity_kernel(float* destination, const float* u, const float* v, const float* w, const uint8_t* cell_flags, const int nx, const int ny, const int nz) {
+        const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+        const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+        const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
+        if (x >= nx || y >= ny || z >= nz) return;
+        const auto index = index_3d(x, y, z, nx, ny);
+        const auto base = index * 3ull;
+        if (cell_flags[index] == cell_solid) {
+            destination[base + 0] = 0.0f;
+            destination[base + 1] = 0.0f;
+            destination[base + 2] = 0.0f;
+            return;
+        }
+        destination[base + 0] = 0.5f * (u[index_3d(x, y, z, nx + 1, ny)] + u[index_3d(x + 1, y, z, nx + 1, ny)]);
+        destination[base + 1] = 0.5f * (v[index_3d(x, y, z, nx, ny + 1)] + v[index_3d(x, y + 1, z, nx, ny + 1)]);
+        destination[base + 2] = 0.5f * (w[index_3d(x, y, z, nx, ny)] + w[index_3d(x, y, z + 1, nx, ny)]);
+    }
+
     __global__ void export_solid_mask_kernel(float* destination, const uint8_t* cell_flags, const int nx, const int ny, const int nz) {
         const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
         const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -1279,6 +1297,20 @@ StableFluidsResult stable_fluids_export_alpha_rgb_rgba_cuda(StableFluidsContext 
     );
     const dim3 cells = stable_fluids::make_grid(storage.config.nx, storage.config.ny, storage.config.nz, block);
     stable_fluids::pack_alpha_rgb_rgba_kernel<<<cells, block, 0, storage.stream>>>(static_cast<float*>(destination), alpha_field->data, rgb_field->data, storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz, static_cast<int>(rgb_field->desc.component_count));
+    return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
+}
+
+StableFluidsResult stable_fluids_export_velocity_cuda(StableFluidsContext context, void* destination) {
+    if (context == nullptr) return stable_fluids::invalid_context;
+    if (destination == nullptr) return stable_fluids::invalid_export;
+    auto& storage = *as_storage(context);
+    const dim3 block(
+        static_cast<unsigned>(std::max(storage.config.block_x, 1)),
+        static_cast<unsigned>(std::max(storage.config.block_y, 1)),
+        static_cast<unsigned>(std::max(storage.config.block_z, 1))
+    );
+    const dim3 cells = stable_fluids::make_grid(storage.config.nx, storage.config.ny, storage.config.nz, block);
+    stable_fluids::export_velocity_kernel<<<cells, block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.velocity_x, storage.device.velocity_y, storage.device.velocity_z, storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz);
     return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
 }
 
