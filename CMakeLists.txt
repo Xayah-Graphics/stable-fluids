@@ -126,6 +126,7 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
             vulkan-app/main.cpp
             vulkan-app/app.cpp
             vulkan-app/stable_simulation.cpp
+
             PUBLIC FILE_SET cxx_modules TYPE CXX_MODULES FILES
             vulkan-app/modules/vk.camera.ixx
             vulkan-app/modules/vk.context.ixx
