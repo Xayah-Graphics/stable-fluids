@@ -34,18 +34,31 @@ typedef enum StableFluidsColliderType {
 } StableFluidsColliderType;
 
 typedef enum StableFluidsExportField {
-    STABLE_FLUIDS_EXPORT_DENSITY            = 0,
-    STABLE_FLUIDS_EXPORT_DYE_RGBA           = 1,
-    STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE = 2,
-    STABLE_FLUIDS_EXPORT_SOLID_MASK         = 3,
-    STABLE_FLUIDS_EXPORT_PRESSURE           = 4,
-    STABLE_FLUIDS_EXPORT_DIVERGENCE         = 5,
+    STABLE_FLUIDS_EXPORT_FIELD_COMPONENTS    = 0,
+    STABLE_FLUIDS_EXPORT_ALPHA_RGB_RGBA      = 1,
+    STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE  = 2,
+    STABLE_FLUIDS_EXPORT_SOLID_MASK          = 3,
+    STABLE_FLUIDS_EXPORT_PRESSURE            = 4,
+    STABLE_FLUIDS_EXPORT_DIVERGENCE          = 5,
 } StableFluidsExportField;
+
+typedef enum StableFluidsFieldBoundaryMode {
+    STABLE_FLUIDS_FIELD_BOUNDARY_CONSTANT    = 0,
+    STABLE_FLUIDS_FIELD_BOUNDARY_STREAK      = 1,
+    STABLE_FLUIDS_FIELD_BOUNDARY_REPEAT      = 2,
+    STABLE_FLUIDS_FIELD_BOUNDARY_EXTRAPOLATE = 3,
+} StableFluidsFieldBoundaryMode;
+
+typedef enum StableFluidsFieldFlags {
+    STABLE_FLUIDS_FIELD_ADVECT  = 1u << 0,
+    STABLE_FLUIDS_FIELD_DIFFUSE = 1u << 1,
+} StableFluidsFieldFlags;
+
+typedef uint32_t StableFluidsFieldHandle;
 
 typedef struct StableFluidsBoundaryFaceDesc {
     uint32_t type;
     float velocity;
-    float scalar;
 } StableFluidsBoundaryFaceDesc;
 
 typedef struct StableFluidsDomainBoundaryDesc {
@@ -64,12 +77,8 @@ typedef struct StableFluidsSimulationConfig {
     float cell_size;
     float dt;
     float viscosity;
-    float diffusion;
     int32_t diffuse_iterations;
     int32_t pressure_iterations;
-    float ambient_temperature;
-    float density_buoyancy;
-    float temperature_buoyancy;
     float uniform_force_x;
     float uniform_force_y;
     float uniform_force_z;
@@ -82,7 +91,30 @@ typedef struct StableFluidsSimulationConfig {
 typedef struct StableFluidsContextCreateDesc {
     StableFluidsSimulationConfig config;
     void* stream;
+    struct StableFluidsFieldDesc* fields;
+    uint32_t field_count;
+    const struct StableFluidsBuoyancyDesc* buoyancy_terms;
+    uint32_t buoyancy_term_count;
 } StableFluidsContextCreateDesc;
+
+typedef struct StableFluidsFieldDesc {
+    const char* name;
+    uint32_t component_count;
+    uint32_t flags;
+    float diffusion;
+    uint32_t boundary_mode;
+    float default_value_0;
+    float default_value_1;
+    float default_value_2;
+    float default_value_3;
+    StableFluidsFieldHandle handle;
+} StableFluidsFieldDesc;
+
+typedef struct StableFluidsBuoyancyDesc {
+    StableFluidsFieldHandle field;
+    float weight;
+    float ambient;
+} StableFluidsBuoyancyDesc;
 
 typedef struct StableFluidsColliderDesc {
     uint32_t collider_type;
@@ -104,28 +136,42 @@ typedef struct StableFluidsSceneDesc {
     uint32_t collider_count;
 } StableFluidsSceneDesc;
 
-typedef struct StableFluidsSourceDesc {
+typedef struct StableFluidsVelocitySourceDesc {
     float center_x;
     float center_y;
     float center_z;
     float radius;
-    float density_amount;
-    float dye_r;
-    float dye_g;
-    float dye_b;
-    float temperature_amount;
     float velocity_x;
     float velocity_y;
     float velocity_z;
-} StableFluidsSourceDesc;
+} StableFluidsVelocitySourceDesc;
+
+typedef struct StableFluidsFieldSourceDesc {
+    StableFluidsFieldHandle field;
+    float center_x;
+    float center_y;
+    float center_z;
+    float radius;
+    float value_0;
+    float value_1;
+    float value_2;
+    float value_3;
+} StableFluidsFieldSourceDesc;
 
 typedef struct StableFluidsStepDesc {
-    const StableFluidsSourceDesc* sources;
-    uint32_t source_count;
+    const StableFluidsVelocitySourceDesc* velocity_sources;
+    uint32_t velocity_source_count;
+    const StableFluidsFieldSourceDesc* field_sources;
+    uint32_t field_source_count;
 } StableFluidsStepDesc;
 
 typedef struct StableFluidsExportFieldDesc {
     uint32_t field;
+    StableFluidsFieldHandle field_handle;
+    uint32_t component_offset;
+    uint32_t component_count;
+    StableFluidsFieldHandle alpha_field;
+    StableFluidsFieldHandle rgb_field;
     void* destination;
 } StableFluidsExportFieldDesc;
 

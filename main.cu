@@ -7,6 +7,7 @@
 #include <cuda_runtime.h>
 #include <numeric>
 #include <vector>
+#include <array>
 
 namespace {
 
@@ -37,31 +38,65 @@ int main() {
         .cell_size = 1.0f,
         .dt = 1.0f / 90.0f,
         .viscosity = 0.0001f,
-        .diffusion = 0.00005f,
         .diffuse_iterations = 20,
         .pressure_iterations = 80,
-        .ambient_temperature = 0.0f,
-        .density_buoyancy = 0.35f,
-        .temperature_buoyancy = 0.0f,
         .uniform_force_x = 0.0f,
         .uniform_force_y = 0.0f,
         .uniform_force_z = 0.0f,
         .domain_boundary = {
-            .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
-            .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
-            .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_NO_SLIP), .velocity = 0.0f, .scalar = 0.0f, },
-            .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
-            .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
-            .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
+            .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+            .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+            .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_NO_SLIP), .velocity = 0.0f, },
+            .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+            .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+            .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
         },
         .block_x = 8,
         .block_y = 8,
         .block_z = 4,
     };
 
+    std::array fields{
+        StableFluidsFieldDesc{
+            .name = "density",
+            .component_count = 1,
+            .flags = STABLE_FLUIDS_FIELD_ADVECT | STABLE_FLUIDS_FIELD_DIFFUSE,
+            .diffusion = 0.00005f,
+            .boundary_mode = static_cast<uint32_t>(STABLE_FLUIDS_FIELD_BOUNDARY_STREAK),
+            .default_value_0 = 0.0f,
+            .default_value_1 = 0.0f,
+            .default_value_2 = 0.0f,
+            .default_value_3 = 0.0f,
+            .handle = 0,
+        },
+        StableFluidsFieldDesc{
+            .name = "dye",
+            .component_count = 3,
+            .flags = STABLE_FLUIDS_FIELD_ADVECT | STABLE_FLUIDS_FIELD_DIFFUSE,
+            .diffusion = 0.00002f,
+            .boundary_mode = static_cast<uint32_t>(STABLE_FLUIDS_FIELD_BOUNDARY_STREAK),
+            .default_value_0 = 0.0f,
+            .default_value_1 = 0.0f,
+            .default_value_2 = 0.0f,
+            .default_value_3 = 0.0f,
+            .handle = 0,
+        },
+    };
+    std::array buoyancy_terms{
+        StableFluidsBuoyancyDesc{
+            .field = 1,
+            .weight = 0.35f,
+            .ambient = 0.0f,
+        },
+    };
+
     StableFluidsContextCreateDesc create_desc{
         .config = config,
         .stream = nullptr,
+        .fields = fields.data(),
+        .field_count = static_cast<uint32_t>(fields.size()),
+        .buoyancy_terms = buoyancy_terms.data(),
+        .buoyancy_term_count = static_cast<uint32_t>(buoyancy_terms.size()),
     };
 
     StableFluidsContext context = nullptr;
@@ -95,23 +130,44 @@ int main() {
         const float center_x = static_cast<float>(nx) * 0.18f;
         const float center_y = static_cast<float>(ny) * 0.14f;
         const float center_z = static_cast<float>(nz) * 0.28f + static_cast<float>(frame & 1) * 0.35f;
-        const StableFluidsSourceDesc source{
+        const StableFluidsVelocitySourceDesc velocity_source{
             .center_x = center_x,
             .center_y = center_y,
             .center_z = center_z,
             .radius = 4.5f,
-            .density_amount = 0.55f,
-            .dye_r = 0.85f,
-            .dye_g = 0.22f,
-            .dye_b = 1.10f,
-            .temperature_amount = 0.0f,
             .velocity_x = 1.8f,
             .velocity_y = 3.8f,
             .velocity_z = 1.2f,
         };
+        const std::array field_sources{
+            StableFluidsFieldSourceDesc{
+                .field = fields[0].handle,
+                .center_x = center_x,
+                .center_y = center_y,
+                .center_z = center_z,
+                .radius = 4.5f,
+                .value_0 = 0.55f,
+                .value_1 = 0.0f,
+                .value_2 = 0.0f,
+                .value_3 = 0.0f,
+            },
+            StableFluidsFieldSourceDesc{
+                .field = fields[1].handle,
+                .center_x = center_x,
+                .center_y = center_y,
+                .center_z = center_z,
+                .radius = 4.5f,
+                .value_0 = 0.85f,
+                .value_1 = 0.22f,
+                .value_2 = 1.10f,
+                .value_3 = 0.0f,
+            },
+        };
         const StableFluidsStepDesc step_desc{
-            .sources = &source,
-            .source_count = 1,
+            .velocity_sources = &velocity_source,
+            .velocity_source_count = 1,
+            .field_sources = field_sources.data(),
+            .field_source_count = static_cast<uint32_t>(field_sources.size()),
         };
         if (!stable_ok(stable_fluids_step_cuda(context, &step_desc), "stable_fluids_step_cuda")) {
             stable_fluids_destroy_context_cuda(context);
@@ -128,7 +184,12 @@ int main() {
     }
 
     const StableFluidsExportFieldDesc export_desc{
-        .field = static_cast<uint32_t>(STABLE_FLUIDS_EXPORT_DENSITY),
+        .field = static_cast<uint32_t>(STABLE_FLUIDS_EXPORT_FIELD_COMPONENTS),
+        .field_handle = fields[0].handle,
+        .component_offset = 0,
+        .component_count = 1,
+        .alpha_field = 0,
+        .rgb_field = 0,
         .destination = device_density,
     };
     if (!stable_ok(stable_fluids_export_field_cuda(context, &export_desc), "stable_fluids_export_field_cuda")) {
