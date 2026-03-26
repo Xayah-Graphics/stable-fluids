@@ -146,4 +146,5 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
     target_link_libraries(stable-fluids-app PRIVATE Vulkan::Vulkan glfw stable-fluids CUDA::cudart)
     target_include_directories(stable-fluids-app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vulkan-app/vendor/imgui)
     set_property(TARGET stable-fluids-app PROPERTY CXX_MODULE_STD ON)
+    set_target_properties(stable-fluids-app PROPERTIES CUDA_SEPARABLE_COMPILATION ON CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 endif ()
