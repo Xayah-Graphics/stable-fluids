@@ -33,24 +33,24 @@ typedef enum StableFluidsResult {
     STABLE_FLUIDS_RESULT_BACKEND_FAILURE  = 8,
 } StableFluidsResult;
 
-typedef enum StableFluidsBoundaryType {
-    STABLE_FLUIDS_BOUNDARY_NO_SLIP   = 0,
-    STABLE_FLUIDS_BOUNDARY_FREE_SLIP = 1,
-    STABLE_FLUIDS_BOUNDARY_INFLOW    = 2,
-    STABLE_FLUIDS_BOUNDARY_OUTFLOW   = 3,
-} StableFluidsBoundaryType;
+typedef enum StableFluidsVelocityBoundaryType {
+    STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP   = 0,
+    STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP = 1,
+    STABLE_FLUIDS_VELOCITY_BOUNDARY_INFLOW    = 2,
+    STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW   = 3,
+} StableFluidsVelocityBoundaryType;
 
 typedef enum StableFluidsColliderType {
     STABLE_FLUIDS_COLLIDER_SPHERE = 0,
     STABLE_FLUIDS_COLLIDER_BOX    = 1,
 } StableFluidsColliderType;
 
-typedef enum StableFluidsFieldBoundaryMode {
-    STABLE_FLUIDS_FIELD_BOUNDARY_CONSTANT    = 0,
-    STABLE_FLUIDS_FIELD_BOUNDARY_STREAK      = 1,
-    STABLE_FLUIDS_FIELD_BOUNDARY_REPEAT      = 2,
-    STABLE_FLUIDS_FIELD_BOUNDARY_EXTRAPOLATE = 3,
-} StableFluidsFieldBoundaryMode;
+typedef enum StableFluidsFieldExtensionMode {
+    STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT    = 0,
+    STABLE_FLUIDS_FIELD_EXTENSION_STREAK      = 1,
+    STABLE_FLUIDS_FIELD_EXTENSION_REPEAT      = 2,
+    STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE = 3,
+} StableFluidsFieldExtensionMode;
 
 typedef enum StableFluidsFieldFlags {
     STABLE_FLUIDS_FIELD_ADVECT  = 1u << 0,
@@ -96,7 +96,7 @@ typedef struct StableFluidsFieldCreateDesc {
     uint32_t component_count;
     uint32_t flags;
     float diffusion;
-    uint32_t boundary_mode;
+    uint32_t extension_mode;
     float default_value_0;
     float default_value_1;
     float default_value_2;
@@ -129,7 +129,7 @@ STABLE_FLUIDS_API StableFluidsResult stable_fluids_reset_context_cuda(StableFlui
 
 typedef struct StableFluidsColliderDesc {
     uint32_t collider_type;
-    uint32_t boundary_type;
+    uint32_t velocity_boundary_type;
     float center_x;
     float center_y;
     float center_z;
