@@ -131,6 +131,7 @@ namespace stable_fluids {
     }
 
     bool point_inside_collider(const StableFluidsColliderDesc& collider, const float x, const float y, const float z) {
+        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_CUSTOM) return false;
         const float dx = x - collider.center_x;
         const float dy = y - collider.center_y;
         const float dz = z - collider.center_z;
@@ -141,6 +142,7 @@ namespace stable_fluids {
     }
 
     float collider_signed_distance(const StableFluidsColliderDesc& collider, const float x, const float y, const float z) {
+        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_CUSTOM) return 1.0e30f;
         const float dx = x - collider.center_x;
         const float dy = y - collider.center_y;
         const float dz = z - collider.center_z;
@@ -160,6 +162,7 @@ namespace stable_fluids {
         float best_distance = 1.0e30f;
         float best_value    = 0.0f;
         for (const auto& collider : colliders) {
+            if (collider.collider_type == STABLE_FLUIDS_COLLIDER_CUSTOM) continue;
             const float distance = collider_signed_distance(collider, x, y, z);
             if (distance > 0.75f) continue;
             if (distance >= best_distance) continue;
@@ -200,7 +203,7 @@ namespace stable_fluids {
         return success;
     }
 
-    void build_boundary_atlas(ContextStorage& context) {
+    int32_t build_boundary_atlas(ContextStorage& context) {
         const int nx = context.config.nx;
         const int ny = context.config.ny;
         const int nz = context.config.nz;
@@ -222,6 +225,7 @@ namespace stable_fluids {
                     const float py = (static_cast<float>(y) + 0.5f) * h;
                     const float pz = (static_cast<float>(z) + 0.5f) * h;
                     for (const auto& collider : context.colliders) {
+                        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_CUSTOM) continue;
                         if (!point_inside_collider(collider, px, py, pz)) continue;
                         context.host_atlas.cell_flags[static_cast<std::size_t>(index_3d(x, y, z, nx, ny))] = cell_solid;
                         break;
@@ -257,6 +261,25 @@ namespace stable_fluids {
             }
         }
 
+        for (const auto& collider : context.colliders) {
+            if (collider.collider_type != STABLE_FLUIDS_COLLIDER_CUSTOM) continue;
+            if (collider.compile == nullptr) return invalid_collider;
+            StableFluidsBoundaryAtlasDesc atlas{
+                .nx = context.config.nx,
+                .ny = context.config.ny,
+                .nz = context.config.nz,
+                .cell_size = context.config.cell_size,
+                .cell_flags = context.host_atlas.cell_flags.data(),
+                .u_flags = context.host_atlas.u_flags.data(),
+                .v_flags = context.host_atlas.v_flags.data(),
+                .w_flags = context.host_atlas.w_flags.data(),
+                .u_target = context.host_atlas.u_target.data(),
+                .v_target = context.host_atlas.v_target.data(),
+                .w_target = context.host_atlas.w_target.data(),
+            };
+            if (const int32_t code = collider.compile(&atlas, collider.user_data); code != 0) return code;
+        }
+
         auto is_solid = [&](const int x, const int y, const int z) {
             if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return false;
             return context.host_atlas.cell_flags[static_cast<std::size_t>(index_3d(x, y, z, nx, ny))] == cell_solid;
@@ -269,8 +292,11 @@ namespace stable_fluids {
                     const float px = static_cast<float>(x) * h;
                     const float py = (static_cast<float>(y) + 0.5f) * h;
                     const float pz = (static_cast<float>(z) + 0.5f) * h;
-                    context.host_atlas.u_flags[static_cast<std::size_t>(index_3d(x, y, z, nx + 1, ny))]  = face_fixed;
-                    context.host_atlas.u_target[static_cast<std::size_t>(index_3d(x, y, z, nx + 1, ny))] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::x);
+                    const auto index = static_cast<std::size_t>(index_3d(x, y, z, nx + 1, ny));
+                    if (context.host_atlas.u_flags[index] == face_open) {
+                        context.host_atlas.u_flags[index]  = face_fixed;
+                        context.host_atlas.u_target[index] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::x);
+                    }
                 }
             }
         }
@@ -282,8 +308,11 @@ namespace stable_fluids {
                     const float px = (static_cast<float>(x) + 0.5f) * h;
                     const float py = static_cast<float>(y) * h;
                     const float pz = (static_cast<float>(z) + 0.5f) * h;
-                    context.host_atlas.v_flags[static_cast<std::size_t>(index_3d(x, y, z, nx, ny + 1))]  = face_fixed;
-                    context.host_atlas.v_target[static_cast<std::size_t>(index_3d(x, y, z, nx, ny + 1))] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::y);
+                    const auto index = static_cast<std::size_t>(index_3d(x, y, z, nx, ny + 1));
+                    if (context.host_atlas.v_flags[index] == face_open) {
+                        context.host_atlas.v_flags[index]  = face_fixed;
+                        context.host_atlas.v_target[index] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::y);
+                    }
                 }
             }
         }
@@ -295,11 +324,15 @@ namespace stable_fluids {
                     const float px = (static_cast<float>(x) + 0.5f) * h;
                     const float py = (static_cast<float>(y) + 0.5f) * h;
                     const float pz = static_cast<float>(z) * h;
-                    context.host_atlas.w_flags[static_cast<std::size_t>(index_3d(x, y, z, nx, ny))]  = face_fixed;
-                    context.host_atlas.w_target[static_cast<std::size_t>(index_3d(x, y, z, nx, ny))] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::z);
+                    const auto index = static_cast<std::size_t>(index_3d(x, y, z, nx, ny));
+                    if (context.host_atlas.w_flags[index] == face_open) {
+                        context.host_atlas.w_flags[index]  = face_fixed;
+                        context.host_atlas.w_target[index] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::z);
+                    }
                 }
             }
         }
+        return success;
     }
 
     template <class T>
@@ -967,7 +1000,8 @@ namespace {
 
     int32_t rebuild_atlas_if_needed(stable_fluids::ContextStorage& context) {
         if (!context.atlas_dirty) return stable_fluids::success;
-        stable_fluids::build_boundary_atlas(context);
+        const int32_t build_code = stable_fluids::build_boundary_atlas(context);
+        if (build_code != 0) return build_code;
         const int32_t code = stable_fluids::upload_boundary_atlas(context);
         if (code != 0) return code;
         context.atlas_dirty = false;
@@ -1157,7 +1191,11 @@ int32_t stable_fluids_update_scene_cuda(StableFluidsContext context, const Stabl
     if (desc->collider_count > 0 && desc->colliders == nullptr) return stable_fluids::invalid_collider;
     for (uint32_t index = 0; index < desc->collider_count; ++index) {
         const auto& collider = desc->colliders[index];
-        if (collider.collider_type > STABLE_FLUIDS_COLLIDER_BOX) return stable_fluids::invalid_collider;
+        if (collider.collider_type > STABLE_FLUIDS_COLLIDER_CUSTOM) return stable_fluids::invalid_collider;
+        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_CUSTOM) {
+            if (collider.compile == nullptr) return stable_fluids::invalid_collider;
+            continue;
+        }
         if (collider.boundary_type > STABLE_FLUIDS_BOUNDARY_FREE_SLIP) return stable_fluids::invalid_collider;
         if (collider.collider_type == STABLE_FLUIDS_COLLIDER_SPHERE && collider.radius <= 0.0f) return stable_fluids::invalid_collider;
         if (collider.collider_type == STABLE_FLUIDS_COLLIDER_BOX && (collider.half_extent_x <= 0.0f || collider.half_extent_y <= 0.0f || collider.half_extent_z <= 0.0f)) return stable_fluids::invalid_collider;

@@ -31,6 +31,7 @@ typedef enum StableFluidsBoundaryType {
 typedef enum StableFluidsColliderType {
     STABLE_FLUIDS_COLLIDER_SPHERE = 0,
     STABLE_FLUIDS_COLLIDER_BOX    = 1,
+    STABLE_FLUIDS_COLLIDER_CUSTOM = 2,
 } StableFluidsColliderType;
 
 typedef enum StableFluidsExportField {
@@ -55,6 +56,10 @@ typedef enum StableFluidsFieldFlags {
 } StableFluidsFieldFlags;
 
 typedef uint32_t StableFluidsFieldHandle;
+
+static inline uint64_t stable_fluids_atlas_index_3d(const int32_t x, const int32_t y, const int32_t z, const int32_t sx, const int32_t sy) {
+    return static_cast<uint64_t>(z) * static_cast<uint64_t>(sx) * static_cast<uint64_t>(sy) + static_cast<uint64_t>(y) * static_cast<uint64_t>(sx) + static_cast<uint64_t>(x);
+}
 
 typedef struct StableFluidsBoundaryFaceDesc {
     uint32_t type;
@@ -116,6 +121,22 @@ typedef struct StableFluidsBuoyancyDesc {
     float ambient;
 } StableFluidsBuoyancyDesc;
 
+typedef struct StableFluidsBoundaryAtlasDesc {
+    int32_t nx;
+    int32_t ny;
+    int32_t nz;
+    float cell_size;
+    uint8_t* cell_flags;
+    uint8_t* u_flags;
+    uint8_t* v_flags;
+    uint8_t* w_flags;
+    float* u_target;
+    float* v_target;
+    float* w_target;
+} StableFluidsBoundaryAtlasDesc;
+
+typedef int32_t (*StableFluidsCustomColliderCompileFn)(StableFluidsBoundaryAtlasDesc* atlas, void* user_data);
+
 typedef struct StableFluidsColliderDesc {
     uint32_t collider_type;
     uint32_t boundary_type;
@@ -129,6 +150,8 @@ typedef struct StableFluidsColliderDesc {
     float linear_velocity_x;
     float linear_velocity_y;
     float linear_velocity_z;
+    StableFluidsCustomColliderCompileFn compile;
+    void* user_data;
 } StableFluidsColliderDesc;
 
 typedef struct StableFluidsSceneDesc {

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cuda_runtime.h>
@@ -10,6 +11,14 @@
 #include <array>
 
 namespace {
+
+    struct CylinderCollider {
+        float center_x;
+        float center_y;
+        float center_z;
+        float radius;
+        float half_height;
+    };
 
     bool cuda_ok(const cudaError_t status, const char* what) {
         if (status == cudaSuccess) return true;
@@ -21,6 +30,26 @@ namespace {
         if (code == 0) return true;
         std::fprintf(stderr, "%s failed: %d\n", what, code);
         return false;
+    }
+
+    int32_t compile_cylinder_collider(StableFluidsBoundaryAtlasDesc* atlas, void* user_data) {
+        if (atlas == nullptr || user_data == nullptr) return 1008;
+        const auto& collider = *static_cast<const CylinderCollider*>(user_data);
+        for (int z = 0; z < atlas->nz; ++z) {
+            for (int y = 0; y < atlas->ny; ++y) {
+                for (int x = 0; x < atlas->nx; ++x) {
+                    const float px = (static_cast<float>(x) + 0.5f) * atlas->cell_size;
+                    const float py = (static_cast<float>(y) + 0.5f) * atlas->cell_size;
+                    const float pz = (static_cast<float>(z) + 0.5f) * atlas->cell_size;
+                    const float dx = px - collider.center_x;
+                    const float dz = pz - collider.center_z;
+                    if (dx * dx + dz * dz > collider.radius * collider.radius) continue;
+                    if (std::abs(py - collider.center_y) > collider.half_height) continue;
+                    atlas->cell_flags[stable_fluids_atlas_index_3d(x, y, z, atlas->nx, atlas->ny)] = 1u;
+                }
+            }
+        }
+        return 0;
     }
 
 } // namespace
@@ -102,22 +131,31 @@ int main() {
     StableFluidsContext context = nullptr;
     if (!stable_ok(stable_fluids_create_context_cuda(&create_desc, &context), "stable_fluids_create_context_cuda")) return EXIT_FAILURE;
 
-    const StableFluidsColliderDesc collider{
-        .collider_type = static_cast<uint32_t>(STABLE_FLUIDS_COLLIDER_SPHERE),
-        .boundary_type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_NO_SLIP),
+    const CylinderCollider cylinder{
         .center_x = static_cast<float>(nx) * 0.5f,
         .center_y = static_cast<float>(ny) * 0.36f,
         .center_z = static_cast<float>(nz) * 0.5f,
         .radius = 8.0f,
+        .half_height = 9.0f,
+    };
+    const StableFluidsColliderDesc custom_collider{
+        .collider_type = static_cast<uint32_t>(STABLE_FLUIDS_COLLIDER_CUSTOM),
+        .boundary_type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_NO_SLIP),
+        .center_x = 0.0f,
+        .center_y = 0.0f,
+        .center_z = 0.0f,
+        .radius = 0.0f,
         .half_extent_x = 0.0f,
         .half_extent_y = 0.0f,
         .half_extent_z = 0.0f,
         .linear_velocity_x = 0.0f,
         .linear_velocity_y = 0.0f,
         .linear_velocity_z = 0.0f,
+        .compile = compile_cylinder_collider,
+        .user_data = const_cast<CylinderCollider*>(&cylinder),
     };
     const StableFluidsSceneDesc scene_desc{
-        .colliders = &collider,
+        .colliders = &custom_collider,
         .collider_count = 1,
     };
     if (!stable_ok(stable_fluids_update_scene_cuda(context, &scene_desc), "stable_fluids_update_scene_cuda")) {
