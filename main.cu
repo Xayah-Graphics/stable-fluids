@@ -1,391 +1,172 @@
 #include "stable-fluids.h"
+
 #include <algorithm>
-#include <array>
 #include <chrono>
-#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cuda_runtime.h>
-#include <iomanip>
-#include <iostream>
 #include <numeric>
 #include <vector>
 
-namespace {} // namespace
+namespace {
+
+    bool cuda_ok(const cudaError_t status, const char* what) {
+        if (status == cudaSuccess) return true;
+        std::fprintf(stderr, "%s failed: %s\n", what, cudaGetErrorString(status));
+        return false;
+    }
+
+    bool stable_ok(const int32_t code, const char* what) {
+        if (code == 0) return true;
+        std::fprintf(stderr, "%s failed: %d\n", what, code);
+        return false;
+    }
+
+} // namespace
 
 int main() {
-    auto cuda_ok = [](const cudaError_t status, const char* what) {
-        if (status == cudaSuccess) return true;
-        std::cerr << what << " failed: " << cudaGetErrorString(status) << '\n';
-        return false;
+    constexpr int32_t nx = 64;
+    constexpr int32_t ny = 96;
+    constexpr int32_t nz = 64;
+    constexpr int frames = 24;
+
+    StableFluidsSimulationConfig config{
+        .struct_size = sizeof(StableFluidsSimulationConfig),
+        .api_version = STABLE_FLUIDS_API_VERSION,
+        .nx = nx,
+        .ny = ny,
+        .nz = nz,
+        .cell_size = 1.0f,
+        .dt = 1.0f / 90.0f,
+        .viscosity = 0.0001f,
+        .diffusion = 0.00005f,
+        .diffuse_iterations = 20,
+        .pressure_iterations = 80,
+        .ambient_temperature = 0.0f,
+        .density_buoyancy = 0.35f,
+        .temperature_buoyancy = 0.0f,
+        .uniform_force_x = 0.0f,
+        .uniform_force_y = 0.0f,
+        .uniform_force_z = 0.0f,
+        .domain_boundary = {
+            .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
+            .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
+            .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_NO_SLIP), .velocity = 0.0f, .scalar = 0.0f, },
+            .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
+            .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
+            .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_OUTFLOW), .velocity = 0.0f, .scalar = 0.0f, },
+        },
+        .block_x = 8,
+        .block_y = 8,
+        .block_z = 4,
     };
-    auto stable_ok = [](const int32_t code, const char* what) {
-        if (code == 0) return true;
-        std::cerr << what << " failed (" << code << ")\n";
-        return false;
+
+    StableFluidsContextCreateDesc create_desc{
+        .struct_size = sizeof(StableFluidsContextCreateDesc),
+        .api_version = STABLE_FLUIDS_API_VERSION,
+        .config = config,
+        .stream = nullptr,
     };
 
-    constexpr int32_t nx                  = 48;
-    constexpr int32_t ny                  = 72;
-    constexpr int32_t nz                  = 48;
-    constexpr float cell_size             = 1.0f;
-    constexpr float dt                    = 1.0f / 90.0f;
-    constexpr float viscosity             = 0.00015f;
-    constexpr float diffusion             = 0.00005f;
-    constexpr int32_t diffuse_iterations  = 24;
-    constexpr int32_t pressure_iterations = 80;
-    constexpr int32_t block_x             = 8;
-    constexpr int32_t block_y             = 8;
-    constexpr int32_t block_z             = 4;
-    constexpr int32_t frames              = 16;
-    constexpr uint32_t boundary_x_min     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
-    constexpr uint32_t boundary_x_max     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
-    constexpr uint32_t boundary_y_min     = STABLE_FLUIDS_BOUNDARY_NO_SLIP;
-    constexpr uint32_t boundary_y_max     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
-    constexpr uint32_t boundary_z_min     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
-    constexpr uint32_t boundary_z_max     = STABLE_FLUIDS_BOUNDARY_OUTFLOW;
-    constexpr float source_radius         = 4.5f;
-    constexpr float density_amount        = 0.42f;
-    constexpr float jet_speed             = 2.6f;
-    constexpr float upward_bias           = 0.20f;
-    constexpr float corner_inset          = 0.14f;
-    constexpr float source_height         = 0.10f;
-    constexpr float source_depth          = 0.14f;
+    StableFluidsContext context = nullptr;
+    if (!stable_ok(stable_fluids_create_context_cuda(&create_desc, &context), "stable_fluids_create_context_cuda")) return EXIT_FAILURE;
 
-    const uint64_t scalar_bytes     = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny) * static_cast<uint64_t>(nz) * sizeof(float);
-    const uint64_t velocity_x_bytes = static_cast<uint64_t>(nx + 1) * static_cast<uint64_t>(ny) * static_cast<uint64_t>(nz) * sizeof(float);
-    const uint64_t velocity_y_bytes = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny + 1) * static_cast<uint64_t>(nz) * sizeof(float);
-    const uint64_t velocity_z_bytes = static_cast<uint64_t>(nx) * static_cast<uint64_t>(ny) * static_cast<uint64_t>(nz + 1) * sizeof(float);
-    const auto scalar_count  = static_cast<std::size_t>(scalar_bytes / sizeof(float));
+    const StableFluidsColliderDesc collider{
+        .struct_size = sizeof(StableFluidsColliderDesc),
+        .api_version = STABLE_FLUIDS_API_VERSION,
+        .collider_type = static_cast<uint32_t>(STABLE_FLUIDS_COLLIDER_SPHERE),
+        .boundary_type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_NO_SLIP),
+        .center_x = static_cast<float>(nx) * 0.5f,
+        .center_y = static_cast<float>(ny) * 0.36f,
+        .center_z = static_cast<float>(nz) * 0.5f,
+        .radius = 8.0f,
+        .half_extent_x = 0.0f,
+        .half_extent_y = 0.0f,
+        .half_extent_z = 0.0f,
+        .linear_velocity_x = 0.0f,
+        .linear_velocity_y = 0.0f,
+        .linear_velocity_z = 0.0f,
+    };
+    const StableFluidsSceneDesc scene_desc{
+        .struct_size = sizeof(StableFluidsSceneDesc),
+        .api_version = STABLE_FLUIDS_API_VERSION,
+        .colliders = &collider,
+        .collider_count = 1,
+    };
+    if (!stable_ok(stable_fluids_update_scene_cuda(context, &scene_desc), "stable_fluids_update_scene_cuda")) {
+        stable_fluids_destroy_context_cuda(context);
+        return EXIT_FAILURE;
+    }
 
-    float* density                       = nullptr;
-    float* velocity_x                    = nullptr;
-    float* velocity_y                    = nullptr;
-    float* velocity_z                    = nullptr;
-    float* temporary_density             = nullptr;
-    float* temporary_velocity_x          = nullptr;
-    float* temporary_velocity_y          = nullptr;
-    float* temporary_velocity_z          = nullptr;
-    float* temporary_previous_density    = nullptr;
-    float* temporary_previous_velocity_x = nullptr;
-    float* temporary_previous_velocity_y = nullptr;
-    float* temporary_previous_velocity_z = nullptr;
-    float* temporary_pressure            = nullptr;
-    float* temporary_divergence          = nullptr;
-    cudaStream_t stream                  = nullptr;
-    int exit_code                        = EXIT_SUCCESS;
-
-    if (!cuda_ok(cudaMalloc(reinterpret_cast<void**>(&density), scalar_bytes), "cudaMalloc density")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&velocity_x), velocity_x_bytes), "cudaMalloc velocity_x")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&velocity_y), velocity_y_bytes), "cudaMalloc velocity_y")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&velocity_z), velocity_z_bytes), "cudaMalloc velocity_z")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_density), scalar_bytes), "cudaMalloc temporary_density")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_velocity_x), velocity_x_bytes), "cudaMalloc temporary_velocity_x")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_velocity_y), velocity_y_bytes), "cudaMalloc temporary_velocity_y")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_velocity_z), velocity_z_bytes), "cudaMalloc temporary_velocity_z")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_previous_density), scalar_bytes), "cudaMalloc temporary_previous_density")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_previous_velocity_x), velocity_x_bytes), "cudaMalloc temporary_previous_velocity_x")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_previous_velocity_y), velocity_y_bytes), "cudaMalloc temporary_previous_velocity_y")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_previous_velocity_z), velocity_z_bytes), "cudaMalloc temporary_previous_velocity_z")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_pressure), scalar_bytes), "cudaMalloc temporary_pressure")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMalloc(reinterpret_cast<void**>(&temporary_divergence), scalar_bytes), "cudaMalloc temporary_divergence")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags")) exit_code = EXIT_FAILURE;
-
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMemsetAsync(density, 0, scalar_bytes, stream), "cudaMemsetAsync density")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMemsetAsync(velocity_x, 0, velocity_x_bytes, stream), "cudaMemsetAsync velocity_x")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMemsetAsync(velocity_y, 0, velocity_y_bytes, stream), "cudaMemsetAsync velocity_y")) exit_code = EXIT_FAILURE;
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMemsetAsync(velocity_z, 0, velocity_z_bytes, stream), "cudaMemsetAsync velocity_z")) exit_code = EXIT_FAILURE;
-
-    const auto cuda_begin = std::chrono::steady_clock::now();
-    for (int frame = 0; exit_code == EXIT_SUCCESS && frame < frames; ++frame) {
-        const float center_x = static_cast<float>(nx) * 0.5f;
-        const float center_y = static_cast<float>(ny) * 0.52f;
-        const float center_z = static_cast<float>(nz) * 0.5f;
-        const float source_y = static_cast<float>(ny) * source_height;
-        const float source_z = static_cast<float>(nz) * source_depth;
-        const float left_x   = static_cast<float>(nx) * corner_inset;
-        const float right_x  = static_cast<float>(nx) * (1.0f - corner_inset);
-
-        auto emit_source = [&](const float source_x) {
-            const float dir_x = center_x - source_x;
-            const float dir_y = center_y - source_y;
-            const float dir_z = center_z - source_z;
-            const float inv_len = 1.0f / (std::sqrt(dir_x * dir_x + dir_y * dir_y + dir_z * dir_z) + 1.0e-6f);
-
-            StableFluidsAddScalarSourceDesc scalar_source_desc{
-                .struct_size     = sizeof(StableFluidsAddScalarSourceDesc),
-                .api_version     = STABLE_FLUIDS_API_VERSION,
-                .nx              = nx,
-                .ny              = ny,
-                .nz              = nz,
-                .scalar          = density,
-                .center_x        = source_x,
-                .center_y        = source_y,
-                .center_z        = source_z,
-                .radius          = source_radius,
-                .amount          = density_amount,
-                .sample_offset_x = 0.5f,
-                .sample_offset_y = 0.5f,
-                .sample_offset_z = 0.5f,
-                .block_x         = block_x,
-                .block_y         = block_y,
-                .block_z         = block_z,
-                .stream          = stream,
-            };
-
-            StableFluidsAddVectorSourceDesc vector_source_desc{
-                .struct_size = sizeof(StableFluidsAddVectorSourceDesc),
-                .api_version = STABLE_FLUIDS_API_VERSION,
-                .nx          = nx,
-                .ny          = ny,
-                .nz          = nz,
-                .vector_x    = velocity_x,
-                .vector_y    = velocity_y,
-                .vector_z    = velocity_z,
-                .center_x    = source_x,
-                .center_y    = source_y,
-                .center_z    = source_z,
-                .radius      = source_radius,
-                .amount_x    = dir_x * inv_len * jet_speed,
-                .amount_y    = dir_y * inv_len * jet_speed + upward_bias,
-                .amount_z    = dir_z * inv_len * jet_speed,
-                .block_x     = block_x,
-                .block_y     = block_y,
-                .block_z     = block_z,
-                .stream      = stream,
-            };
-
-            if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_scalar_source_cuda(&scalar_source_desc), "stable_fluids_add_scalar_source_cuda")) exit_code = EXIT_FAILURE;
-            if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_add_vector_source_cuda(&vector_source_desc), "stable_fluids_add_vector_source_cuda")) exit_code = EXIT_FAILURE;
+    const auto begin = std::chrono::steady_clock::now();
+    for (int frame = 0; frame < frames; ++frame) {
+        const float center_x = static_cast<float>(nx) * 0.18f;
+        const float center_y = static_cast<float>(ny) * 0.14f;
+        const float center_z = static_cast<float>(nz) * 0.28f + static_cast<float>(frame & 1) * 0.35f;
+        const StableFluidsSourceDesc source{
+            .struct_size = sizeof(StableFluidsSourceDesc),
+            .api_version = STABLE_FLUIDS_API_VERSION,
+            .center_x = center_x,
+            .center_y = center_y,
+            .center_z = center_z,
+            .radius = 4.5f,
+            .density_amount = 0.55f,
+            .dye_r = 0.85f,
+            .dye_g = 0.22f,
+            .dye_b = 1.10f,
+            .temperature_amount = 0.0f,
+            .velocity_x = 1.8f,
+            .velocity_y = 3.8f,
+            .velocity_z = 1.2f,
         };
-
-        emit_source(left_x);
-        emit_source(right_x);
-
-        StableFluidsAdvectVelocityDesc advect_velocity_desc{
-            .struct_size                   = sizeof(StableFluidsAdvectVelocityDesc),
-            .api_version                   = STABLE_FLUIDS_API_VERSION,
-            .nx                            = nx,
-            .ny                            = ny,
-            .nz                            = nz,
-            .cell_size                     = cell_size,
-            .dt                            = dt,
-            .boundary_x_min                = boundary_x_min,
-            .boundary_x_max                = boundary_x_max,
-            .boundary_y_min                = boundary_y_min,
-            .boundary_y_max                = boundary_y_max,
-            .boundary_z_min                = boundary_z_min,
-            .boundary_z_max                = boundary_z_max,
-            .inflow_velocity_x_min         = 0.0f,
-            .inflow_velocity_x_max         = 0.0f,
-            .inflow_velocity_y_min         = 0.0f,
-            .inflow_velocity_y_max         = 0.0f,
-            .inflow_velocity_z_min         = 0.0f,
-            .inflow_velocity_z_max         = 0.0f,
-            .velocity_x                    = velocity_x,
-            .velocity_y                    = velocity_y,
-            .velocity_z                    = velocity_z,
-            .temporary_velocity_x          = temporary_velocity_x,
-            .temporary_velocity_y          = temporary_velocity_y,
-            .temporary_velocity_z          = temporary_velocity_z,
-            .temporary_previous_velocity_x = temporary_previous_velocity_x,
-            .temporary_previous_velocity_y = temporary_previous_velocity_y,
-            .temporary_previous_velocity_z = temporary_previous_velocity_z,
-            .block_x                       = block_x,
-            .block_y                       = block_y,
-            .block_z                       = block_z,
-            .stream                        = stream,
+        const StableFluidsStepDesc step_desc{
+            .struct_size = sizeof(StableFluidsStepDesc),
+            .api_version = STABLE_FLUIDS_API_VERSION,
+            .sources = &source,
+            .source_count = 1,
         };
-
-        StableFluidsDiffuseVelocityDesc diffuse_velocity_desc{
-            .struct_size                = sizeof(StableFluidsDiffuseVelocityDesc),
-            .api_version                = STABLE_FLUIDS_API_VERSION,
-            .nx                         = nx,
-            .ny                         = ny,
-            .nz                         = nz,
-            .cell_size                  = cell_size,
-            .dt                         = dt,
-            .viscosity                  = viscosity,
-            .diffuse_iterations         = diffuse_iterations,
-            .boundary_x_min             = boundary_x_min,
-            .boundary_x_max             = boundary_x_max,
-            .boundary_y_min             = boundary_y_min,
-            .boundary_y_max             = boundary_y_max,
-            .boundary_z_min             = boundary_z_min,
-            .boundary_z_max             = boundary_z_max,
-            .inflow_velocity_x_min      = 0.0f,
-            .inflow_velocity_x_max      = 0.0f,
-            .inflow_velocity_y_min      = 0.0f,
-            .inflow_velocity_y_max      = 0.0f,
-            .inflow_velocity_z_min      = 0.0f,
-            .inflow_velocity_z_max      = 0.0f,
-            .velocity_x                 = velocity_x,
-            .velocity_y                 = velocity_y,
-            .velocity_z                 = velocity_z,
-            .temporary_velocity_x       = temporary_velocity_x,
-            .temporary_velocity_y       = temporary_velocity_y,
-            .temporary_velocity_z       = temporary_velocity_z,
-            .temporary_density          = temporary_density,
-            .temporary_previous_density = temporary_previous_density,
-            .block_x                    = block_x,
-            .block_y                    = block_y,
-            .block_z                    = block_z,
-            .stream                     = stream,
-        };
-
-        StableFluidsProjectDesc project_desc{
-            .struct_size                = sizeof(StableFluidsProjectDesc),
-            .api_version                = STABLE_FLUIDS_API_VERSION,
-            .nx                         = nx,
-            .ny                         = ny,
-            .nz                         = nz,
-            .cell_size                  = cell_size,
-            .pressure_iterations        = pressure_iterations,
-            .boundary_x_min             = boundary_x_min,
-            .boundary_x_max             = boundary_x_max,
-            .boundary_y_min             = boundary_y_min,
-            .boundary_y_max             = boundary_y_max,
-            .boundary_z_min             = boundary_z_min,
-            .boundary_z_max             = boundary_z_max,
-            .inflow_velocity_x_min      = 0.0f,
-            .inflow_velocity_x_max      = 0.0f,
-            .inflow_velocity_y_min      = 0.0f,
-            .inflow_velocity_y_max      = 0.0f,
-            .inflow_velocity_z_min      = 0.0f,
-            .inflow_velocity_z_max      = 0.0f,
-            .velocity_x                 = velocity_x,
-            .velocity_y                 = velocity_y,
-            .velocity_z                 = velocity_z,
-            .temporary_pressure         = temporary_pressure,
-            .temporary_divergence       = temporary_divergence,
-            .temporary_density          = temporary_density,
-            .temporary_previous_density = temporary_previous_density,
-            .block_x                    = block_x,
-            .block_y                    = block_y,
-            .block_z                    = block_z,
-            .stream                     = stream,
-        };
-
-        struct ScalarFieldBatch {
-            float* field;
-            float* temporary_field;
-            float* previous_field;
-            uint32_t clamp_non_negative;
-        };
-        const std::array scalar_fields{
-            ScalarFieldBatch{density, temporary_density, temporary_previous_density, 1u},
-        };
-
-        if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_advect_velocity_cuda(&advect_velocity_desc), "stable_fluids_advect_velocity_cuda")) exit_code = EXIT_FAILURE;
-        if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_diffuse_velocity_cuda(&diffuse_velocity_desc), "stable_fluids_diffuse_velocity_cuda")) exit_code = EXIT_FAILURE;
-        if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_project_cuda(&project_desc), "stable_fluids_project_cuda")) exit_code = EXIT_FAILURE;
-        for (const auto& scalar_field : scalar_fields) {
-            StableFluidsAdvectScalarDesc advect_scalar_desc{
-                .struct_size               = sizeof(StableFluidsAdvectScalarDesc),
-                .api_version               = STABLE_FLUIDS_API_VERSION,
-                .nx                        = nx,
-                .ny                        = ny,
-                .nz                        = nz,
-                .cell_size                 = cell_size,
-                .dt                        = dt,
-                .boundary_x_min            = boundary_x_min,
-                .boundary_x_max            = boundary_x_max,
-                .boundary_y_min            = boundary_y_min,
-                .boundary_y_max            = boundary_y_max,
-                .boundary_z_min            = boundary_z_min,
-                .boundary_z_max            = boundary_z_max,
-                .inflow_scalar_x_min       = 0.0f,
-                .inflow_scalar_x_max       = 0.0f,
-                .inflow_scalar_y_min       = 0.0f,
-                .inflow_scalar_y_max       = 0.0f,
-                .inflow_scalar_z_min       = 0.0f,
-                .inflow_scalar_z_max       = 0.0f,
-                .scalar                    = scalar_field.field,
-                .temporary_scalar          = scalar_field.temporary_field,
-                .temporary_previous_scalar = scalar_field.previous_field,
-                .velocity_x                = velocity_x,
-                .velocity_y                = velocity_y,
-                .velocity_z                = velocity_z,
-                .clamp_non_negative        = scalar_field.clamp_non_negative,
-                .block_x                   = block_x,
-                .block_y                   = block_y,
-                .block_z                   = block_z,
-                .stream                    = stream,
-            };
-
-            StableFluidsDiffuseScalarDesc diffuse_scalar_desc{
-                .struct_size                = sizeof(StableFluidsDiffuseScalarDesc),
-                .api_version                = STABLE_FLUIDS_API_VERSION,
-                .nx                         = nx,
-                .ny                         = ny,
-                .nz                         = nz,
-                .cell_size                  = cell_size,
-                .dt                         = dt,
-                .diffusion                  = diffusion,
-                .diffuse_iterations         = diffuse_iterations,
-                .boundary_x_min             = boundary_x_min,
-                .boundary_x_max             = boundary_x_max,
-                .boundary_y_min             = boundary_y_min,
-                .boundary_y_max             = boundary_y_max,
-                .boundary_z_min             = boundary_z_min,
-                .boundary_z_max             = boundary_z_max,
-                .inflow_scalar_x_min        = 0.0f,
-                .inflow_scalar_x_max        = 0.0f,
-                .inflow_scalar_y_min        = 0.0f,
-                .inflow_scalar_y_max        = 0.0f,
-                .inflow_scalar_z_min        = 0.0f,
-                .inflow_scalar_z_max        = 0.0f,
-                .scalar                     = scalar_field.field,
-                .temporary_scalar           = scalar_field.temporary_field,
-                .temporary_solution_storage = temporary_pressure,
-                .temporary_rhs_storage      = temporary_divergence,
-                .clamp_non_negative         = scalar_field.clamp_non_negative,
-                .block_x                    = block_x,
-                .block_y                    = block_y,
-                .block_z                    = block_z,
-                .stream                     = stream,
-            };
-
-            if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_advect_scalar_cuda(&advect_scalar_desc), "stable_fluids_advect_scalar_cuda")) exit_code = EXIT_FAILURE;
-            if (exit_code == EXIT_SUCCESS && !stable_ok(stable_fluids_diffuse_scalar_cuda(&diffuse_scalar_desc), "stable_fluids_diffuse_scalar_cuda")) exit_code = EXIT_FAILURE;
+        if (!stable_ok(stable_fluids_step_cuda(context, &step_desc), "stable_fluids_step_cuda")) {
+            stable_fluids_destroy_context_cuda(context);
+            return EXIT_FAILURE;
         }
     }
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaStreamSynchronize(stream), "cudaStreamSynchronize")) exit_code = EXIT_FAILURE;
-    const auto cuda_end = std::chrono::steady_clock::now();
 
-    std::vector<float> host_density(scalar_count, 0.0f);
-    if (exit_code == EXIT_SUCCESS && !cuda_ok(cudaMemcpy(host_density.data(), density, scalar_bytes, cudaMemcpyDeviceToHost), "cudaMemcpy density")) exit_code = EXIT_FAILURE;
+    std::vector<float> density(static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny) * static_cast<std::size_t>(nz), 0.0f);
+    float* device_density = nullptr;
+    const auto scalar_bytes = density.size() * sizeof(float);
+    if (!cuda_ok(cudaMalloc(reinterpret_cast<void**>(&device_density), scalar_bytes), "cudaMalloc export density")) {
+        stable_fluids_destroy_context_cuda(context);
+        return EXIT_FAILURE;
+    }
 
-    const float cuda_total_density = exit_code == EXIT_SUCCESS ? std::accumulate(host_density.begin(), host_density.end(), 0.0f) : 0.0f;
-    const float cuda_peak_density  = exit_code == EXIT_SUCCESS && !host_density.empty() ? *std::max_element(host_density.begin(), host_density.end()) : 0.0f;
+    const StableFluidsExportFieldDesc export_desc{
+        .struct_size = sizeof(StableFluidsExportFieldDesc),
+        .api_version = STABLE_FLUIDS_API_VERSION,
+        .field = static_cast<uint32_t>(STABLE_FLUIDS_EXPORT_DENSITY),
+        .destination = device_density,
+    };
+    if (!stable_ok(stable_fluids_export_field_cuda(context, &export_desc), "stable_fluids_export_field_cuda")) {
+        cudaFree(device_density);
+        stable_fluids_destroy_context_cuda(context);
+        return EXIT_FAILURE;
+    }
+    if (!cuda_ok(cudaDeviceSynchronize(), "cudaDeviceSynchronize")) {
+        cudaFree(device_density);
+        stable_fluids_destroy_context_cuda(context);
+        return EXIT_FAILURE;
+    }
+    if (!cuda_ok(cudaMemcpy(density.data(), device_density, scalar_bytes, cudaMemcpyDeviceToHost), "cudaMemcpy density")) {
+        cudaFree(device_density);
+        stable_fluids_destroy_context_cuda(context);
+        return EXIT_FAILURE;
+    }
 
-    cudaStreamDestroy(stream);
-    cudaFree(density);
-    cudaFree(velocity_x);
-    cudaFree(velocity_y);
-    cudaFree(velocity_z);
-    cudaFree(temporary_density);
-    cudaFree(temporary_velocity_x);
-    cudaFree(temporary_velocity_y);
-    cudaFree(temporary_velocity_z);
-    cudaFree(temporary_previous_density);
-    cudaFree(temporary_previous_velocity_x);
-    cudaFree(temporary_previous_velocity_y);
-    cudaFree(temporary_previous_velocity_z);
-    cudaFree(temporary_pressure);
-    cudaFree(temporary_divergence);
-    if (exit_code != EXIT_SUCCESS) return exit_code;
+    cudaFree(device_density);
+    stable_fluids_destroy_context_cuda(context);
 
-    const double cuda_ms = std::chrono::duration<double, std::milli>(cuda_end - cuda_begin).count();
-
-    std::cout << std::fixed << std::setprecision(3);
-    std::cout << "stable-fluids benchmark\n";
-    std::cout << "grid: " << nx << " x " << ny << " x " << nz << '\n';
-    std::cout << "frames: " << frames << '\n';
-    std::cout << "| metric | cuda |\n";
-    std::cout << "|---|---:|\n";
-    std::cout << "| total_ms | " << cuda_ms << " |\n";
-    std::cout << "| step_ms | " << cuda_ms / static_cast<double>(frames) << " |\n";
-    std::cout << "| total_density | " << cuda_total_density << " |\n";
-    std::cout << "| peak_density | " << cuda_peak_density << " |\n";
+    const float total_density = std::accumulate(density.begin(), density.end(), 0.0f);
+    const float peak_density = density.empty() ? 0.0f : *std::max_element(density.begin(), density.end());
+    const auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+    std::printf("frames=%d total_density=%.6f peak_density=%.6f elapsed_ms=%.3f\n", frames, total_density, peak_density, elapsed_ms);
     return EXIT_SUCCESS;
 }

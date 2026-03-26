@@ -26,7 +26,7 @@ add_library(
         SHARED
         stable-fluids.h
         validate.cpp
-        backend-cuda.cu
+        runtime-cuda.cu
 )
 
 add_executable(
