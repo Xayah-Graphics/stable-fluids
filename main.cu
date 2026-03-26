@@ -31,8 +31,6 @@ int main() {
     constexpr int frames = 24;
 
     StableFluidsSimulationConfig config{
-        .struct_size = sizeof(StableFluidsSimulationConfig),
-        .api_version = STABLE_FLUIDS_API_VERSION,
         .nx = nx,
         .ny = ny,
         .nz = nz,
@@ -62,8 +60,6 @@ int main() {
     };
 
     StableFluidsContextCreateDesc create_desc{
-        .struct_size = sizeof(StableFluidsContextCreateDesc),
-        .api_version = STABLE_FLUIDS_API_VERSION,
         .config = config,
         .stream = nullptr,
     };
@@ -72,8 +68,6 @@ int main() {
     if (!stable_ok(stable_fluids_create_context_cuda(&create_desc, &context), "stable_fluids_create_context_cuda")) return EXIT_FAILURE;
 
     const StableFluidsColliderDesc collider{
-        .struct_size = sizeof(StableFluidsColliderDesc),
-        .api_version = STABLE_FLUIDS_API_VERSION,
         .collider_type = static_cast<uint32_t>(STABLE_FLUIDS_COLLIDER_SPHERE),
         .boundary_type = static_cast<uint32_t>(STABLE_FLUIDS_BOUNDARY_NO_SLIP),
         .center_x = static_cast<float>(nx) * 0.5f,
@@ -88,8 +82,6 @@ int main() {
         .linear_velocity_z = 0.0f,
     };
     const StableFluidsSceneDesc scene_desc{
-        .struct_size = sizeof(StableFluidsSceneDesc),
-        .api_version = STABLE_FLUIDS_API_VERSION,
         .colliders = &collider,
         .collider_count = 1,
     };
@@ -104,8 +96,6 @@ int main() {
         const float center_y = static_cast<float>(ny) * 0.14f;
         const float center_z = static_cast<float>(nz) * 0.28f + static_cast<float>(frame & 1) * 0.35f;
         const StableFluidsSourceDesc source{
-            .struct_size = sizeof(StableFluidsSourceDesc),
-            .api_version = STABLE_FLUIDS_API_VERSION,
             .center_x = center_x,
             .center_y = center_y,
             .center_z = center_z,
@@ -120,8 +110,6 @@ int main() {
             .velocity_z = 1.2f,
         };
         const StableFluidsStepDesc step_desc{
-            .struct_size = sizeof(StableFluidsStepDesc),
-            .api_version = STABLE_FLUIDS_API_VERSION,
             .sources = &source,
             .source_count = 1,
         };
@@ -140,8 +128,6 @@ int main() {
     }
 
     const StableFluidsExportFieldDesc export_desc{
-        .struct_size = sizeof(StableFluidsExportFieldDesc),
-        .api_version = STABLE_FLUIDS_API_VERSION,
         .field = static_cast<uint32_t>(STABLE_FLUIDS_EXPORT_DENSITY),
         .destination = device_density,
     };

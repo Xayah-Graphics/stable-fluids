@@ -25,7 +25,6 @@ add_library(
         stable-fluids
         SHARED
         stable-fluids.h
-        validate.cpp
         runtime-cuda.cu
 )
 

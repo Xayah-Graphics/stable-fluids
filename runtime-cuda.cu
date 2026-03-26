@@ -16,7 +16,16 @@ namespace stable_fluids {
     using Stream = cudaStream_t;
 
     constexpr int32_t success              = 0;
+    constexpr int32_t invalid_descriptor   = 1000;
+    constexpr int32_t invalid_grid         = 1001;
+    constexpr int32_t invalid_cell_size    = 1002;
+    constexpr int32_t invalid_dt           = 1003;
+    constexpr int32_t invalid_iterations   = 1004;
+    constexpr int32_t invalid_boundary     = 1005;
     constexpr int32_t invalid_context      = 1007;
+    constexpr int32_t invalid_collider     = 1008;
+    constexpr int32_t invalid_export_field = 1009;
+    constexpr int32_t invalid_destination  = 2002;
     constexpr int32_t cuda_failure         = 5001;
     constexpr uint8_t cell_fluid           = 0;
     constexpr uint8_t cell_solid           = 1;
@@ -1047,7 +1056,20 @@ extern "C" {
 int32_t stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context) {
     if (out_context == nullptr) return stable_fluids::invalid_context;
     *out_context = nullptr;
-    if (const int32_t code = stable_fluids_validate_context_create_desc(desc); code != 0) return code;
+    if (desc == nullptr) return stable_fluids::invalid_descriptor;
+    if (desc->config.nx <= 0 || desc->config.ny <= 0 || desc->config.nz <= 0) return stable_fluids::invalid_grid;
+    if (desc->config.cell_size <= 0.0f) return stable_fluids::invalid_cell_size;
+    if (desc->config.dt <= 0.0f) return stable_fluids::invalid_dt;
+    if (desc->config.diffuse_iterations <= 0 || desc->config.pressure_iterations <= 0) return stable_fluids::invalid_iterations;
+    const auto validate_boundary_face = [](const StableFluidsBoundaryFaceDesc& face) {
+        return face.type <= STABLE_FLUIDS_BOUNDARY_OUTFLOW;
+    };
+    if (!validate_boundary_face(desc->config.domain_boundary.x_min)) return stable_fluids::invalid_boundary;
+    if (!validate_boundary_face(desc->config.domain_boundary.x_max)) return stable_fluids::invalid_boundary;
+    if (!validate_boundary_face(desc->config.domain_boundary.y_min)) return stable_fluids::invalid_boundary;
+    if (!validate_boundary_face(desc->config.domain_boundary.y_max)) return stable_fluids::invalid_boundary;
+    if (!validate_boundary_face(desc->config.domain_boundary.z_min)) return stable_fluids::invalid_boundary;
+    if (!validate_boundary_face(desc->config.domain_boundary.z_max)) return stable_fluids::invalid_boundary;
 
     std::unique_ptr<StableFluidsContext_t> context{new (std::nothrow) StableFluidsContext_t{}};
     if (!context) return stable_fluids::cuda_failure;
@@ -1088,7 +1110,15 @@ int32_t stable_fluids_reset_context_cuda(StableFluidsContext context) {
 
 int32_t stable_fluids_update_scene_cuda(StableFluidsContext context, const StableFluidsSceneDesc* desc) {
     if (context == nullptr) return stable_fluids::invalid_context;
-    if (const int32_t code = stable_fluids_validate_scene_desc(desc); code != 0) return code;
+    if (desc == nullptr) return stable_fluids::invalid_descriptor;
+    if (desc->collider_count > 0 && desc->colliders == nullptr) return stable_fluids::invalid_collider;
+    for (uint32_t index = 0; index < desc->collider_count; ++index) {
+        const auto& collider = desc->colliders[index];
+        if (collider.collider_type > STABLE_FLUIDS_COLLIDER_BOX) return stable_fluids::invalid_collider;
+        if (collider.boundary_type > STABLE_FLUIDS_BOUNDARY_FREE_SLIP) return stable_fluids::invalid_collider;
+        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_SPHERE && collider.radius <= 0.0f) return stable_fluids::invalid_collider;
+        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_BOX && (collider.half_extent_x <= 0.0f || collider.half_extent_y <= 0.0f || collider.half_extent_z <= 0.0f)) return stable_fluids::invalid_collider;
+    }
     auto* storage = as_storage(context);
     storage->colliders.assign(desc->colliders, desc->colliders + desc->collider_count);
     storage->atlas_dirty = true;
@@ -1097,7 +1127,11 @@ int32_t stable_fluids_update_scene_cuda(StableFluidsContext context, const Stabl
 
 int32_t stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc) {
     if (context == nullptr) return stable_fluids::invalid_context;
-    if (const int32_t code = stable_fluids_validate_step_desc(desc); code != 0) return code;
+    if (desc == nullptr) return stable_fluids::invalid_descriptor;
+    if (desc->source_count > 0 && desc->sources == nullptr) return stable_fluids::invalid_descriptor;
+    for (uint32_t index = 0; index < desc->source_count; ++index) {
+        if (desc->sources[index].radius <= 0.0f) return stable_fluids::invalid_descriptor;
+    }
     auto& storage = *as_storage(context);
     if (const int32_t code = rebuild_atlas_if_needed(storage); code != 0) return code;
 
@@ -1155,7 +1189,9 @@ int32_t stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsS
 
 int32_t stable_fluids_export_field_cuda(StableFluidsContext context, const StableFluidsExportFieldDesc* desc) {
     if (context == nullptr) return stable_fluids::invalid_context;
-    if (const int32_t code = stable_fluids_validate_export_field_desc(desc); code != 0) return code;
+    if (desc == nullptr) return stable_fluids::invalid_descriptor;
+    if (desc->field > STABLE_FLUIDS_EXPORT_DIVERGENCE) return stable_fluids::invalid_export_field;
+    if (desc->destination == nullptr) return stable_fluids::invalid_destination;
     auto& storage = *as_storage(context);
     const dim3 block(
         static_cast<unsigned>(std::max(storage.config.block_x, 1)),
@@ -1190,8 +1226,6 @@ int32_t stable_fluids_export_field_cuda(StableFluidsContext context, const Stabl
 
 int32_t stable_fluids_get_grid_desc_cuda(StableFluidsContext context, StableFluidsGridDesc* out_desc) {
     if (context == nullptr || out_desc == nullptr) return stable_fluids::invalid_context;
-    out_desc->struct_size = sizeof(StableFluidsGridDesc);
-    out_desc->api_version = STABLE_FLUIDS_API_VERSION;
     out_desc->nx = as_storage(context)->config.nx;
     out_desc->ny = as_storage(context)->config.ny;
     out_desc->nz = as_storage(context)->config.nz;

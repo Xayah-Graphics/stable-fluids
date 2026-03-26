@@ -1,7 +1,7 @@
 #ifndef STABLE_FLUIDS_H
 #define STABLE_FLUIDS_H
 
-#include <stdint.h>
+#include <cstdint>
 
 #ifdef _WIN32
 #ifdef STABLE_FLUIDS_BUILD_SHARED
@@ -18,8 +18,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define STABLE_FLUIDS_API_VERSION 2u
 
 typedef struct StableFluidsContext_t* StableFluidsContext;
 
@@ -60,8 +58,6 @@ typedef struct StableFluidsDomainBoundaryDesc {
 } StableFluidsDomainBoundaryDesc;
 
 typedef struct StableFluidsSimulationConfig {
-    uint32_t struct_size;
-    uint32_t api_version;
     int32_t nx;
     int32_t ny;
     int32_t nz;
@@ -84,15 +80,11 @@ typedef struct StableFluidsSimulationConfig {
 } StableFluidsSimulationConfig;
 
 typedef struct StableFluidsContextCreateDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
     StableFluidsSimulationConfig config;
     void* stream;
 } StableFluidsContextCreateDesc;
 
 typedef struct StableFluidsColliderDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
     uint32_t collider_type;
     uint32_t boundary_type;
     float center_x;
@@ -108,15 +100,11 @@ typedef struct StableFluidsColliderDesc {
 } StableFluidsColliderDesc;
 
 typedef struct StableFluidsSceneDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
     const StableFluidsColliderDesc* colliders;
     uint32_t collider_count;
 } StableFluidsSceneDesc;
 
 typedef struct StableFluidsSourceDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
     float center_x;
     float center_y;
     float center_z;
@@ -132,32 +120,21 @@ typedef struct StableFluidsSourceDesc {
 } StableFluidsSourceDesc;
 
 typedef struct StableFluidsStepDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
     const StableFluidsSourceDesc* sources;
     uint32_t source_count;
 } StableFluidsStepDesc;
 
 typedef struct StableFluidsExportFieldDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
     uint32_t field;
     void* destination;
 } StableFluidsExportFieldDesc;
 
 typedef struct StableFluidsGridDesc {
-    uint32_t struct_size;
-    uint32_t api_version;
     int32_t nx;
     int32_t ny;
     int32_t nz;
     float cell_size;
 } StableFluidsGridDesc;
-
-STABLE_FLUIDS_API int32_t stable_fluids_validate_context_create_desc(const StableFluidsContextCreateDesc* desc);
-STABLE_FLUIDS_API int32_t stable_fluids_validate_scene_desc(const StableFluidsSceneDesc* desc);
-STABLE_FLUIDS_API int32_t stable_fluids_validate_step_desc(const StableFluidsStepDesc* desc);
-STABLE_FLUIDS_API int32_t stable_fluids_validate_export_field_desc(const StableFluidsExportFieldDesc* desc);
 
 STABLE_FLUIDS_API int32_t stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context);
 STABLE_FLUIDS_API int32_t stable_fluids_destroy_context_cuda(StableFluidsContext context);
