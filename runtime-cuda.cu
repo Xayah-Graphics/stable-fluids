@@ -28,6 +28,7 @@ namespace stable_fluids {
     constexpr uint8_t cell_solid           = 1;
     constexpr uint8_t face_open            = 0;
     constexpr uint8_t face_fixed           = 1;
+    constexpr uint8_t face_outflow         = 2;
     enum class Axis : int {
         x = 0,
         y = 1,
@@ -227,32 +228,70 @@ namespace stable_fluids {
             }
         }
 
-        auto apply_domain_face = [&](std::vector<uint8_t>& flags, std::vector<float>& values, const int x, const int y, const int z, const int sx, const int sy, const StableFluidsBoundaryFaceDesc& face) {
-            if (face.type == STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW) return;
-            flags[static_cast<std::size_t>(index_3d(x, y, z, sx, sy))] = face_fixed;
-            values[static_cast<std::size_t>(index_3d(x, y, z, sx, sy))] = face.type == STABLE_FLUIDS_VELOCITY_BOUNDARY_INFLOW ? face.velocity : 0.0f;
+        auto set_face = [&](std::vector<uint8_t>& flags, std::vector<float>& values, const int x, const int y, const int z, const int sx, const int sy, const uint8_t type, const float target) {
+            const auto index = static_cast<std::size_t>(index_3d(x, y, z, sx, sy));
+            flags[index] = type;
+            values[index] = target;
+        };
+        auto apply_domain_normal_face = [&](std::vector<uint8_t>& flags, std::vector<float>& values, const int x, const int y, const int z, const int sx, const int sy, const StableFluidsBoundaryFaceDesc& face) {
+            if (face.type == STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW) {
+                set_face(flags, values, x, y, z, sx, sy, face_outflow, 0.0f);
+                return;
+            }
+            set_face(flags, values, x, y, z, sx, sy, face_fixed, face.type == STABLE_FLUIDS_VELOCITY_BOUNDARY_INFLOW ? face.velocity : 0.0f);
+        };
+        auto apply_no_slip_tangent_faces = [&](const StableFluidsBoundaryFaceDesc& face, const Axis axis, const bool max_side) {
+            if (face.type != STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP) return;
+            if (axis == Axis::x) {
+                const int tangent_x = max_side ? nx - 1 : 0;
+                for (int z = 0; z < nz; ++z) {
+                    for (int y = 0; y <= ny; ++y) set_face(context.host_atlas.v_flags, context.host_atlas.v_target, tangent_x, y, z, nx, ny + 1, face_fixed, 0.0f);
+                    for (int y = 0; y < ny; ++y) set_face(context.host_atlas.w_flags, context.host_atlas.w_target, tangent_x, y, z, nx, ny, face_fixed, 0.0f);
+                }
+            }
+            if (axis == Axis::y) {
+                const int tangent_y = max_side ? ny - 1 : 0;
+                for (int z = 0; z < nz; ++z) {
+                    for (int x = 0; x <= nx; ++x) set_face(context.host_atlas.u_flags, context.host_atlas.u_target, x, tangent_y, z, nx + 1, ny, face_fixed, 0.0f);
+                    for (int x = 0; x < nx; ++x) set_face(context.host_atlas.w_flags, context.host_atlas.w_target, x, tangent_y, z, nx, ny, face_fixed, 0.0f);
+                }
+            }
+            if (axis == Axis::z) {
+                const int tangent_z = max_side ? nz - 1 : 0;
+                for (int y = 0; y < ny; ++y) {
+                    for (int x = 0; x <= nx; ++x) set_face(context.host_atlas.u_flags, context.host_atlas.u_target, x, y, tangent_z, nx + 1, ny, face_fixed, 0.0f);
+                    for (int x = 0; x < nx; ++x) set_face(context.host_atlas.v_flags, context.host_atlas.v_target, x, y, tangent_z, nx, ny + 1, face_fixed, 0.0f);
+                }
+            }
         };
 
         for (int z = 0; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
-                apply_domain_face(context.host_atlas.u_flags, context.host_atlas.u_target, 0, y, z, nx + 1, ny, context.config.domain_boundary.x_min);
-                apply_domain_face(context.host_atlas.u_flags, context.host_atlas.u_target, nx, y, z, nx + 1, ny, context.config.domain_boundary.x_max);
+                apply_domain_normal_face(context.host_atlas.u_flags, context.host_atlas.u_target, 0, y, z, nx + 1, ny, context.config.domain_boundary.x_min);
+                apply_domain_normal_face(context.host_atlas.u_flags, context.host_atlas.u_target, nx, y, z, nx + 1, ny, context.config.domain_boundary.x_max);
             }
         }
 
         for (int z = 0; z < nz; ++z) {
             for (int x = 0; x < nx; ++x) {
-                apply_domain_face(context.host_atlas.v_flags, context.host_atlas.v_target, x, 0, z, nx, ny + 1, context.config.domain_boundary.y_min);
-                apply_domain_face(context.host_atlas.v_flags, context.host_atlas.v_target, x, ny, z, nx, ny + 1, context.config.domain_boundary.y_max);
+                apply_domain_normal_face(context.host_atlas.v_flags, context.host_atlas.v_target, x, 0, z, nx, ny + 1, context.config.domain_boundary.y_min);
+                apply_domain_normal_face(context.host_atlas.v_flags, context.host_atlas.v_target, x, ny, z, nx, ny + 1, context.config.domain_boundary.y_max);
             }
         }
 
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                apply_domain_face(context.host_atlas.w_flags, context.host_atlas.w_target, x, y, 0, nx, ny, context.config.domain_boundary.z_min);
-                apply_domain_face(context.host_atlas.w_flags, context.host_atlas.w_target, x, y, nz, nx, ny, context.config.domain_boundary.z_max);
+                apply_domain_normal_face(context.host_atlas.w_flags, context.host_atlas.w_target, x, y, 0, nx, ny, context.config.domain_boundary.z_min);
+                apply_domain_normal_face(context.host_atlas.w_flags, context.host_atlas.w_target, x, y, nz, nx, ny, context.config.domain_boundary.z_max);
             }
         }
+
+        apply_no_slip_tangent_faces(context.config.domain_boundary.x_min, Axis::x, false);
+        apply_no_slip_tangent_faces(context.config.domain_boundary.x_max, Axis::x, true);
+        apply_no_slip_tangent_faces(context.config.domain_boundary.y_min, Axis::y, false);
+        apply_no_slip_tangent_faces(context.config.domain_boundary.y_max, Axis::y, true);
+        apply_no_slip_tangent_faces(context.config.domain_boundary.z_min, Axis::z, false);
+        apply_no_slip_tangent_faces(context.config.domain_boundary.z_max, Axis::z, true);
 
         auto is_solid = [&](const int x, const int y, const int z) {
             if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return false;
@@ -629,7 +668,11 @@ namespace stable_fluids {
             const float dy = py - center_y;
             const float dz = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
-            if (distance2 <= radius2) u[index_3d(x, y, z, nx + 1, ny)] += velocity_x * fmaxf(0.0f, 1.0f - distance2 / radius2);
+            if (distance2 <= radius2) {
+                const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
+                const auto index = index_3d(x, y, z, nx + 1, ny);
+                u[index] = u[index] * (1.0f - weight) + velocity_x * weight;
+            }
         }
 
         if (x < nx && y <= ny && z < nz && v_flags[index_3d(x, y, z, nx, ny + 1)] != face_fixed) {
@@ -640,7 +683,11 @@ namespace stable_fluids {
             const float dy = py - center_y;
             const float dz = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
-            if (distance2 <= radius2) v[index_3d(x, y, z, nx, ny + 1)] += velocity_y * fmaxf(0.0f, 1.0f - distance2 / radius2);
+            if (distance2 <= radius2) {
+                const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
+                const auto index = index_3d(x, y, z, nx, ny + 1);
+                v[index] = v[index] * (1.0f - weight) + velocity_y * weight;
+            }
         }
 
         if (x < nx && y < ny && z <= nz && w_flags[index_3d(x, y, z, nx, ny)] != face_fixed) {
@@ -651,7 +698,11 @@ namespace stable_fluids {
             const float dy = py - center_y;
             const float dz = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
-            if (distance2 <= radius2) w[index_3d(x, y, z, nx, ny)] += velocity_z * fmaxf(0.0f, 1.0f - distance2 / radius2);
+            if (distance2 <= radius2) {
+                const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
+                const auto index = index_3d(x, y, z, nx, ny);
+                w[index] = w[index] * (1.0f - weight) + velocity_z * weight;
+            }
         }
     }
 
@@ -673,10 +724,10 @@ namespace stable_fluids {
         if (distance2 > radius2) return;
         const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
         const auto cell_count_value = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz);
-        if (components > 0) field[index] += value_0 * weight;
-        if (components > 1) field[cell_count_value + index] += value_1 * weight;
-        if (components > 2) field[cell_count_value * 2u + index] += value_2 * weight;
-        if (components > 3) field[cell_count_value * 3u + index] += value_3 * weight;
+        if (components > 0) field[index] = field[index] * (1.0f - weight) + value_0 * weight;
+        if (components > 1) field[cell_count_value + index] = field[cell_count_value + index] * (1.0f - weight) + value_1 * weight;
+        if (components > 2) field[cell_count_value * 2u + index] = field[cell_count_value * 2u + index] * (1.0f - weight) + value_2 * weight;
+        if (components > 3) field[cell_count_value * 3u + index] = field[cell_count_value * 3u + index] * (1.0f - weight) + value_3 * weight;
     }
 
     __global__ void add_uniform_forces_kernel(float* u, float* v, float* w, const uint8_t* u_flags, const uint8_t* v_flags, const uint8_t* w_flags, const int nx, const int ny, const int nz, const float dt, const float uniform_force_x, const float uniform_force_y, const float uniform_force_z) {
@@ -840,27 +891,27 @@ namespace stable_fluids {
         float sum = 0.0f;
         int diag = 0;
 
-        if (u_flags[index_3d(x, y, z, nx + 1, ny)] != face_fixed) {
+        if (u_flags[index_3d(x, y, z, nx + 1, ny)] == face_open) {
             ++diag;
             if (x > 0 && cell_flags[index_3d(x - 1, y, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x - 1, y, z, nx, ny)];
         }
-        if (u_flags[index_3d(x + 1, y, z, nx + 1, ny)] != face_fixed) {
+        if (u_flags[index_3d(x + 1, y, z, nx + 1, ny)] == face_open) {
             ++diag;
             if (x + 1 < nx && cell_flags[index_3d(x + 1, y, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x + 1, y, z, nx, ny)];
         }
-        if (v_flags[index_3d(x, y, z, nx, ny + 1)] != face_fixed) {
+        if (v_flags[index_3d(x, y, z, nx, ny + 1)] == face_open) {
             ++diag;
             if (y > 0 && cell_flags[index_3d(x, y - 1, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y - 1, z, nx, ny)];
         }
-        if (v_flags[index_3d(x, y + 1, z, nx, ny + 1)] != face_fixed) {
+        if (v_flags[index_3d(x, y + 1, z, nx, ny + 1)] == face_open) {
             ++diag;
             if (y + 1 < ny && cell_flags[index_3d(x, y + 1, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y + 1, z, nx, ny)];
         }
-        if (w_flags[index_3d(x, y, z, nx, ny)] != face_fixed) {
+        if (w_flags[index_3d(x, y, z, nx, ny)] == face_open) {
             ++diag;
             if (z > 0 && cell_flags[index_3d(x, y, z - 1, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y, z - 1, nx, ny)];
         }
-        if (w_flags[index_3d(x, y, z + 1, nx, ny)] != face_fixed) {
+        if (w_flags[index_3d(x, y, z + 1, nx, ny)] == face_open) {
             ++diag;
             if (z + 1 < nz && cell_flags[index_3d(x, y, z + 1, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y, z + 1, nx, ny)];
         }
@@ -876,25 +927,19 @@ namespace stable_fluids {
         if (x <= nx && y < ny && z < nz) {
             const auto face_index = index_3d(x, y, z, nx + 1, ny);
             if (u_flags[face_index] == face_fixed) u[face_index] = u_target[face_index];
-            else if (x == 0) u[face_index] -= (pressure[index_3d(0, y, z, nx, ny)] - 0.0f) * inv_h;
-            else if (x == nx) u[face_index] -= (0.0f - pressure[index_3d(nx - 1, y, z, nx, ny)]) * inv_h;
-            else if (cell_flags[index_3d(x - 1, y, z, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) u[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x - 1, y, z, nx, ny)]) * inv_h;
+            else if (u_flags[face_index] == face_open && x > 0 && x < nx && cell_flags[index_3d(x - 1, y, z, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) u[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x - 1, y, z, nx, ny)]) * inv_h;
         }
 
         if (x < nx && y <= ny && z < nz) {
             const auto face_index = index_3d(x, y, z, nx, ny + 1);
             if (v_flags[face_index] == face_fixed) v[face_index] = v_target[face_index];
-            else if (y == 0) v[face_index] -= (pressure[index_3d(x, 0, z, nx, ny)] - 0.0f) * inv_h;
-            else if (y == ny) v[face_index] -= (0.0f - pressure[index_3d(x, ny - 1, z, nx, ny)]) * inv_h;
-            else if (cell_flags[index_3d(x, y - 1, z, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) v[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y - 1, z, nx, ny)]) * inv_h;
+            else if (v_flags[face_index] == face_open && y > 0 && y < ny && cell_flags[index_3d(x, y - 1, z, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) v[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y - 1, z, nx, ny)]) * inv_h;
         }
 
         if (x < nx && y < ny && z <= nz) {
             const auto face_index = index_3d(x, y, z, nx, ny);
             if (w_flags[face_index] == face_fixed) w[face_index] = w_target[face_index];
-            else if (z == 0) w[face_index] -= (pressure[index_3d(x, y, 0, nx, ny)] - 0.0f) * inv_h;
-            else if (z == nz) w[face_index] -= (0.0f - pressure[index_3d(x, y, nz - 1, nx, ny)]) * inv_h;
-            else if (cell_flags[index_3d(x, y, z - 1, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) w[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y, z - 1, nx, ny)]) * inv_h;
+            else if (w_flags[face_index] == face_open && z > 0 && z < nz && cell_flags[index_3d(x, y, z - 1, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) w[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y, z - 1, nx, ny)]) * inv_h;
         }
     }
 
