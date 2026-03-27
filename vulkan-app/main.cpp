@@ -147,6 +147,15 @@ int main() {
             if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.initial_snapshot");
             if (const auto snapshot = snapshots.active_snapshot(to_app_collider())) renderer.frame_content(*snapshot);
         };
+        auto capture_if_possible = [&](const char* tag) {
+            const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
+            if (slot_index < 0) return false;
+            capture_snapshot(slot_index, tag);
+            return true;
+        };
+        auto frame_latest_snapshot = [&]() {
+            if (const auto snapshot = snapshots.active_snapshot(to_app_collider())) renderer.frame_content(*snapshot);
+        };
 
         apply_field_defaults(current_field());
         reset_backend();
@@ -343,16 +352,14 @@ int main() {
             if (reset_requested) {
                 reset_backend();
             } else if (field_changed && ensure_snapshot_storage()) {
-                const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
-                if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.field_change_realloc");
-                if (const auto snapshot = snapshots.active_snapshot(to_app_collider())) renderer.frame_content(*snapshot);
+                capture_if_possible("stable_fluids.field_change_realloc");
+                frame_latest_snapshot();
             }
 
             auto snapshot = snapshots.active_snapshot(to_app_collider());
             renderer.draw_visualization_ui(snapshot);
             if (ensure_snapshot_storage()) {
-                const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
-                if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.visual_storage_reset");
+                capture_if_possible("stable_fluids.visual_storage_reset");
                 snapshot = snapshots.active_snapshot(to_app_collider());
                 if (snapshot) renderer.frame_content(*snapshot);
             }
@@ -362,18 +369,12 @@ int main() {
                 if (run_simulation) {
                     simulation.step(playback.sim_steps_per_frame);
                     if (snapshots.stats().steps_since_snapshot < static_cast<uint32_t>(playback.snapshot_interval)) ++snapshots.stats().steps_since_snapshot;
-                    if (snapshots.stats().steps_since_snapshot >= static_cast<uint32_t>(playback.snapshot_interval)) {
-                        const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
-                        if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.simulation_snapshot");
-                    }
+                    if (snapshots.stats().steps_since_snapshot >= static_cast<uint32_t>(playback.snapshot_interval)) capture_if_possible("stable_fluids.simulation_snapshot");
                 }
             }
 
             playback.step_once = false;
-            if ((field_changed || !snapshot) && !reset_requested) {
-                const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
-                if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.refresh_snapshot");
-            }
+            if ((field_changed || !snapshot) && !reset_requested) capture_if_possible("stable_fluids.refresh_snapshot");
 
             snapshot = snapshots.active_snapshot(to_app_collider());
             const bool submitted = renderer.render_frame(snapshot);

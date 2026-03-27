@@ -113,6 +113,3 @@ Gradient, and multigrid. Their asymptotic costs are summarized below.
 | Gauss-Seidel       | $\mathcal{O}(N)$ per iteration | Usually converges faster than Jacobi, but still slow overall  |
 | Conjugate Gradient | $\mathcal{O}(N)$ per iteration | For SPD systems; total cost depends on $\kappa$ and tolerance |
 | Multigrid          | Near $\mathcal{O}(N)$ overall  | Near-optimal for Poisson/Helmholtz-type elliptic problems     |
-
-### Multi-grid method
-

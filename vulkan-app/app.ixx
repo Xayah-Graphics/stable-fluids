@@ -144,11 +144,6 @@ export namespace app {
         float velocity_thickness        = 1.6f;
     };
 
-    struct FrameInfo {
-        float dt_seconds = 0.0f;
-        float render_fps = 0.0f;
-    };
-
     class VisualizationApp {
     public:
         VisualizationApp();
@@ -160,7 +155,7 @@ export namespace app {
         VisualizationApp& operator=(VisualizationApp&&) noexcept = delete;
 
         [[nodiscard]] bool should_close() const;
-        FrameInfo begin_frame();
+        void begin_frame();
         void draw_visualization_ui(const std::optional<VisualizationSnapshotView>& snapshot);
         bool render_frame(const std::optional<VisualizationSnapshotView>& snapshot);
         void frame_content(const VisualizationSnapshotView& snapshot);

@@ -165,7 +165,6 @@ namespace smoke {
         [[nodiscard]] cudaStream_t stream() const;
         [[nodiscard]] ScenePreset scene_preset() const;
         [[nodiscard]] std::span<const FieldInfo> fields() const;
-        [[nodiscard]] const FieldInfo& field_info(FieldId field) const;
         [[nodiscard]] ColliderOverlay collider_overlay() const;
 
         void rebuild();

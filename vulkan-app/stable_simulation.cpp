@@ -183,9 +183,6 @@ namespace smoke {
                     .center_x = 0.50f,
                     .center_y = 0.04f,
                     .center_z = 0.50f,
-                    .direction_x = 0.0f,
-                    .direction_y = 1.0f,
-                    .direction_z = 0.0f,
                     .speed = 0.03f,
                     .radius = 0.035f,
                     .density_amount = 1.40f,
@@ -193,22 +190,6 @@ namespace smoke {
                     .color_r = 0.95f,
                     .color_g = 0.92f,
                     .color_b = 0.86f,
-                };
-                settings.emitter_b = {
-                    .enabled = false,
-                    .center_x = 0.50f,
-                    .center_y = 0.10f,
-                    .center_z = 0.50f,
-                    .direction_x = 0.0f,
-                    .direction_y = 1.0f,
-                    .direction_z = 0.0f,
-                    .speed = 0.0f,
-                    .radius = 0.04f,
-                    .density_amount = 0.0f,
-                    .dye_amount = 0.0f,
-                    .color_r = 1.0f,
-                    .color_g = 1.0f,
-                    .color_b = 1.0f,
                 };
                 return settings;
             }
@@ -286,13 +267,6 @@ namespace smoke {
 
     std::span<const FieldInfo> StableSimulation::fields() const {
         return field_catalog;
-    }
-
-    const FieldInfo& StableSimulation::field_info(const FieldId field) const {
-        for (const auto& info : field_catalog) {
-            if (info.id == field) return info;
-        }
-        return field_catalog.front();
     }
 
     ColliderOverlay StableSimulation::collider_overlay() const {
