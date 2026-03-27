@@ -46,7 +46,6 @@ namespace stable_fluids {
         float* temp_velocity_z = nullptr;
         float* pressure      = nullptr;
         float* divergence    = nullptr;
-        float* residual_divergence = nullptr;
         ProjectionMetricsState* projection_metrics = nullptr;
         float* scalar_scratch = nullptr;
         uint8_t* cell_flags  = nullptr;
@@ -381,7 +380,6 @@ namespace stable_fluids {
         release_device_array(context.device.temp_velocity_z);
         release_device_array(context.device.pressure);
         release_device_array(context.device.divergence);
-        release_device_array(context.device.residual_divergence);
         release_device_array(context.device.projection_metrics);
         release_device_array(context.device.scalar_scratch);
         release_device_array(context.device.cell_flags);
@@ -403,7 +401,6 @@ namespace stable_fluids {
         if (allocate_device_array(context.device.temp_velocity_z, w_face_count(context.config)) != success) return out_of_memory;
         if (allocate_device_array(context.device.pressure, scalar_count(context.config)) != success) return out_of_memory;
         if (allocate_device_array(context.device.divergence, scalar_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.residual_divergence, scalar_count(context.config)) != success) return out_of_memory;
         if (allocate_device_array(context.device.projection_metrics, 1) != success) return out_of_memory;
         if (allocate_device_array(context.device.scalar_scratch, field_value_count(context.config, (std::max)(context.max_field_components, 1u))) != success) return out_of_memory;
         if (allocate_device_array(context.device.cell_flags, scalar_count(context.config)) != success) return out_of_memory;
@@ -892,14 +889,14 @@ namespace stable_fluids {
         divergence[index] = (u[index_3d(x + 1, y, z, nx + 1, ny)] - u[index_3d(x, y, z, nx + 1, ny)] + v[index_3d(x, y + 1, z, nx, ny + 1)] - v[index_3d(x, y, z, nx, ny + 1)] + w[index_3d(x, y, z + 1, nx, ny)] - w[index_3d(x, y, z, nx, ny)]) * inv_h;
     }
 
-    __global__ void accumulate_projection_metrics_kernel(ProjectionMetricsState* metrics, const float* divergence, const uint8_t* cell_flags, const int nx, const int ny, const int nz) {
+    __global__ void accumulate_projection_metrics_kernel(ProjectionMetricsState* metrics, const float* u, const float* v, const float* w, const uint8_t* cell_flags, const int nx, const int ny, const int nz, const float inv_h) {
         const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
         const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
         const auto index = index_3d(x, y, z, nx, ny);
         if (cell_flags[index] == cell_solid) return;
-        const float value = fabsf(divergence[index]);
+        const float value = fabsf((u[index_3d(x + 1, y, z, nx + 1, ny)] - u[index_3d(x, y, z, nx + 1, ny)] + v[index_3d(x, y + 1, z, nx, ny + 1)] - v[index_3d(x, y, z, nx, ny + 1)] + w[index_3d(x, y, z + 1, nx, ny)] - w[index_3d(x, y, z, nx, ny)]) * inv_h);
         atomicMax(reinterpret_cast<unsigned int*>(&metrics->max_abs_divergence), __float_as_uint(value));
         atomicAdd(&metrics->sum_sq_divergence, value * value);
         atomicAdd(&metrics->fluid_cell_count, 1u);
@@ -1131,10 +1128,8 @@ namespace {
         if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
         stable_fluids::apply_face_constraints_kernel<<<faces, block, 0, context.stream>>>(context.device.velocity_x, context.device.velocity_y, context.device.velocity_z, context.device.u_flags, context.device.v_flags, context.device.w_flags, context.device.u_target, context.device.v_target, context.device.w_target, context.config.nx, context.config.ny, context.config.nz);
         if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
-        stable_fluids::compute_divergence_kernel<<<cells, block, 0, context.stream>>>(context.device.residual_divergence, context.device.velocity_x, context.device.velocity_y, context.device.velocity_z, context.device.cell_flags, context.config.nx, context.config.ny, context.config.nz, inv_h);
-        if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
         if (cudaMemsetAsync(context.device.projection_metrics, 0, sizeof(stable_fluids::ProjectionMetricsState), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
-        stable_fluids::accumulate_projection_metrics_kernel<<<cells, block, 0, context.stream>>>(context.device.projection_metrics, context.device.residual_divergence, context.device.cell_flags, context.config.nx, context.config.ny, context.config.nz);
+        stable_fluids::accumulate_projection_metrics_kernel<<<cells, block, 0, context.stream>>>(context.device.projection_metrics, context.device.velocity_x, context.device.velocity_y, context.device.velocity_z, context.device.cell_flags, context.config.nx, context.config.ny, context.config.nz, inv_h);
         return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
     }
 

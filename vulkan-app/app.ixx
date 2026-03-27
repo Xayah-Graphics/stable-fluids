@@ -24,17 +24,9 @@ export namespace app {
         GenericScalar     = 3,
     };
 
-    enum class FieldFormat : uint32_t {
-        Scalar1F32 = 0,
-        Vec2F32    = 1,
-        Vec3F32    = 2,
-        Vec4F32    = 3,
-    };
-
     enum class ViewMode : uint32_t {
-        Auto   = 0,
-        Plane  = 1,
-        Volume = 2,
+        Plane  = 0,
+        Volume = 1,
     };
 
     enum class RenderMode : uint32_t {
@@ -59,20 +51,18 @@ export namespace app {
         uint32_t nx = 0;
         uint32_t ny = 0;
         uint32_t nz = 1;
-        float hx    = 1.0f;
-        float hy    = 1.0f;
-        float hz    = 1.0f;
+        float cell_size = 1.0f;
 
         [[nodiscard]] float extent_x() const {
-            return static_cast<float>(nx) * hx;
+            return static_cast<float>(nx) * cell_size;
         }
 
         [[nodiscard]] float extent_y() const {
-            return static_cast<float>(ny) * hy;
+            return static_cast<float>(ny) * cell_size;
         }
 
         [[nodiscard]] float extent_z() const {
-            return static_cast<float>((std::max)(nz, 1u)) * hz;
+            return static_cast<float>((std::max)(nz, 1u)) * cell_size;
         }
 
         [[nodiscard]] float max_extent() const {
@@ -84,7 +74,7 @@ export namespace app {
         vk::DescriptorSet descriptor_set{nullptr};
         vk::Semaphore timeline_semaphore{nullptr};
         uint64_t ready_generation = 0;
-        FieldFormat format        = FieldFormat::Scalar1F32;
+        uint32_t component_count  = 1;
         FieldSemantic semantic    = FieldSemantic::GenericScalar;
         std::string_view label{};
     };
@@ -102,8 +92,7 @@ export namespace app {
     };
 
     struct VectorFieldOverlay {
-        const float* data          = nullptr;
-        uint32_t component_count   = 0;
+        const float* data = nullptr;
     };
 
     struct VisualizationSnapshotView {
@@ -129,7 +118,7 @@ export namespace app {
     };
 
     struct VisualizationSettings {
-        ViewMode view_mode              = ViewMode::Auto;
+        ViewMode view_mode              = ViewMode::Volume;
         RenderMode render_mode          = RenderMode::Smoke;
         PlaneAxis plane_axis            = PlaneAxis::XY;
         int march_steps                 = 96;

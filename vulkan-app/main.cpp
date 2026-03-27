@@ -59,12 +59,6 @@ int main() {
             if (semantic == smoke::FieldSemantic::DyeColor) return app::FieldSemantic::DyeColor;
             return app::FieldSemantic::GenericScalar;
         };
-        auto to_app_format = [](const uint32_t component_count) {
-            if (component_count == 1) return app::FieldFormat::Scalar1F32;
-            if (component_count == 2) return app::FieldFormat::Vec2F32;
-            if (component_count == 3) return app::FieldFormat::Vec3F32;
-            return app::FieldFormat::Vec4F32;
-        };
         auto to_app_collider = [&]() {
             const auto collider = simulation.collider_overlay();
             return app::ColliderOverlay{
@@ -86,15 +80,12 @@ int main() {
                     .nx = static_cast<uint32_t>(grid.nx),
                     .ny = static_cast<uint32_t>(grid.ny),
                     .nz = static_cast<uint32_t>((std::max)(grid.nz, 1)),
-                    .hx = grid.cell_size,
-                    .hy = grid.cell_size,
-                    .hz = grid.cell_size,
+                    .cell_size = grid.cell_size,
                 },
-                .field_format = to_app_format(current_field().component_count),
+                .field_component_count = current_field().component_count,
                 .semantic = to_app_semantic(current_field().semantic),
                 .label = current_field().label,
                 .export_velocity_host = renderer.settings().show_velocity_plane,
-                .velocity_components = 3,
             };
         };
         auto apply_field_defaults = [&](const smoke::FieldInfo& field) {
@@ -111,7 +102,6 @@ int main() {
             settings.scalar_high_r = field.preset.scalar_high_r;
             settings.scalar_high_g = field.preset.scalar_high_g;
             settings.scalar_high_b = field.preset.scalar_high_b;
-            if (renderer.settings().view_mode == app::ViewMode::Auto) settings.plane_axis = app::PlaneAxis::XY;
         };
         auto check_interop_support = [&]() {
             const auto timeline_features = renderer.vk_context().physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features>();

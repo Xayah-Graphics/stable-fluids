@@ -130,13 +130,8 @@ namespace app {
     }
 
     void VisualizationApp::draw_visualization_ui(const std::optional<VisualizationSnapshotView>& snapshot) {
-        auto resolve_view_mode = [&](const VisualizationSnapshotView& view) {
-            if (settings_.view_mode == ViewMode::Plane) return ViewMode::Plane;
-            if (settings_.view_mode == ViewMode::Volume) return ViewMode::Volume;
-            return ViewMode::Volume;
-        };
         auto smoke_capable = [&](const VisualizationSnapshotView& view) {
-            return view.field.semantic == FieldSemantic::DyeColor && view.field.format == FieldFormat::Vec4F32;
+            return view.field.semantic == FieldSemantic::DyeColor && view.field.component_count == 4;
         };
 
         bool reframe_requested = false;
@@ -149,13 +144,13 @@ namespace app {
             ImGui::Text("Generation: %llu", static_cast<unsigned long long>(snapshot->field.ready_generation));
 
             int view_mode = static_cast<int>(settings_.view_mode);
-            const char* labels[] = {"Auto", "Plane", "Volume"};
-            if (ImGui::Combo("View", &view_mode, labels, 3)) {
+            const char* labels[] = {"Plane", "Volume"};
+            if (ImGui::Combo("View", &view_mode, labels, 2)) {
                 settings_.view_mode = static_cast<ViewMode>(view_mode);
                 reframe_requested = true;
             }
 
-            const auto resolved_view = resolve_view_mode(*snapshot);
+            const auto resolved_view = settings_.view_mode;
             if (resolved_view == ViewMode::Plane) {
                 int plane_axis = static_cast<int>(settings_.plane_axis);
                 const char* axis_labels[] = {"XY", "XZ", "YZ"};
@@ -225,18 +220,6 @@ namespace app {
             return false;
         }
 
-        auto resolve_view_mode = [&](const VisualizationSnapshotView& view) {
-            if (settings_.view_mode == ViewMode::Plane) return ViewMode::Plane;
-            if (settings_.view_mode == ViewMode::Volume) return ViewMode::Volume;
-            return ViewMode::Volume;
-        };
-        auto format_components = [&](const FieldFormat format) {
-            if (format == FieldFormat::Scalar1F32) return 1u;
-            if (format == FieldFormat::Vec2F32) return 2u;
-            if (format == FieldFormat::Vec3F32) return 3u;
-            return 4u;
-        };
-
         frame::begin_commands(frames_, frame_index_);
         auto& cmd = frame::cmd(frames_, frame_index_);
 
@@ -288,7 +271,7 @@ namespace app {
         ViewMode resolved_view = ViewMode::Plane;
         PlaneAxis resolved_plane = settings_.plane_axis;
         if (snapshot) {
-            resolved_view = resolve_view_mode(*snapshot);
+            resolved_view = settings_.view_mode;
             const auto& matrices = camera_.matrices();
             const auto& camera_config = camera_.config();
             const float aspect = static_cast<float>(sc_.extent.width) / static_cast<float>((std::max)(sc_.extent.height, 1u));
@@ -317,7 +300,7 @@ namespace app {
             };
             push.params2 = {
                 static_cast<uint32_t>(settings_.render_mode),
-                format_components(snapshot->field.format),
+                snapshot->field.component_count,
                 static_cast<uint32_t>(resolved_plane),
                 static_cast<uint32_t>(camera_config.projection),
             };
@@ -372,9 +355,9 @@ namespace app {
                     const auto nx = static_cast<int>(snapshot->grid.nx);
                     const auto ny = static_cast<int>(snapshot->grid.ny);
                     const auto nz = static_cast<int>(snapshot->grid.nz);
-                    const float gx = std::clamp(px / snapshot->grid.hx - 0.5f, 0.0f, static_cast<float>(nx - 1));
-                    const float gy = std::clamp(py / snapshot->grid.hy - 0.5f, 0.0f, static_cast<float>(ny - 1));
-                    const float gz = std::clamp(pz / snapshot->grid.hz - 0.5f, 0.0f, static_cast<float>(nz - 1));
+                    const float gx = std::clamp(px / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nx - 1));
+                    const float gy = std::clamp(py / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(ny - 1));
+                    const float gz = std::clamp(pz / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nz - 1));
                     const int x0 = static_cast<int>(std::floor(gx));
                     const int y0 = static_cast<int>(std::floor(gy));
                     const int z0 = static_cast<int>(std::floor(gz));
@@ -384,13 +367,12 @@ namespace app {
                     const float tx = gx - static_cast<float>(x0);
                     const float ty = gy - static_cast<float>(y0);
                     const float tz = gz - static_cast<float>(z0);
-                    const uint32_t components = snapshot->velocity.component_count;
                     const auto load = [&](const int x, const int y, const int z) {
                         const auto index = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
                         return vk::math::vec3{
-                            snapshot->velocity.data[index * components + 0u],
-                            components > 1 ? snapshot->velocity.data[index * components + 1u] : 0.0f,
-                            components > 2 ? snapshot->velocity.data[index * components + 2u] : 0.0f,
+                            snapshot->velocity.data[index * 3u + 0u],
+                            snapshot->velocity.data[index * 3u + 1u],
+                            snapshot->velocity.data[index * 3u + 2u],
                             0.0f,
                         };
                     };
@@ -478,11 +460,11 @@ namespace app {
                     }
                 }
 
-                if (settings_.show_velocity_plane && snapshot->velocity.data != nullptr && snapshot->velocity.component_count != 0) {
+                if (settings_.show_velocity_plane && snapshot->velocity.data != nullptr) {
                     const float slice_position = std::clamp(settings_.slice_position, 0.0f, 1.0f);
                     const int seed_count = (std::max)(settings_.velocity_grid, 2);
                     const int step_count = (std::max)(settings_.velocity_steps, 1);
-                    const float step_scale = settings_.velocity_step * (std::max)({snapshot->grid.hx, snapshot->grid.hy, snapshot->grid.hz});
+                    const float step_scale = settings_.velocity_step * snapshot->grid.cell_size;
                     std::array<vk::math::vec3, 4> plane_corners{};
                     if (resolved_plane == PlaneAxis::XY) {
                         const float z = slice_position * max_z;
@@ -602,11 +584,6 @@ namespace app {
     }
 
     void VisualizationApp::frame_content(const VisualizationSnapshotView& snapshot) {
-        auto resolve_view_mode = [&]() {
-            if (settings_.view_mode == ViewMode::Plane) return ViewMode::Plane;
-            if (settings_.view_mode == ViewMode::Volume) return ViewMode::Volume;
-            return ViewMode::Volume;
-        };
         auto update_camera_config = [&](const vk::camera::Projection projection, const float ortho_height) {
             auto camera_config = camera_.config();
             camera_config.projection = projection;
@@ -614,7 +591,7 @@ namespace app {
             camera_.set_config(camera_config);
         };
 
-        const auto resolved_view = resolve_view_mode();
+        const auto resolved_view = settings_.view_mode;
         const float center_x = snapshot.grid.extent_x() * 0.5f;
         const float center_y = snapshot.grid.extent_y() * 0.5f;
         const float center_z = snapshot.grid.extent_z() * 0.5f;

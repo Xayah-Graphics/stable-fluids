@@ -18,26 +18,19 @@ namespace viz::snapshot {
 
     namespace {
 
-        [[nodiscard]] uint32_t component_count(const app::FieldFormat format) {
-            if (format == app::FieldFormat::Scalar1F32) return 1;
-            if (format == app::FieldFormat::Vec2F32) return 2;
-            if (format == app::FieldFormat::Vec3F32) return 3;
-            return 4;
-        }
-
         [[nodiscard]] uint64_t field_bytes_for(const CaptureRequest& request) {
             const uint64_t nx = request.grid.nx;
             const uint64_t ny = request.grid.ny;
             const uint64_t nz = static_cast<uint64_t>((std::max)(request.grid.nz, 1u));
-            return nx * ny * nz * static_cast<uint64_t>(component_count(request.field_format)) * sizeof(float);
+            return nx * ny * nz * static_cast<uint64_t>((std::max)(request.field_component_count, 1u)) * sizeof(float);
         }
 
         [[nodiscard]] uint64_t velocity_bytes_for(const CaptureRequest& request) {
-            if (!request.export_velocity_host || request.velocity_components == 0) return 0;
+            if (!request.export_velocity_host) return 0;
             const uint64_t nx = request.grid.nx;
             const uint64_t ny = request.grid.ny;
             const uint64_t nz = static_cast<uint64_t>((std::max)(request.grid.nz, 1u));
-            return nx * ny * nz * static_cast<uint64_t>(request.velocity_components) * sizeof(float);
+            return nx * ny * nz * 3ull * sizeof(float);
         }
 
     } // namespace
@@ -64,12 +57,9 @@ namespace viz::snapshot {
             && request_.grid.nx == request.grid.nx
             && request_.grid.ny == request.grid.ny
             && request_.grid.nz == request.grid.nz
-            && request_.grid.hx == request.grid.hx
-            && request_.grid.hy == request.grid.hy
-            && request_.grid.hz == request.grid.hz
-            && request_.field_format == request.field_format
-            && request_.export_velocity_host == request.export_velocity_host
-            && request_.velocity_components == request.velocity_components;
+            && request_.grid.cell_size == request.grid.cell_size
+            && request_.field_component_count == request.field_component_count
+            && request_.export_velocity_host == request.export_velocity_host;
     }
 
     void SnapshotSet::reset(const vk::context::VulkanContext& vkctx, const std::span<vk::raii::DescriptorSet> descriptor_sets, const CaptureRequest& request) {
@@ -226,10 +216,10 @@ namespace viz::snapshot {
         auto& slot = slots_.at(static_cast<size_t>(slot_index));
         slot.ready_generation = stats_.snapshot_generation + 1;
         slot.grid = request.grid;
-        slot.field_format = request.field_format;
+        slot.field_component_count = request.field_component_count;
         slot.semantic = request.semantic;
         slot.label = request.label;
-        slot.velocity_components = request.export_velocity_host ? request.velocity_components : 0u;
+        slot.has_velocity_host = request.export_velocity_host;
         stats_.snapshot_generation = slot.ready_generation;
         stats_.active_slot = slot_index;
         stats_.steps_since_snapshot = 0;
@@ -247,14 +237,13 @@ namespace viz::snapshot {
                 .descriptor_set = *slot.descriptor_set,
                 .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
                 .ready_generation = slot.ready_generation,
-                .format = slot.field_format,
+                .component_count = slot.field_component_count,
                 .semantic = slot.semantic,
                 .label = slot.label,
             },
             .collider = collider,
             .velocity = {
-                .data = slot.velocity_host.empty() ? nullptr : slot.velocity_host.data(),
-                .component_count = slot.velocity_components,
+                .data = slot.has_velocity_host ? slot.velocity_host.data() : nullptr,
             },
         };
     }

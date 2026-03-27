@@ -15,11 +15,10 @@ export namespace viz::snapshot {
 
     struct CaptureRequest {
         app::GridShape grid{};
-        app::FieldFormat field_format = app::FieldFormat::Scalar1F32;
+        uint32_t field_component_count = 1;
         app::FieldSemantic semantic   = app::FieldSemantic::GenericScalar;
         std::string_view label{};
         bool export_velocity_host     = false;
-        uint32_t velocity_components  = 3;
     };
 
     struct CaptureResources {
@@ -80,10 +79,10 @@ export namespace viz::snapshot {
             uint64_t ready_generation                  = 0;
             uint64_t last_used_submit_serial           = 0;
             app::GridShape grid{};
-            app::FieldFormat field_format              = app::FieldFormat::Scalar1F32;
+            uint32_t field_component_count             = 1;
             app::FieldSemantic semantic                = app::FieldSemantic::GenericScalar;
             std::string_view label{};
-            uint32_t velocity_components               = 0;
+            bool has_velocity_host                     = false;
         };
 
         std::vector<Slot> slots_{};

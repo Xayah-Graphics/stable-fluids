@@ -81,12 +81,12 @@ namespace smoke {
     };
 
     struct ColliderSettings {
-        bool enabled        = true;
+        bool enabled        = false;
         int type            = 0;
         float center_x      = 0.50f;
-        float center_y      = 0.40f;
+        float center_y      = 0.50f;
         float center_z      = 0.50f;
-        float radius        = 0.13f;
+        float radius        = 0.10f;
         float half_extent_x = 0.10f;
         float half_extent_y = 0.08f;
         float half_extent_z = 0.10f;
@@ -97,29 +97,29 @@ namespace smoke {
     };
 
     struct SourceEmitterSettings {
-        bool enabled         = true;
-        float center_x       = 0.18f;
-        float center_y       = 0.18f;
-        float center_z       = 0.76f;
-        float direction_x    = 0.82f;
-        float direction_y    = 0.34f;
-        float direction_z    = -0.46f;
-        float speed          = 0.62f;
-        float radius         = 0.045f;
-        float density_amount = 0.80f;
-        float dye_amount     = 0.95f;
+        bool enabled         = false;
+        float center_x       = 0.50f;
+        float center_y       = 0.10f;
+        float center_z       = 0.50f;
+        float direction_x    = 0.0f;
+        float direction_y    = 1.0f;
+        float direction_z    = 0.0f;
+        float speed          = 0.0f;
+        float radius         = 0.03f;
+        float density_amount = 0.0f;
+        float dye_amount     = 0.0f;
         float color_r        = 1.00f;
-        float color_g        = 0.20f;
-        float color_b        = 0.72f;
+        float color_g        = 1.00f;
+        float color_b        = 1.00f;
     };
 
     struct Settings {
-        ScenePreset scene_preset = ScenePreset::DualJetCollider;
+        ScenePreset scene_preset = ScenePreset::Custom;
         StableFluidsSimulationConfig config{
-            .nx = 200,
-            .ny = 200,
-            .nz = 200,
-            .cell_size = 0.005f,
+            .nx = 100,
+            .ny = 100,
+            .nz = 100,
+            .cell_size = 0.01f,
             .dt = 1.0f / 120.0f,
             .viscosity = 0.00015f,
             .diffuse_iterations = 24,
@@ -147,22 +147,7 @@ namespace smoke {
         int selected_field      = 0;
         bool emit_source        = true;
         SourceEmitterSettings emitter_a{};
-        SourceEmitterSettings emitter_b{
-            .enabled = true,
-            .center_x = 0.82f,
-            .center_y = 0.18f,
-            .center_z = 0.24f,
-            .direction_x = -0.82f,
-            .direction_y = 0.34f,
-            .direction_z = 0.46f,
-            .speed = 0.62f,
-            .radius = 0.045f,
-            .density_amount = 0.80f,
-            .dye_amount = 0.95f,
-            .color_r = 0.12f,
-            .color_g = 0.38f,
-            .color_b = 1.00f,
-        };
+        SourceEmitterSettings emitter_b{};
         ColliderSettings collider{};
     };
 

@@ -145,22 +145,9 @@ namespace smoke {
         }
 
         [[nodiscard]] Settings make_settings_for_preset(const ScenePreset preset) {
-            Settings settings{};
-            settings.scene_preset = preset;
-            settings.config.domain_boundary = {
-                .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP), .velocity = 0.0f, },
-                .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+            Settings settings{
+                .scene_preset = preset,
             };
-            settings.density_diffusion = 0.00005f;
-            settings.dye_diffusion = 0.00003f;
-            settings.gravity_y = -9.81f;
-            settings.buoyancy_beta = 0.10f;
-            settings.ambient_density = 0.0f;
-            settings.emit_source = true;
             settings.collider = {
                 .enabled = true,
                 .type = 0,
@@ -178,7 +165,6 @@ namespace smoke {
             };
 
             if (preset == ScenePreset::SmokePlume) {
-                settings.config.dt = 1.0f / 120.0f;
                 settings.config.pressure_iterations = 120;
                 settings.config.domain_boundary = {
                     .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
@@ -190,9 +176,7 @@ namespace smoke {
                 };
                 settings.density_diffusion = 0.00001f;
                 settings.dye_diffusion = 0.000008f;
-                settings.gravity_y = -9.81f;
                 settings.buoyancy_beta = 0.65f;
-                settings.ambient_density = 0.0f;
                 settings.collider.enabled = false;
                 settings.emitter_a = {
                     .enabled = true,
@@ -229,29 +213,9 @@ namespace smoke {
                 return settings;
             }
 
-            settings.scene_preset = ScenePreset::DualJetCollider;
-            settings.config.dt = 1.0f / 120.0f;
-            settings.config.pressure_iterations = 96;
             settings.density_diffusion = 0.00003f;
             settings.dye_diffusion = 0.000015f;
-            settings.gravity_y = -9.81f;
             settings.buoyancy_beta = 0.12f;
-            settings.ambient_density = 0.0f;
-            settings.collider = {
-                .enabled = true,
-                .type = 0,
-                .center_x = 0.50f,
-                .center_y = 0.40f,
-                .center_z = 0.50f,
-                .radius = 0.13f,
-                .half_extent_x = 0.10f,
-                .half_extent_y = 0.08f,
-                .half_extent_z = 0.10f,
-                .velocity_x = 0.0f,
-                .velocity_y = 0.0f,
-                .velocity_z = 0.0f,
-                .boundary = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP),
-            };
             settings.emitter_a = {
                 .enabled = true,
                 .center_x = 0.1f,
