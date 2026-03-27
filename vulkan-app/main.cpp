@@ -232,9 +232,9 @@ int main() {
             ImGui::Separator();
             ImGui::TextUnformatted("Grid / Time");
             ImGui::Text("Domain Size: %.3f m x %.3f m x %.3f m", extent_x, extent_y, extent_z);
-            if (ImGui::SliderInt("Grid X (cells)", &settings.config.nx, 16, 192)) request_scene_reset();
-            if (ImGui::SliderInt("Grid Y (cells)", &settings.config.ny, 16, 192)) request_scene_reset();
-            if (ImGui::SliderInt("Grid Z (cells)", &settings.config.nz, 16, 192)) request_scene_reset();
+            if (ImGui::SliderInt("Grid X (cells)", &settings.config.nx, 16, 512)) request_scene_reset();
+            if (ImGui::SliderInt("Grid Y (cells)", &settings.config.ny, 16, 512)) request_scene_reset();
+            if (ImGui::SliderInt("Grid Z (cells)", &settings.config.nz, 16, 512)) request_scene_reset();
             if (ImGui::SliderFloat("Dt (s)", &settings.config.dt, 1.0f / 480.0f, 1.0f / 24.0f, "%.5f")) request_scene_reset();
             if (ImGui::SliderFloat("Cell Size (m)", &settings.config.cell_size, 0.0025f, 0.05f, "%.4f")) request_scene_reset();
             if (ImGui::SliderFloat("Viscosity (m^2/s)", &settings.config.viscosity, 0.0f, 0.002f, "%.5f")) request_scene_reset();

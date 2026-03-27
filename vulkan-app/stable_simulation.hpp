@@ -116,10 +116,10 @@ namespace smoke {
     struct Settings {
         ScenePreset scene_preset = ScenePreset::DualJetCollider;
         StableFluidsSimulationConfig config{
-            .nx = 100,
-            .ny = 100,
-            .nz = 100,
-            .cell_size = 0.01f,
+            .nx = 200,
+            .ny = 200,
+            .nz = 200,
+            .cell_size = 0.005f,
             .dt = 1.0f / 120.0f,
             .viscosity = 0.00015f,
             .diffuse_iterations = 24,
