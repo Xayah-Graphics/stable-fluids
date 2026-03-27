@@ -1,5 +1,5 @@
-#ifndef STABLE_FLUIDS_H
-#define STABLE_FLUIDS_H
+#ifndef STABLE_FLUIDS_3D_H
+#define STABLE_FLUIDS_3D_H
 
 #include <stdint.h>
 
@@ -18,8 +18,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct StableFluidsContext_t* StableFluidsContext;
 
 typedef enum StableFluidsResult {
     STABLE_FLUIDS_RESULT_OK               = 0,
@@ -64,6 +62,26 @@ typedef struct StableFluidsBoundaryFaceDesc {
     float velocity;
 } StableFluidsBoundaryFaceDesc;
 
+typedef struct StableFluidsFieldCreateDesc {
+    const char* name;
+    uint32_t component_count;
+    uint32_t flags;
+    float diffusion;
+    uint32_t extension_mode;
+    float default_value_0;
+    float default_value_1;
+    float default_value_2;
+    float default_value_3;
+} StableFluidsFieldCreateDesc;
+
+typedef struct StableFluidsBuoyancyDesc {
+    uint32_t field_index;
+    float weight;
+    float ambient;
+} StableFluidsBuoyancyDesc;
+
+typedef struct StableFluidsContext_t* StableFluidsContext;
+
 typedef struct StableFluidsDomainBoundaryDesc {
     StableFluidsBoundaryFaceDesc x_min;
     StableFluidsBoundaryFaceDesc x_max;
@@ -91,24 +109,6 @@ typedef struct StableFluidsSimulationConfig {
     int32_t block_z;
 } StableFluidsSimulationConfig;
 
-typedef struct StableFluidsFieldCreateDesc {
-    const char* name;
-    uint32_t component_count;
-    uint32_t flags;
-    float diffusion;
-    uint32_t extension_mode;
-    float default_value_0;
-    float default_value_1;
-    float default_value_2;
-    float default_value_3;
-} StableFluidsFieldCreateDesc;
-
-typedef struct StableFluidsBuoyancyDesc {
-    uint32_t field_index;
-    float weight;
-    float ambient;
-} StableFluidsBuoyancyDesc;
-
 typedef struct StableFluidsContextCreateDesc {
     StableFluidsSimulationConfig config;
     void* stream;
@@ -117,15 +117,6 @@ typedef struct StableFluidsContextCreateDesc {
     const StableFluidsBuoyancyDesc* buoyancy_terms;
     uint32_t buoyancy_term_count;
 } StableFluidsContextCreateDesc;
-
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(
-    const StableFluidsContextCreateDesc* desc,
-    StableFluidsContext* out_context,
-    StableFluidsFieldHandle* out_field_handles,
-    uint32_t out_field_handle_capacity
-);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_reset_context_cuda(StableFluidsContext context);
 
 typedef struct StableFluidsColliderDesc {
     uint32_t collider_type;
@@ -146,8 +137,6 @@ typedef struct StableFluidsSceneDesc {
     const StableFluidsColliderDesc* colliders;
     uint32_t collider_count;
 } StableFluidsSceneDesc;
-
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_scene_cuda(StableFluidsContext context, const StableFluidsSceneDesc* desc);
 
 typedef struct StableFluidsVelocitySourceDesc {
     float center_x;
@@ -178,8 +167,6 @@ typedef struct StableFluidsStepDesc {
     uint32_t field_source_count;
 } StableFluidsStepDesc;
 
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc);
-
 typedef struct StableFluidsGridDesc {
     int32_t nx;
     int32_t ny;
@@ -187,6 +174,16 @@ typedef struct StableFluidsGridDesc {
     float cell_size;
 } StableFluidsGridDesc;
 
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(
+    const StableFluidsContextCreateDesc* desc,
+    StableFluidsContext* out_context,
+    StableFluidsFieldHandle* out_field_handles,
+    uint32_t out_field_handle_capacity
+);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_reset_context_cuda(StableFluidsContext context);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_scene_cuda(StableFluidsContext context, const StableFluidsSceneDesc* desc);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_field_components_cuda(
     StableFluidsContext context,
     StableFluidsFieldHandle field_handle,
@@ -211,4 +208,4 @@ STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_grid_desc_cuda(StableFlui
 }
 #endif
 
-#endif // STABLE_FLUIDS_H
+#endif // STABLE_FLUIDS_3D_H

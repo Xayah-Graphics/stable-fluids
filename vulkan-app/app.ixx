@@ -24,9 +24,28 @@ export namespace app {
         GenericScalar     = 3,
     };
 
+    enum class FieldFormat : uint32_t {
+        Scalar1F32 = 0,
+        Vec2F32    = 1,
+        Vec3F32    = 2,
+        Vec4F32    = 3,
+    };
+
+    enum class ViewMode : uint32_t {
+        Auto   = 0,
+        Plane  = 1,
+        Volume = 2,
+    };
+
     enum class RenderMode : uint32_t {
         Smoke  = 0,
         Scalar = 1,
+    };
+
+    enum class PlaneAxis : uint32_t {
+        XY = 0,
+        XZ = 1,
+        YZ = 2,
     };
 
     struct alignas(16) uvec4 {
@@ -36,7 +55,65 @@ export namespace app {
         uint32_t w;
     };
 
-    struct alignas(16) PushConstants {
+    struct GridShape {
+        uint32_t nx = 0;
+        uint32_t ny = 0;
+        uint32_t nz = 1;
+        float hx    = 1.0f;
+        float hy    = 1.0f;
+        float hz    = 1.0f;
+
+        [[nodiscard]] float extent_x() const {
+            return static_cast<float>(nx) * hx;
+        }
+
+        [[nodiscard]] float extent_y() const {
+            return static_cast<float>(ny) * hy;
+        }
+
+        [[nodiscard]] float extent_z() const {
+            return static_cast<float>((std::max)(nz, 1u)) * hz;
+        }
+
+        [[nodiscard]] float max_extent() const {
+            return (std::max)({extent_x(), extent_y(), extent_z()});
+        }
+    };
+
+    struct FieldResourceView {
+        vk::DescriptorSet descriptor_set{nullptr};
+        vk::Semaphore timeline_semaphore{nullptr};
+        uint64_t ready_generation = 0;
+        FieldFormat format        = FieldFormat::Scalar1F32;
+        FieldSemantic semantic    = FieldSemantic::GenericScalar;
+        std::string_view label{};
+    };
+
+    struct ColliderOverlay {
+        bool enabled       = false;
+        uint32_t type      = 0;
+        float center_x     = 0.0f;
+        float center_y     = 0.0f;
+        float center_z     = 0.0f;
+        float radius       = 0.0f;
+        float half_x       = 0.0f;
+        float half_y       = 0.0f;
+        float half_z       = 0.0f;
+    };
+
+    struct VectorFieldOverlay {
+        const float* data          = nullptr;
+        uint32_t component_count   = 0;
+    };
+
+    struct VisualizationSnapshotView {
+        GridShape grid{};
+        FieldResourceView field{};
+        ColliderOverlay collider{};
+        VectorFieldOverlay velocity{};
+    };
+
+    struct alignas(16) FieldPushConstants {
         vk::math::vec4 eye{};
         vk::math::vec4 right{};
         vk::math::vec4 up{};
@@ -51,30 +128,31 @@ export namespace app {
         vk::math::vec4 params3{};
     };
 
-    struct RenderSettings {
-        RenderMode mode       = RenderMode::Smoke;
-        int march_steps       = 96;
-        float density_scale   = 0.95f;
-        float absorption      = 1.20f;
-        bool show_bounds      = true;
-        bool show_collider    = true;
-        bool show_velocity_slice = false;
-        uint32_t velocity_slice_axis = 2;
-        float velocity_slice_position = 0.5f;
-        int velocity_streamer_grid = 18;
-        int velocity_streamer_steps = 28;
-        float velocity_streamer_step = 0.85f;
-        float velocity_streamer_min_speed = 0.04f;
-        float velocity_streamer_thickness = 1.6f;
-        float scalar_min      = 0.0f;
-        float scalar_max      = 1.0f;
-        float scalar_opacity  = 2.0f;
-        float scalar_low_r    = 0.08f;
-        float scalar_low_g    = 0.18f;
-        float scalar_low_b    = 0.46f;
-        float scalar_high_r   = 0.98f;
-        float scalar_high_g   = 0.82f;
-        float scalar_high_b   = 0.24f;
+    struct VisualizationSettings {
+        ViewMode view_mode              = ViewMode::Auto;
+        RenderMode render_mode          = RenderMode::Smoke;
+        PlaneAxis plane_axis            = PlaneAxis::XY;
+        int march_steps                 = 96;
+        float slice_position            = 0.5f;
+        float density_scale             = 0.95f;
+        float absorption                = 1.20f;
+        float scalar_min                = 0.0f;
+        float scalar_max                = 1.0f;
+        float scalar_opacity            = 2.0f;
+        float scalar_low_r              = 0.08f;
+        float scalar_low_g              = 0.18f;
+        float scalar_low_b              = 0.46f;
+        float scalar_high_r             = 0.98f;
+        float scalar_high_g             = 0.82f;
+        float scalar_high_b             = 0.24f;
+        bool show_bounds                = true;
+        bool show_collider              = true;
+        bool show_velocity_plane        = false;
+        int velocity_grid               = 18;
+        int velocity_steps              = 28;
+        float velocity_step             = 0.85f;
+        float velocity_min_speed        = 0.04f;
+        float velocity_thickness        = 1.6f;
     };
 
     struct FrameInfo {
@@ -82,46 +160,24 @@ export namespace app {
         float render_fps = 0.0f;
     };
 
-    struct ScalarFieldView {
-        vk::DescriptorSet descriptor_set{nullptr};
-        vk::Semaphore timeline_semaphore{nullptr};
-        uint64_t ready_generation = 0;
-        uint32_t nx               = 0;
-        uint32_t ny               = 0;
-        uint32_t nz               = 0;
-        float cell_size           = 1.0f;
-        FieldSemantic semantic    = FieldSemantic::GenericScalar;
-        std::string_view label{};
-        bool collider_enabled     = false;
-        uint32_t collider_type    = 0;
-        float collider_center_x   = 0.0f;
-        float collider_center_y   = 0.0f;
-        float collider_center_z   = 0.0f;
-        float collider_radius     = 0.0f;
-        float collider_half_x     = 0.0f;
-        float collider_half_y     = 0.0f;
-        float collider_half_z     = 0.0f;
-        const float* velocity_xyz = nullptr;
-    };
-
-    class FieldRendererApp {
+    class VisualizationApp {
     public:
-        FieldRendererApp();
-        ~FieldRendererApp();
+        VisualizationApp();
+        ~VisualizationApp();
 
-        FieldRendererApp(const FieldRendererApp&)                = delete;
-        FieldRendererApp& operator=(const FieldRendererApp&)     = delete;
-        FieldRendererApp(FieldRendererApp&&) noexcept            = delete;
-        FieldRendererApp& operator=(FieldRendererApp&&) noexcept = delete;
+        VisualizationApp(const VisualizationApp&)                = delete;
+        VisualizationApp& operator=(const VisualizationApp&)     = delete;
+        VisualizationApp(VisualizationApp&&) noexcept            = delete;
+        VisualizationApp& operator=(VisualizationApp&&) noexcept = delete;
 
         [[nodiscard]] bool should_close() const;
         FrameInfo begin_frame();
-        void draw_renderer_ui(const std::optional<ScalarFieldView>& field);
-        bool render_frame(const std::optional<ScalarFieldView>& field);
-        void frame_volume(const ScalarFieldView& field);
+        void draw_visualization_ui(const std::optional<VisualizationSnapshotView>& snapshot);
+        bool render_frame(const std::optional<VisualizationSnapshotView>& snapshot);
+        void frame_content(const VisualizationSnapshotView& snapshot);
 
-        [[nodiscard]] RenderSettings& render_settings();
-        [[nodiscard]] const RenderSettings& render_settings() const;
+        [[nodiscard]] VisualizationSettings& settings();
+        [[nodiscard]] const VisualizationSettings& settings() const;
         [[nodiscard]] const vk::context::VulkanContext& vk_context() const;
         [[nodiscard]] uint32_t frames_in_flight() const;
         [[nodiscard]] std::vector<vk::raii::DescriptorSet> allocate_field_descriptor_sets(uint32_t count);
@@ -150,9 +206,11 @@ export namespace app {
         vk::camera::Camera camera_{};
         vk::raii::DescriptorSetLayout field_set_layout_{nullptr};
         vk::raii::DescriptorPool field_descriptor_pool_{nullptr};
-        vk::raii::ShaderModule smoke_shader_module_{nullptr};
-        vk::pipeline::GraphicsPipeline smoke_pipeline_{};
-        RenderSettings render_{};
+        vk::raii::ShaderModule plane_shader_module_{nullptr};
+        vk::raii::ShaderModule volume_shader_module_{nullptr};
+        vk::pipeline::GraphicsPipeline plane_pipeline_{};
+        vk::pipeline::GraphicsPipeline volume_pipeline_{};
+        VisualizationSettings settings_{};
         float render_fps_                                      = 0.0f;
         uint32_t frame_index_                                  = 0;
         std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();

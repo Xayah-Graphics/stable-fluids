@@ -11,6 +11,129 @@ namespace smoke {
 
     namespace {
 
+        constexpr std::array field_catalog{
+            FieldInfo{
+                .id = FieldId::SmokeColor,
+                .label = "Smoke Color",
+                .component_count = 4,
+                .semantic = FieldSemantic::DyeColor,
+                .preset = {
+                    .display_mode = FieldDisplayMode::Smoke,
+                    .density_scale = 0.95f,
+                    .absorption = 1.20f,
+                    .scalar_min = 0.0f,
+                    .scalar_max = 1.0f,
+                    .scalar_opacity = 2.0f,
+                    .scalar_low_r = 0.08f,
+                    .scalar_low_g = 0.18f,
+                    .scalar_low_b = 0.46f,
+                    .scalar_high_r = 0.98f,
+                    .scalar_high_g = 0.82f,
+                    .scalar_high_b = 0.24f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::Density,
+                .label = "Density",
+                .component_count = 1,
+                .semantic = FieldSemantic::Density,
+                .preset = {
+                    .display_mode = FieldDisplayMode::Scalar,
+                    .density_scale = 1.0f,
+                    .absorption = 1.20f,
+                    .scalar_min = 0.0f,
+                    .scalar_max = 0.70f,
+                    .scalar_opacity = 2.1f,
+                    .scalar_low_r = 0.10f,
+                    .scalar_low_g = 0.08f,
+                    .scalar_low_b = 0.30f,
+                    .scalar_high_r = 1.00f,
+                    .scalar_high_g = 0.24f,
+                    .scalar_high_b = 0.74f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::VelocityMagnitude,
+                .label = "Velocity Magnitude",
+                .component_count = 1,
+                .semantic = FieldSemantic::VelocityMagnitude,
+                .preset = {
+                    .display_mode = FieldDisplayMode::Scalar,
+                    .density_scale = 1.0f,
+                    .absorption = 1.20f,
+                    .scalar_min = 0.0f,
+                    .scalar_max = 3.0f,
+                    .scalar_opacity = 1.4f,
+                    .scalar_low_r = 0.06f,
+                    .scalar_low_g = 0.10f,
+                    .scalar_low_b = 0.42f,
+                    .scalar_high_r = 0.18f,
+                    .scalar_high_g = 0.88f,
+                    .scalar_high_b = 1.00f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::SolidMask,
+                .label = "Solid Mask",
+                .component_count = 1,
+                .semantic = FieldSemantic::GenericScalar,
+                .preset = {
+                    .display_mode = FieldDisplayMode::Scalar,
+                    .density_scale = 1.0f,
+                    .absorption = 1.20f,
+                    .scalar_min = 0.0f,
+                    .scalar_max = 1.0f,
+                    .scalar_opacity = 3.2f,
+                    .scalar_low_r = 0.05f,
+                    .scalar_low_g = 0.06f,
+                    .scalar_low_b = 0.07f,
+                    .scalar_high_r = 0.94f,
+                    .scalar_high_g = 0.92f,
+                    .scalar_high_b = 0.88f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::Pressure,
+                .label = "Pressure",
+                .component_count = 1,
+                .semantic = FieldSemantic::GenericScalar,
+                .preset = {
+                    .display_mode = FieldDisplayMode::Scalar,
+                    .density_scale = 1.0f,
+                    .absorption = 1.20f,
+                    .scalar_min = 0.0f,
+                    .scalar_max = 1.5f,
+                    .scalar_opacity = 1.4f,
+                    .scalar_low_r = 0.06f,
+                    .scalar_low_g = 0.10f,
+                    .scalar_low_b = 0.42f,
+                    .scalar_high_r = 0.18f,
+                    .scalar_high_g = 0.88f,
+                    .scalar_high_b = 1.00f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::Divergence,
+                .label = "Divergence",
+                .component_count = 1,
+                .semantic = FieldSemantic::GenericScalar,
+                .preset = {
+                    .display_mode = FieldDisplayMode::Scalar,
+                    .density_scale = 1.0f,
+                    .absorption = 1.20f,
+                    .scalar_min = -2.0f,
+                    .scalar_max = 1.5f,
+                    .scalar_opacity = 1.4f,
+                    .scalar_low_r = 0.06f,
+                    .scalar_low_g = 0.10f,
+                    .scalar_low_b = 0.42f,
+                    .scalar_high_r = 0.18f,
+                    .scalar_high_g = 0.88f,
+                    .scalar_high_b = 1.00f,
+                },
+            },
+        };
+
         void check_cuda(const cudaError_t status) {
             if (status == cudaSuccess) return;
             throw std::runtime_error(std::string("cudaStreamCreateWithFlags") + ": " + cudaGetErrorString(status));
@@ -24,6 +147,7 @@ namespace smoke {
         [[nodiscard]] Settings make_settings_for_preset(const ScenePreset preset) {
             Settings settings{};
             settings.scene_preset = preset;
+            settings.config.uniform_force_z = 0.0f;
             settings.config.domain_boundary = {
                 .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
                 .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
@@ -163,6 +287,34 @@ namespace smoke {
         return settings_.scene_preset;
     }
 
+    std::span<const FieldInfo> StableSimulation::fields() const {
+        return field_catalog;
+    }
+
+    const FieldInfo& StableSimulation::field_info(const FieldId field) const {
+        for (const auto& info : field_catalog) {
+            if (info.id == field) return info;
+        }
+        return field_catalog.front();
+    }
+
+    ColliderOverlay StableSimulation::collider_overlay() const {
+        const float extent_x = static_cast<float>(settings_.config.nx) * settings_.config.cell_size;
+        const float extent_y = static_cast<float>(settings_.config.ny) * settings_.config.cell_size;
+        const float extent_z = static_cast<float>((std::max)(settings_.config.nz, 1)) * settings_.config.cell_size;
+        return ColliderOverlay{
+            .enabled = settings_.collider.enabled,
+            .type = static_cast<uint32_t>(settings_.collider.type),
+            .center_x = settings_.collider.center_x * extent_x,
+            .center_y = settings_.collider.center_y * extent_y,
+            .center_z = settings_.collider.center_z * extent_z,
+            .radius = settings_.collider.radius * (std::max)({extent_x, extent_y, extent_z}),
+            .half_x = settings_.collider.half_extent_x * extent_x,
+            .half_y = settings_.collider.half_extent_y * extent_y,
+            .half_z = settings_.collider.half_extent_z * extent_z,
+        };
+    }
+
     void StableSimulation::apply_scene_preset(const ScenePreset preset) {
         const int selected_field = settings_.selected_field;
         settings_ = make_settings_for_preset(preset);
@@ -209,7 +361,6 @@ namespace smoke {
             },
         };
         std::array<StableFluidsFieldHandle, 2> field_handles{};
-
         StableFluidsContextCreateDesc create_desc{
             .config = settings_.config,
             .stream = stream_,
@@ -230,14 +381,13 @@ namespace smoke {
             .colliders = nullptr,
             .collider_count = 0,
         };
-
         StableFluidsColliderDesc collider{
             .collider_type = static_cast<uint32_t>(settings_.collider.type == 0 ? STABLE_FLUIDS_COLLIDER_SPHERE : STABLE_FLUIDS_COLLIDER_BOX),
             .velocity_boundary_type = settings_.collider.boundary,
             .center_x = settings_.collider.center_x * static_cast<float>(settings_.config.nx) * settings_.config.cell_size,
             .center_y = settings_.collider.center_y * static_cast<float>(settings_.config.ny) * settings_.config.cell_size,
             .center_z = settings_.collider.center_z * static_cast<float>(settings_.config.nz) * settings_.config.cell_size,
-            .radius = settings_.collider.radius * static_cast<float>((std::max) ({settings_.config.nx, settings_.config.ny, settings_.config.nz})) * settings_.config.cell_size,
+            .radius = settings_.collider.radius * static_cast<float>((std::max)({settings_.config.nx, settings_.config.ny, settings_.config.nz})) * settings_.config.cell_size,
             .half_extent_x = settings_.collider.half_extent_x * static_cast<float>(settings_.config.nx) * settings_.config.cell_size,
             .half_extent_y = settings_.collider.half_extent_y * static_cast<float>(settings_.config.ny) * settings_.config.cell_size,
             .half_extent_z = settings_.collider.half_extent_z * static_cast<float>(settings_.config.nz) * settings_.config.cell_size,
@@ -245,7 +395,6 @@ namespace smoke {
             .linear_velocity_y = settings_.collider.velocity_y,
             .linear_velocity_z = settings_.collider.velocity_z,
         };
-
         if (settings_.collider.enabled) {
             scene_desc.colliders = &collider;
             scene_desc.collider_count = 1;
@@ -255,6 +404,8 @@ namespace smoke {
 
     void StableSimulation::step(const int sim_steps) {
         const auto nx = static_cast<float>(settings_.config.nx);
+        const auto ny = static_cast<float>(settings_.config.ny);
+        const auto nz = static_cast<float>((std::max)(settings_.config.nz, 1));
         const auto h = settings_.config.cell_size;
         std::array<StableFluidsVelocitySourceDesc, 2> velocity_sources{};
         std::array<StableFluidsFieldSourceDesc, 4> field_sources{};
@@ -269,8 +420,8 @@ namespace smoke {
             const float dir_z = dir_len > 1.0e-5f ? emitter.direction_z * inv_len : 0.0f;
             velocity_sources[velocity_source_count++] = {
                 .center_x = emitter.position_x * nx * h,
-                .center_y = emitter.position_y * static_cast<float>(settings_.config.ny) * h,
-                .center_z = emitter.position_z * static_cast<float>(settings_.config.nz) * h,
+                .center_y = emitter.position_y * ny * h,
+                .center_z = emitter.position_z * nz * h,
                 .radius = emitter.radius_cells * h,
                 .velocity_x = dir_x * emitter.speed,
                 .velocity_y = dir_y * emitter.speed,
@@ -279,8 +430,8 @@ namespace smoke {
             field_sources[field_source_count++] = {
                 .field = density_field_,
                 .center_x = emitter.position_x * nx * h,
-                .center_y = emitter.position_y * static_cast<float>(settings_.config.ny) * h,
-                .center_z = emitter.position_z * static_cast<float>(settings_.config.nz) * h,
+                .center_y = emitter.position_y * ny * h,
+                .center_z = emitter.position_z * nz * h,
                 .radius = emitter.radius_cells * h,
                 .value_0 = emitter.density_amount,
                 .value_1 = 0.0f,
@@ -290,8 +441,8 @@ namespace smoke {
             field_sources[field_source_count++] = {
                 .field = dye_field_,
                 .center_x = emitter.position_x * nx * h,
-                .center_y = emitter.position_y * static_cast<float>(settings_.config.ny) * h,
-                .center_z = emitter.position_z * static_cast<float>(settings_.config.nz) * h,
+                .center_y = emitter.position_y * ny * h,
+                .center_z = emitter.position_z * nz * h,
                 .radius = emitter.radius_cells * h,
                 .value_0 = emitter.dye_amount * emitter.color_r,
                 .value_1 = emitter.dye_amount * emitter.color_g,

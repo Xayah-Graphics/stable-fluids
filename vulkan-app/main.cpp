@@ -1,9 +1,3 @@
-#if defined(_WIN32)
-#define NOMINMAX
-#define VK_USE_PLATFORM_WIN32_KHR
-#include <windows.h>
-#endif
-
 #include "stable_simulation.hpp"
 
 #include <cuda_runtime.h>
@@ -13,7 +7,7 @@
 
 import app;
 import std;
-import vk.memory;
+import viz.snapshot;
 
 namespace {
 
@@ -24,21 +18,6 @@ namespace {
         bool step_once          = false;
         int sim_steps_per_frame = 1;
         int snapshot_interval   = 2;
-    };
-
-    struct FieldChoice {
-        smoke::FieldId id;
-        std::string_view label;
-        app::FieldSemantic semantic;
-    };
-
-    constexpr std::array fields{
-        FieldChoice{smoke::FieldId::SmokeColor, "Smoke Color", app::FieldSemantic::DyeColor},
-        FieldChoice{smoke::FieldId::Density, "Density", app::FieldSemantic::Density},
-        FieldChoice{smoke::FieldId::VelocityMagnitude, "Velocity Magnitude", app::FieldSemantic::VelocityMagnitude},
-        FieldChoice{smoke::FieldId::SolidMask, "Solid Mask", app::FieldSemantic::GenericScalar},
-        FieldChoice{smoke::FieldId::Pressure, "Pressure", app::FieldSemantic::GenericScalar},
-        FieldChoice{smoke::FieldId::Divergence, "Divergence", app::FieldSemantic::GenericScalar},
     };
 
     constexpr std::array boundary_labels{
@@ -59,348 +38,136 @@ namespace {
         "Custom",
     };
 
-    struct ViewerRuntime {
-        uint64_t field_bytes          = 0;
-        uint64_t velocity_bytes       = 0;
-        uint64_t snapshot_generation  = 0;
-        uint64_t submit_serial        = 0;
-        uint32_t steps_since_snapshot = 0;
-        int active_snapshot_slot      = -1;
-        double last_snapshot_ms       = 0.0;
-        double average_snapshot_ms    = 0.0;
-        uint64_t snapshot_count       = 0;
-    };
-
-    struct SnapshotSlot {
-        vk::raii::Buffer buffer{nullptr};
-        vk::raii::DeviceMemory memory{nullptr};
-        vk::raii::Semaphore timeline_semaphore{nullptr};
-        vk::raii::DescriptorSet descriptor_set{nullptr};
-        cudaExternalMemory_t external_memory       = nullptr;
-        cudaExternalSemaphore_t external_semaphore = nullptr;
-        void* cuda_ptr                             = nullptr;
-        void* cuda_velocity_ptr                    = nullptr;
-        std::vector<float> velocity_host{};
-        uint64_t ready_generation                  = 0;
-        uint64_t last_used_submit_serial           = 0;
-        uint32_t nx                                = 0;
-        uint32_t ny                                = 0;
-        uint32_t nz                                = 0;
-        float cell_size                            = 1.0f;
-        app::FieldSemantic semantic                = app::FieldSemantic::GenericScalar;
-        std::string_view label{};
-    };
-
 } // namespace
 
 int main() {
     try {
-        app::FieldRendererApp renderer;
-        PlaybackState playback{};
+        app::VisualizationApp renderer;
         smoke::StableSimulation simulation{};
-        ViewerRuntime viewer_runtime{};
-        std::vector<SnapshotSlot> snapshot_slots{};
+        viz::snapshot::SnapshotSet snapshots{};
+        PlaybackState playback{};
 
-        auto rgba_bytes = [](const StableFluidsGridDesc& grid) {
-            return static_cast<uint64_t>(grid.nx) * static_cast<uint64_t>(grid.ny) * static_cast<uint64_t>(grid.nz) * sizeof(float) * 4ull;
-        };
-        auto current_field = [&]() -> const FieldChoice& {
+        auto current_field = [&]() -> const smoke::FieldInfo& {
             auto& selected = simulation.settings().selected_field;
-            selected       = std::clamp(selected, 0, static_cast<int>(fields.size()) - 1);
+            const auto fields = simulation.fields();
+            selected = std::clamp(selected, 0, static_cast<int>(fields.size()) - 1);
             return fields[static_cast<size_t>(selected)];
         };
-        auto apply_field_defaults = [&](const FieldChoice& field) {
-            auto& render = renderer.render_settings();
-            if (field.id == smoke::FieldId::SmokeColor) {
-                render.mode = app::RenderMode::Smoke;
-                render.march_steps = 96;
-                render.density_scale = 0.95f;
-                render.absorption = 1.20f;
-            } else if (field.id == smoke::FieldId::Density) {
-                render.mode = app::RenderMode::Scalar;
-                render.scalar_min = 0.0f;
-                render.scalar_max = 0.70f;
-                render.scalar_opacity = 2.1f;
-                render.scalar_low_r = 0.10f;
-                render.scalar_low_g = 0.08f;
-                render.scalar_low_b = 0.30f;
-                render.scalar_high_r = 1.00f;
-                render.scalar_high_g = 0.24f;
-                render.scalar_high_b = 0.74f;
-            } else if (field.id == smoke::FieldId::SolidMask) {
-                render.mode = app::RenderMode::Scalar;
-                render.scalar_min = 0.0f;
-                render.scalar_max = 1.0f;
-                render.scalar_opacity = 3.2f;
-                render.scalar_low_r = 0.05f;
-                render.scalar_low_g = 0.06f;
-                render.scalar_low_b = 0.07f;
-                render.scalar_high_r = 0.94f;
-                render.scalar_high_g = 0.92f;
-                render.scalar_high_b = 0.88f;
-            } else {
-                render.mode = app::RenderMode::Scalar;
-                render.scalar_min = field.id == smoke::FieldId::Divergence ? -2.0f : 0.0f;
-                render.scalar_max = field.id == smoke::FieldId::VelocityMagnitude ? 3.0f : 1.5f;
-                render.scalar_opacity = 1.4f;
-                render.scalar_low_r = 0.06f;
-                render.scalar_low_g = 0.10f;
-                render.scalar_low_b = 0.42f;
-                render.scalar_high_r = 0.18f;
-                render.scalar_high_g = 0.88f;
-                render.scalar_high_b = 1.00f;
-            }
+        auto to_app_semantic = [](const smoke::FieldSemantic semantic) {
+            if (semantic == smoke::FieldSemantic::Density) return app::FieldSemantic::Density;
+            if (semantic == smoke::FieldSemantic::VelocityMagnitude) return app::FieldSemantic::VelocityMagnitude;
+            if (semantic == smoke::FieldSemantic::DyeColor) return app::FieldSemantic::DyeColor;
+            return app::FieldSemantic::GenericScalar;
         };
-        auto accumulate_snapshot = [&](const double sample_ms) {
-            viewer_runtime.last_snapshot_ms = sample_ms;
-            ++viewer_runtime.snapshot_count;
-            viewer_runtime.average_snapshot_ms += (sample_ms - viewer_runtime.average_snapshot_ms) / static_cast<double>(viewer_runtime.snapshot_count);
+        auto to_app_format = [](const uint32_t component_count) {
+            if (component_count == 1) return app::FieldFormat::Scalar1F32;
+            if (component_count == 2) return app::FieldFormat::Vec2F32;
+            if (component_count == 3) return app::FieldFormat::Vec3F32;
+            return app::FieldFormat::Vec4F32;
         };
-
-        auto active_snapshot = [&]() -> std::optional<app::ScalarFieldView> {
-            if (viewer_runtime.active_snapshot_slot < 0) return std::nullopt;
-            const auto& slot = snapshot_slots.at(static_cast<size_t>(viewer_runtime.active_snapshot_slot));
-            const auto& settings = simulation.settings();
-            const float nx = static_cast<float>(settings.config.nx) * settings.config.cell_size;
-            const float ny = static_cast<float>(settings.config.ny) * settings.config.cell_size;
-            const float nz = static_cast<float>(settings.config.nz) * settings.config.cell_size;
-            const float max_extent = static_cast<float>((std::max) ({settings.config.nx, settings.config.ny, settings.config.nz})) * settings.config.cell_size;
-            return app::ScalarFieldView{
-                .descriptor_set = *slot.descriptor_set,
-                .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
-                .ready_generation = slot.ready_generation,
-                .nx = slot.nx,
-                .ny = slot.ny,
-                .nz = slot.nz,
-                .cell_size = slot.cell_size,
-                .semantic = slot.semantic,
-                .label = slot.label,
-                .collider_enabled = settings.collider.enabled,
-                .collider_type = static_cast<uint32_t>(settings.collider.type),
-                .collider_center_x = settings.collider.center_x * nx,
-                .collider_center_y = settings.collider.center_y * ny,
-                .collider_center_z = settings.collider.center_z * nz,
-                .collider_radius = settings.collider.radius * max_extent,
-                .collider_half_x = settings.collider.half_extent_x * nx,
-                .collider_half_y = settings.collider.half_extent_y * ny,
-                .collider_half_z = settings.collider.half_extent_z * nz,
-                .velocity_xyz = slot.velocity_host.empty() ? nullptr : slot.velocity_host.data(),
+        auto to_app_collider = [&]() {
+            const auto collider = simulation.collider_overlay();
+            return app::ColliderOverlay{
+                .enabled = collider.enabled,
+                .type = collider.type,
+                .center_x = collider.center_x,
+                .center_y = collider.center_y,
+                .center_z = collider.center_z,
+                .radius = collider.radius,
+                .half_x = collider.half_x,
+                .half_y = collider.half_y,
+                .half_z = collider.half_z,
             };
         };
-
-        auto destroy_snapshot_slots = [&]() {
-            for (auto& slot : snapshot_slots) {
-                if (slot.cuda_ptr != nullptr) cudaFree(slot.cuda_ptr);
-                if (slot.cuda_velocity_ptr != nullptr) cudaFree(slot.cuda_velocity_ptr);
-                if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
-                if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
-                slot = {};
-            }
-            snapshot_slots.clear();
-            viewer_runtime.field_bytes = 0;
-            viewer_runtime.velocity_bytes = 0;
-            viewer_runtime.snapshot_generation = 0;
-            viewer_runtime.submit_serial = 0;
-            viewer_runtime.steps_since_snapshot = 0;
-            viewer_runtime.active_snapshot_slot = -1;
-            viewer_runtime.last_snapshot_ms = 0.0;
-            viewer_runtime.average_snapshot_ms = 0.0;
-            viewer_runtime.snapshot_count = 0;
-        };
-
-        auto create_snapshot_slots = [&]() {
-            std::vector<vk::raii::DescriptorSet> descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
-            snapshot_slots.clear();
-            snapshot_slots.reserve(snapshot_slot_count);
-            for (uint32_t slot_index = 0; slot_index < snapshot_slot_count; ++slot_index) {
-                SnapshotSlot slot{};
-                slot.descriptor_set = std::move(descriptor_sets[slot_index]);
-#if defined(_WIN32)
-                constexpr auto memory_handle_type    = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueWin32;
-                constexpr auto semaphore_handle_type = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueWin32;
-#else
-                constexpr auto memory_handle_type    = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
-                constexpr auto semaphore_handle_type = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueFd;
-#endif
-                vk::SemaphoreTypeCreateInfo timeline_semaphore_ci{
-                    .semaphoreType = vk::SemaphoreType::eTimeline,
-                    .initialValue = 0,
-                };
-                vk::ExportSemaphoreCreateInfo export_semaphore_ci{
-                    .pNext = &timeline_semaphore_ci,
-                    .handleTypes = semaphore_handle_type,
-                };
-                vk::SemaphoreCreateInfo semaphore_ci{
-                    .pNext = &export_semaphore_ci,
-                };
-                slot.timeline_semaphore = vk::raii::Semaphore{renderer.vk_context().device, semaphore_ci};
-
-                vk::ExternalMemoryBufferCreateInfo external_buffer_ci{
-                    .handleTypes = memory_handle_type,
-                };
-                vk::BufferCreateInfo buffer_ci{
-                    .pNext = &external_buffer_ci,
-                    .size = viewer_runtime.field_bytes,
-                    .usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
-                    .sharingMode = vk::SharingMode::eExclusive,
-                };
-                slot.buffer = vk::raii::Buffer{renderer.vk_context().device, buffer_ci};
-                const vk::MemoryRequirements requirements = slot.buffer.getMemoryRequirements();
-                vk::ExportMemoryAllocateInfo export_memory_ci{
-                    .handleTypes = memory_handle_type,
-                };
-                vk::MemoryAllocateInfo alloc_ci{
-                    .pNext = &export_memory_ci,
-                    .allocationSize = requirements.size,
-                    .memoryTypeIndex = vk::memory::find_memory_type(renderer.vk_context().physical_device, requirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal),
-                };
-                slot.memory = vk::raii::DeviceMemory{renderer.vk_context().device, alloc_ci};
-                slot.buffer.bindMemory(*slot.memory, 0);
-
-#if defined(_WIN32)
-                vk::MemoryGetWin32HandleInfoKHR handle_info{
-                    .memory = *slot.memory,
-                    .handleType = memory_handle_type,
-                };
-                HANDLE memory_handle = renderer.vk_context().device.getMemoryWin32HandleKHR(handle_info);
-                cudaExternalMemoryHandleDesc external_desc{
-                    .type = cudaExternalMemoryHandleTypeOpaqueWin32,
-                    .handle = { .win32 = { .handle = memory_handle, }, },
-                    .size = requirements.size,
-                };
-                if (cudaImportExternalMemory(&slot.external_memory, &external_desc) != cudaSuccess) throw std::runtime_error("cudaImportExternalMemory failed");
-                CloseHandle(memory_handle);
-
-                vk::SemaphoreGetWin32HandleInfoKHR semaphore_handle_info{
-                    .semaphore = *slot.timeline_semaphore,
-                    .handleType = semaphore_handle_type,
-                };
-                HANDLE semaphore_handle = renderer.vk_context().device.getSemaphoreWin32HandleKHR(semaphore_handle_info);
-                cudaExternalSemaphoreHandleDesc external_semaphore_desc{
-                    .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreWin32,
-                    .handle = { .win32 = { .handle = semaphore_handle, }, },
-                };
-                if (cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc) != cudaSuccess) throw std::runtime_error("cudaImportExternalSemaphore failed");
-                CloseHandle(semaphore_handle);
-#else
-                vk::MemoryGetFdInfoKHR handle_info{
-                    .memory = *slot.memory,
-                    .handleType = memory_handle_type,
-                };
-                const int memory_fd = renderer.vk_context().device.getMemoryFdKHR(handle_info);
-                cudaExternalMemoryHandleDesc external_desc{
-                    .type = cudaExternalMemoryHandleTypeOpaqueFd,
-                    .handle = { .fd = memory_fd, },
-                    .size = requirements.size,
-                };
-                if (cudaImportExternalMemory(&slot.external_memory, &external_desc) != cudaSuccess) throw std::runtime_error("cudaImportExternalMemory failed");
-
-                vk::SemaphoreGetFdInfoKHR semaphore_handle_info{
-                    .semaphore = *slot.timeline_semaphore,
-                    .handleType = semaphore_handle_type,
-                };
-                const int semaphore_fd = renderer.vk_context().device.getSemaphoreFdKHR(semaphore_handle_info);
-                cudaExternalSemaphoreHandleDesc external_semaphore_desc{
-                    .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
-                    .handle = { .fd = semaphore_fd, },
-                };
-                if (cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc) != cudaSuccess) throw std::runtime_error("cudaImportExternalSemaphore failed");
-#endif
-
-                cudaExternalMemoryBufferDesc buffer_desc{
-                    .offset = 0,
-                    .size = viewer_runtime.field_bytes,
-                };
-                if (cudaExternalMemoryGetMappedBuffer(&slot.cuda_ptr, slot.external_memory, &buffer_desc) != cudaSuccess) throw std::runtime_error("cudaExternalMemoryGetMappedBuffer failed");
-                if (cudaMalloc(&slot.cuda_velocity_ptr, viewer_runtime.velocity_bytes) != cudaSuccess) throw std::runtime_error("cudaMalloc velocity snapshot failed");
-                slot.velocity_host.resize(static_cast<size_t>(viewer_runtime.velocity_bytes / sizeof(float)));
-
-                vk::DescriptorBufferInfo field_info{
-                    .buffer = *slot.buffer,
-                    .offset = 0,
-                    .range = viewer_runtime.field_bytes,
-                };
-                vk::WriteDescriptorSet field_write{
-                    .dstSet = *slot.descriptor_set,
-                    .dstBinding = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = vk::DescriptorType::eStorageBuffer,
-                    .pBufferInfo = &field_info,
-                };
-                renderer.vk_context().device.updateDescriptorSets(field_write, {});
-                snapshot_slots.push_back(std::move(slot));
-            }
-        };
-
-        auto find_available_snapshot_slot = [&]() -> int {
-            for (uint32_t slot_index = 0; slot_index < snapshot_slots.size(); ++slot_index) {
-                auto& slot = snapshot_slots[slot_index];
-                if (static_cast<int>(slot_index) == viewer_runtime.active_snapshot_slot) continue;
-                if (slot.ready_generation != 0 && viewer_runtime.submit_serial < slot.last_used_submit_serial + renderer.frames_in_flight() + 1) continue;
-                return static_cast<int>(slot_index);
-            }
-            return -1;
-        };
-
-        auto snapshot_current_field_to_slot = [&](const int slot_index, const char* tag) {
-            nvtx3::scoped_range range{tag};
-            const auto begin = std::chrono::steady_clock::now();
-            auto& slot = snapshot_slots.at(static_cast<size_t>(slot_index));
+        auto make_capture_request = [&]() {
             const auto grid = simulation.grid_desc();
-            const auto& field = current_field();
-            simulation.export_field(field.id, slot.cuda_ptr);
-            simulation.export_velocity(slot.cuda_velocity_ptr);
-            if (cudaMemcpyAsync(slot.velocity_host.data(), slot.cuda_velocity_ptr, viewer_runtime.velocity_bytes, cudaMemcpyDeviceToHost, simulation.stream()) != cudaSuccess) throw std::runtime_error("cudaMemcpyAsync velocity snapshot failed");
-            cudaExternalSemaphoreSignalParams signal_params{};
-            const uint64_t next_generation = viewer_runtime.snapshot_generation + 1;
-            signal_params.params.fence.value = next_generation;
-            if (cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, simulation.stream()) != cudaSuccess) throw std::runtime_error("cudaSignalExternalSemaphoresAsync failed");
-            if (cudaStreamSynchronize(simulation.stream()) != cudaSuccess) throw std::runtime_error("cudaStreamSynchronize failed");
-            slot.ready_generation = next_generation;
-            slot.nx = static_cast<uint32_t>(grid.nx);
-            slot.ny = static_cast<uint32_t>(grid.ny);
-            slot.nz = static_cast<uint32_t>(grid.nz);
-            slot.cell_size = grid.cell_size;
-            slot.semantic = field.semantic;
-            slot.label = field.label;
-            viewer_runtime.snapshot_generation = next_generation;
-            viewer_runtime.active_snapshot_slot = slot_index;
-            viewer_runtime.steps_since_snapshot = 0;
-            accumulate_snapshot(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
+            return viz::snapshot::CaptureRequest{
+                .grid = {
+                    .nx = static_cast<uint32_t>(grid.nx),
+                    .ny = static_cast<uint32_t>(grid.ny),
+                    .nz = static_cast<uint32_t>((std::max)(grid.nz, 1)),
+                    .hx = grid.cell_size,
+                    .hy = grid.cell_size,
+                    .hz = grid.cell_size,
+                },
+                .field_format = to_app_format(current_field().component_count),
+                .semantic = to_app_semantic(current_field().semantic),
+                .label = current_field().label,
+                .export_velocity_host = renderer.settings().show_velocity_plane,
+                .velocity_components = 3,
+            };
         };
-
-        auto reset_backend = [&]() {
-            nvtx3::scoped_range range{"smoke_app.reset_backend"};
+        auto apply_field_defaults = [&](const smoke::FieldInfo& field) {
+            auto& settings = renderer.settings();
+            settings.render_mode = field.preset.display_mode == smoke::FieldDisplayMode::Smoke ? app::RenderMode::Smoke : app::RenderMode::Scalar;
+            settings.density_scale = field.preset.density_scale;
+            settings.absorption = field.preset.absorption;
+            settings.scalar_min = field.preset.scalar_min;
+            settings.scalar_max = field.preset.scalar_max;
+            settings.scalar_opacity = field.preset.scalar_opacity;
+            settings.scalar_low_r = field.preset.scalar_low_r;
+            settings.scalar_low_g = field.preset.scalar_low_g;
+            settings.scalar_low_b = field.preset.scalar_low_b;
+            settings.scalar_high_r = field.preset.scalar_high_r;
+            settings.scalar_high_g = field.preset.scalar_high_g;
+            settings.scalar_high_b = field.preset.scalar_high_b;
+            if (renderer.settings().view_mode == app::ViewMode::Auto) settings.plane_axis = app::PlaneAxis::XY;
+        };
+        auto check_interop_support = [&]() {
             const auto timeline_features = renderer.vk_context().physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features>();
-            if (!timeline_features.get<vk::PhysicalDeviceVulkan12Features>().timelineSemaphore) throw std::runtime_error("smoke-visualizer requires Vulkan timeline semaphore support");
+            if (!timeline_features.get<vk::PhysicalDeviceVulkan12Features>().timelineSemaphore) throw std::runtime_error("stable-fluids visualizer requires Vulkan timeline semaphore support");
             int cuda_device_index = 0;
             if (cudaGetDevice(&cuda_device_index) != cudaSuccess) throw std::runtime_error("cudaGetDevice failed");
             int timeline_supported = 0;
             if (cudaDeviceGetAttribute(&timeline_supported, cudaDevAttrTimelineSemaphoreInteropSupported, cuda_device_index) != cudaSuccess) throw std::runtime_error("cudaDeviceGetAttribute failed");
             if (timeline_supported == 0) throw std::runtime_error("CUDA timeline semaphore interop is required");
-
+        };
+        auto capture_snapshot = [&](const int slot_index, const char* tag) {
+            nvtx3::scoped_range range{tag};
+            const auto request = make_capture_request();
+            const auto begin = std::chrono::steady_clock::now();
+            const auto capture = snapshots.begin_capture(slot_index);
+            simulation.export_field(current_field().id, capture.field_cuda_ptr);
+            if (request.export_velocity_host) {
+                simulation.export_velocity(capture.velocity_cuda_ptr);
+                if (cudaMemcpyAsync(capture.velocity_host_ptr, capture.velocity_cuda_ptr, snapshots.stats().velocity_bytes, cudaMemcpyDeviceToHost, simulation.stream()) != cudaSuccess) throw std::runtime_error("cudaMemcpyAsync velocity snapshot failed");
+            }
+            cudaExternalSemaphoreSignalParams signal_params{};
+            signal_params.params.fence.value = capture.ready_generation;
+            if (cudaSignalExternalSemaphoresAsync(&capture.external_semaphore, &signal_params, 1, simulation.stream()) != cudaSuccess) throw std::runtime_error("cudaSignalExternalSemaphoresAsync failed");
+            if (cudaStreamSynchronize(simulation.stream()) != cudaSuccess) throw std::runtime_error("cudaStreamSynchronize failed");
+            snapshots.complete_capture(slot_index, request, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
+        };
+        auto ensure_snapshot_storage = [&]() {
+            const auto request = make_capture_request();
+            if (snapshots.matches(request)) return false;
+            renderer.vk_context().device.waitIdle();
+            auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
+            snapshots.reset(renderer.vk_context(), descriptor_sets, request);
+            return true;
+        };
+        auto reset_backend = [&]() {
+            nvtx3::scoped_range range{"stable_fluids.reset_backend"};
+            check_interop_support();
             renderer.vk_context().device.waitIdle();
             simulation.rebuild();
             if (simulation.settings().emit_source) simulation.step(1);
-            destroy_snapshot_slots();
-            const auto grid = simulation.grid_desc();
-            viewer_runtime.field_bytes = rgba_bytes(grid);
-            viewer_runtime.velocity_bytes = static_cast<uint64_t>(grid.nx) * static_cast<uint64_t>(grid.ny) * static_cast<uint64_t>(grid.nz) * sizeof(float) * 3ull;
-            create_snapshot_slots();
-            snapshot_current_field_to_slot(0, "smoke_app.reset_backend.initial_snapshot");
-            apply_field_defaults(current_field());
-            if (const auto field = active_snapshot()) renderer.frame_volume(*field);
+            ensure_snapshot_storage();
+            const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
+            if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.initial_snapshot");
+            if (const auto snapshot = snapshots.active_snapshot(to_app_collider())) renderer.frame_content(*snapshot);
         };
 
-        bool force_snapshot_requested = false;
+        apply_field_defaults(current_field());
         reset_backend();
 
         while (!renderer.should_close()) {
-            nvtx3::scoped_range frame_range{"smoke_app.frame"};
+            nvtx3::scoped_range frame_range{"stable_fluids.frame"};
             renderer.begin_frame();
 
             bool reset_requested = false;
             bool field_changed = false;
+
             ImGui::Begin("Simulation");
             auto& settings = simulation.settings();
             auto mark_scene_custom = [&]() {
@@ -410,13 +177,12 @@ int main() {
                 mark_scene_custom();
                 reset_requested = true;
             };
-            auto& selected_field = settings.selected_field;
-            selected_field = std::clamp(selected_field, 0, static_cast<int>(fields.size()) - 1);
-            if (ImGui::BeginCombo("Field", fields[static_cast<size_t>(selected_field)].label.data())) {
-                for (int i = 0; i < static_cast<int>(fields.size()); ++i) {
-                    const bool is_selected = selected_field == i;
-                    if (ImGui::Selectable(fields[static_cast<size_t>(i)].label.data(), is_selected)) {
-                        selected_field = i;
+
+            if (ImGui::BeginCombo("Field", current_field().label.data())) {
+                for (int i = 0; i < static_cast<int>(simulation.fields().size()); ++i) {
+                    const bool is_selected = settings.selected_field == i;
+                    if (ImGui::Selectable(simulation.fields()[static_cast<size_t>(i)].label.data(), is_selected)) {
+                        settings.selected_field = i;
                         field_changed = true;
                     }
                     if (is_selected) ImGui::SetItemDefaultFocus();
@@ -447,20 +213,21 @@ int main() {
             if (ImGui::Button("Reset Backend")) reset_requested = true;
             ImGui::SliderInt("Sim Steps / Frame", &playback.sim_steps_per_frame, 1, 8);
             ImGui::SliderInt("Snapshot Interval", &playback.snapshot_interval, 1, 8);
+
             ImGui::Separator();
             ImGui::TextUnformatted("Solver");
             ImGui::Text("Step calls: %llu", static_cast<unsigned long long>(simulation.stats().step_count));
             ImGui::Text("Last step call: %.3f ms", simulation.stats().last_step_call_ms);
             ImGui::Text("Avg step call: %.3f ms", simulation.stats().average_step_call_ms);
-            ImGui::Text("Snapshot commits: %llu", static_cast<unsigned long long>(viewer_runtime.snapshot_count));
-            ImGui::Text("Last snapshot: %.3f ms", viewer_runtime.last_snapshot_ms);
-            ImGui::Text("Avg snapshot: %.3f ms", viewer_runtime.average_snapshot_ms);
-            ImGui::Separator();
+            ImGui::Text("Snapshot commits: %llu", static_cast<unsigned long long>(snapshots.stats().snapshot_count));
+            ImGui::Text("Last snapshot: %.3f ms", snapshots.stats().last_snapshot_ms);
+            ImGui::Text("Avg snapshot: %.3f ms", snapshots.stats().average_snapshot_ms);
 
+            ImGui::Separator();
             ImGui::TextUnformatted("Grid / Time");
             if (ImGui::SliderInt("Grid X", &settings.config.nx, 16, 192)) request_scene_reset();
             if (ImGui::SliderInt("Grid Y", &settings.config.ny, 16, 192)) request_scene_reset();
-            if (ImGui::SliderInt("Grid Z", &settings.config.nz, 16, 192)) request_scene_reset();
+            if (ImGui::SliderInt("Grid Z", &settings.config.nz, 1, 192)) request_scene_reset();
             if (ImGui::SliderFloat("Dt", &settings.config.dt, 1.0f / 240.0f, 1.0f / 24.0f, "%.5f")) request_scene_reset();
             if (ImGui::SliderFloat("Cell Size", &settings.config.cell_size, 0.25f, 2.0f, "%.2f")) request_scene_reset();
             if (ImGui::SliderFloat("Viscosity", &settings.config.viscosity, 0.0f, 0.002f, "%.5f")) request_scene_reset();
@@ -571,50 +338,50 @@ int main() {
             if (ImGui::SliderFloat("Collider Vel Z", &settings.collider.velocity_z, -3.0f, 3.0f, "%.2f")) request_scene_reset();
             ImGui::End();
 
-            if (field_changed) {
-                apply_field_defaults(current_field());
-                force_snapshot_requested = true;
-            }
+            if (field_changed) apply_field_defaults(current_field());
 
             if (reset_requested) {
                 reset_backend();
-                force_snapshot_requested = false;
-            } else {
+            } else if (field_changed && ensure_snapshot_storage()) {
+                const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
+                if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.field_change_realloc");
+                if (const auto snapshot = snapshots.active_snapshot(to_app_collider())) renderer.frame_content(*snapshot);
+            }
+
+            auto snapshot = snapshots.active_snapshot(to_app_collider());
+            renderer.draw_visualization_ui(snapshot);
+            if (ensure_snapshot_storage()) {
+                const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
+                if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.visual_storage_reset");
+                snapshot = snapshots.active_snapshot(to_app_collider());
+                if (snapshot) renderer.frame_content(*snapshot);
+            }
+
+            if (!reset_requested) {
                 const bool run_simulation = !playback.paused || playback.step_once;
                 if (run_simulation) {
                     simulation.step(playback.sim_steps_per_frame);
-                    if (viewer_runtime.steps_since_snapshot < static_cast<uint32_t>(playback.snapshot_interval)) ++viewer_runtime.steps_since_snapshot;
-                    if (viewer_runtime.steps_since_snapshot >= static_cast<uint32_t>(playback.snapshot_interval)) {
-                        const int slot_index = find_available_snapshot_slot();
-                        if (slot_index >= 0) {
-                            snapshot_current_field_to_slot(slot_index, "smoke_app.simulation.snapshot");
-                            force_snapshot_requested = false;
-                        }
+                    if (snapshots.stats().steps_since_snapshot < static_cast<uint32_t>(playback.snapshot_interval)) ++snapshots.stats().steps_since_snapshot;
+                    if (snapshots.stats().steps_since_snapshot >= static_cast<uint32_t>(playback.snapshot_interval)) {
+                        const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
+                        if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.simulation_snapshot");
                     }
                 }
             }
 
             playback.step_once = false;
-            if (force_snapshot_requested) {
-                const int slot_index = find_available_snapshot_slot();
-                if (slot_index >= 0) {
-                    snapshot_current_field_to_slot(slot_index, "smoke_app.field_change_snapshot");
-                    force_snapshot_requested = false;
-                }
+            if ((field_changed || !snapshot) && !reset_requested) {
+                const int slot_index = snapshots.find_available_slot(renderer.frames_in_flight());
+                if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.refresh_snapshot");
             }
 
-            const auto field = active_snapshot();
-            renderer.draw_renderer_ui(field);
-            const bool submitted = renderer.render_frame(field);
-            if (submitted) {
-                const uint64_t next_submit_serial = viewer_runtime.submit_serial + 1;
-                if (viewer_runtime.active_snapshot_slot >= 0) snapshot_slots[static_cast<size_t>(viewer_runtime.active_snapshot_slot)].last_used_submit_serial = next_submit_serial;
-                viewer_runtime.submit_serial = next_submit_serial;
-            }
+            snapshot = snapshots.active_snapshot(to_app_collider());
+            const bool submitted = renderer.render_frame(snapshot);
+            if (submitted) snapshots.mark_submitted(renderer.frames_in_flight());
         }
 
         renderer.vk_context().device.waitIdle();
-        destroy_snapshot_slots();
+        snapshots.destroy();
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%s\n", e.what());

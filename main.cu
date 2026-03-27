@@ -1,4 +1,4 @@
-#include "stable-fluids.h"
+#include "stable-fluids-3d.h"
 
 #include <algorithm>
 #include <chrono>

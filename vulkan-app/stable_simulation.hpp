@@ -1,10 +1,12 @@
 #pragma once
 
-#include "stable-fluids.h"
+#include "stable-fluids-3d.h"
 
 #include <cuda_runtime.h>
 
 #include <cstdint>
+#include <span>
+#include <string_view>
 
 namespace smoke {
 
@@ -19,8 +21,20 @@ namespace smoke {
 
     enum class ScenePreset : uint32_t {
         DualJetCollider = 0,
-        SmokePlume = 1,
-        Custom = 2,
+        SmokePlume      = 1,
+        Custom          = 2,
+    };
+
+    enum class FieldSemantic : uint32_t {
+        Density           = 0,
+        VelocityMagnitude = 1,
+        DyeColor          = 2,
+        GenericScalar     = 3,
+    };
+
+    enum class FieldDisplayMode : uint32_t {
+        Scalar = 0,
+        Smoke  = 1,
     };
 
     struct SolverStats {
@@ -29,37 +43,72 @@ namespace smoke {
         uint64_t step_count         = 0;
     };
 
+    struct FieldVisualPreset {
+        FieldDisplayMode display_mode = FieldDisplayMode::Scalar;
+        float density_scale           = 0.95f;
+        float absorption              = 1.20f;
+        float scalar_min              = 0.0f;
+        float scalar_max              = 1.0f;
+        float scalar_opacity          = 2.0f;
+        float scalar_low_r            = 0.08f;
+        float scalar_low_g            = 0.18f;
+        float scalar_low_b            = 0.46f;
+        float scalar_high_r           = 0.98f;
+        float scalar_high_g           = 0.82f;
+        float scalar_high_b           = 0.24f;
+    };
+
+    struct FieldInfo {
+        FieldId id{};
+        std::string_view label{};
+        uint32_t component_count = 1;
+        FieldSemantic semantic   = FieldSemantic::GenericScalar;
+        FieldVisualPreset preset{};
+    };
+
+    struct ColliderOverlay {
+        bool enabled     = false;
+        uint32_t type    = 0;
+        float center_x   = 0.0f;
+        float center_y   = 0.0f;
+        float center_z   = 0.0f;
+        float radius     = 0.0f;
+        float half_x     = 0.0f;
+        float half_y     = 0.0f;
+        float half_z     = 0.0f;
+    };
+
     struct ColliderSettings {
-        bool enabled          = true;
-        int type              = 0;
-        float center_x        = 0.50f;
-        float center_y        = 0.50f;
-        float center_z        = 0.50f;
-        float radius          = 0.25f;
-        float half_extent_x   = 0.10f;
-        float half_extent_y   = 0.08f;
-        float half_extent_z   = 0.10f;
-        float velocity_x      = 0.0f;
-        float velocity_y      = 0.0f;
-        float velocity_z      = 0.0f;
-        uint32_t boundary     = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP);
+        bool enabled        = true;
+        int type            = 0;
+        float center_x      = 0.50f;
+        float center_y      = 0.50f;
+        float center_z      = 0.50f;
+        float radius        = 0.25f;
+        float half_extent_x = 0.10f;
+        float half_extent_y = 0.08f;
+        float half_extent_z = 0.10f;
+        float velocity_x    = 0.0f;
+        float velocity_y    = 0.0f;
+        float velocity_z    = 0.0f;
+        uint32_t boundary   = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP);
     };
 
     struct SourceEmitterSettings {
-        bool enabled          = true;
-        float position_x      = 0.16f;
-        float position_y      = 0.12f;
-        float position_z      = 0.78f;
-        float direction_x     = 0.57f;
-        float direction_y     = 0.64f;
-        float direction_z     = -0.52f;
-        float speed           = 52.0f;
-        float radius_cells    = 3.5f;
-        float density_amount  = 0.55f;
-        float dye_amount      = 0.65f;
-        float color_r         = 1.00f;
-        float color_g         = 0.20f;
-        float color_b         = 0.72f;
+        bool enabled         = true;
+        float position_x     = 0.16f;
+        float position_y     = 0.12f;
+        float position_z     = 0.78f;
+        float direction_x    = 0.57f;
+        float direction_y    = 0.64f;
+        float direction_z    = -0.52f;
+        float speed          = 52.0f;
+        float radius_cells   = 3.5f;
+        float density_amount = 0.55f;
+        float dye_amount     = 0.65f;
+        float color_r        = 1.00f;
+        float color_g        = 0.20f;
+        float color_b        = 0.72f;
     };
 
     struct Settings {
@@ -91,8 +140,8 @@ namespace smoke {
         float density_diffusion = 0.00005f;
         float dye_diffusion     = 0.00003f;
         float density_buoyancy  = 0.35f;
-        int selected_field   = 0;
-        bool emit_source     = true;
+        int selected_field      = 0;
+        bool emit_source        = true;
         SourceEmitterSettings emitter_a{};
         SourceEmitterSettings emitter_b{
             .enabled = true,
@@ -126,6 +175,9 @@ namespace smoke {
         [[nodiscard]] const SolverStats& stats() const;
         [[nodiscard]] cudaStream_t stream() const;
         [[nodiscard]] ScenePreset scene_preset() const;
+        [[nodiscard]] std::span<const FieldInfo> fields() const;
+        [[nodiscard]] const FieldInfo& field_info(FieldId field) const;
+        [[nodiscard]] ColliderOverlay collider_overlay() const;
 
         void rebuild();
         void apply_scene_preset(ScenePreset preset);
@@ -139,8 +191,8 @@ namespace smoke {
 
         Settings settings_{};
         SolverStats stats_{};
-        cudaStream_t stream_        = nullptr;
-        StableFluidsContext context_ = nullptr;
+        cudaStream_t stream_              = nullptr;
+        StableFluidsContext context_      = nullptr;
         StableFluidsFieldHandle density_field_ = 0;
         StableFluidsFieldHandle dye_field_     = 0;
     };

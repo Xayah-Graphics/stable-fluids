@@ -36,7 +36,7 @@ target_sources(
         PRIVATE
         backend-cuda.cu
         PUBLIC
-        stable-fluids.h
+        stable-fluids-3d.h
 )
 target_link_libraries(stable-fluids PRIVATE CUDA::cudart)
 target_include_directories(stable-fluids PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -52,13 +52,15 @@ endif ()
 # ============================================================================
 # Samples
 # ============================================================================
-add_executable(stable-fluids-sample main.cu)
-target_link_libraries(stable-fluids-sample PRIVATE stable-fluids CUDA::cudart)
-target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
-if (MSVC)
-    target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
-else ()
-    target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic>)
+if (STABLE_FLUIDS_BUILD_SAMPLES)
+    add_executable(stable-fluids-sample main.cu)
+    target_link_libraries(stable-fluids-sample PRIVATE stable-fluids CUDA::cudart)
+    target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
+    if (MSVC)
+        target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
+    else ()
+        target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic>)
+    endif ()
 endif ()
 
 
@@ -84,7 +86,10 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
     )
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders")
     set(SMOKE_SIM_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
-    set(SMOKE_SIM_SHADER_SOURCES vulkan-app/shaders/smoke_volume.slang)
+    set(SMOKE_SIM_SHADER_SOURCES
+            vulkan-app/shaders/field_plane.slang
+            vulkan-app/shaders/field_volume.slang
+    )
     set(SMOKE_SIM_SHADER_OUTPUTS "")
     foreach (shader IN LISTS SMOKE_SIM_SHADER_SOURCES)
         get_filename_component(shader_name "${shader}" NAME_WE)
@@ -115,6 +120,7 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
             vulkan-app/src/vk.pipeline.cpp
             vulkan-app/src/vk.swapchain.cpp
             vulkan-app/src/vk.texture.cpp
+            vulkan-app/src/viz.snapshot.cpp
 
             vulkan-app/vendor/imgui/imgui.cpp
             vulkan-app/vendor/imgui/imgui_draw.cpp
@@ -138,6 +144,7 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
             vulkan-app/modules/vk.pipeline.ixx
             vulkan-app/modules/vk.swapchain.ixx
             vulkan-app/modules/vk.texture.ixx
+            vulkan-app/modules/viz.snapshot.ixx
 
             vulkan-app/app.ixx
     )
