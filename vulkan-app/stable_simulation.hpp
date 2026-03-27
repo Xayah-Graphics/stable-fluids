@@ -86,7 +86,7 @@ namespace smoke {
         float center_x      = 0.50f;
         float center_y      = 0.50f;
         float center_z      = 0.50f;
-        float radius        = 0.10f;
+        float radius        = 0.20f;
         float half_extent_x = 0.10f;
         float half_extent_y = 0.08f;
         float half_extent_z = 0.10f;

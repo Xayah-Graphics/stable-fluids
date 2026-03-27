@@ -85,31 +85,3 @@ $$
 $$
 
 where $\kappa$ is the diffusion coefficient (similar to viscosity for density dissipation).
-
-# 3. Implementation Details
-
-## 3.1 Multi-grid solver for diffusion and projection
-
-Before discussing the exact details of the whole implementation pipeline, we first need to understand how to solve the
-sparse linear systems within linear time ($\mathcal{O}(N)$ overall).
-
-### Problem formulation: Sparse linear systems
-
-The diffusion and projection steps both lead to large sparse linear systems of the form
-$$A \mathbf{x} = \mathbf{b},$$
-where $A$ is a sparse matrix arising from the discretization of an elliptic operator. In our case, this is typically:
-
-- a Poisson operator for the pressure projection step, or
-- a Helmholtz-type operator for the implicit diffusion step.
-
-Here, $\mathbf{x}$ is the unknown solution vector and $\mathbf{b}$ is the known right-hand side.
-
-To solve these systems efficiently, several iterative methods are commonly used, such as Jacobi, Gauss-Seidel, Conjugate
-Gradient, and multigrid. Their asymptotic costs are summarized below.
-
-| Method             | Complexity                     | Note                                                          |
-|--------------------|--------------------------------|---------------------------------------------------------------|
-| Jacobi             | $\mathcal{O}(N)$ per iteration | Simple and parallel-friendly, but converges slowly            |
-| Gauss-Seidel       | $\mathcal{O}(N)$ per iteration | Usually converges faster than Jacobi, but still slow overall  |
-| Conjugate Gradient | $\mathcal{O}(N)$ per iteration | For SPD systems; total cost depends on $\kappa$ and tolerance |
-| Multigrid          | Near $\mathcal{O}(N)$ overall  | Near-optimal for Poisson/Helmholtz-type elliptic problems     |
