@@ -181,7 +181,7 @@ namespace smoke {
                 settings.config.pressure_iterations = 96;
                 settings.density_diffusion = 0.00002f;
                 settings.dye_diffusion = 0.00001f;
-                settings.density_buoyancy = 1000.85f;
+                settings.density_buoyancy = 0.85f;
                 settings.collider.enabled = false;
                 settings.emitter_a = {
                     .enabled = true,
