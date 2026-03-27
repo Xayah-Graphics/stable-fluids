@@ -181,7 +181,7 @@ namespace smoke {
                 settings.config.pressure_iterations = 96;
                 settings.density_diffusion = 0.00002f;
                 settings.dye_diffusion = 0.00001f;
-                settings.density_buoyancy = 0.85f;
+                settings.density_buoyancy = 1000.85f;
                 settings.collider.enabled = false;
                 settings.emitter_a = {
                     .enabled = true,
@@ -467,6 +467,11 @@ namespace smoke {
             ++stats_.step_count;
             stats_.average_step_call_ms += (elapsed_ms - stats_.average_step_call_ms) / static_cast<double>(stats_.step_count);
         }
+        if (sim_steps <= 0) return;
+        StableFluidsProjectionMetrics metrics{};
+        check_stable(stable_fluids_get_projection_metrics_cuda(context_, &metrics), "stable_fluids_get_projection_metrics_cuda");
+        stats_.projection_max_abs_divergence = metrics.max_abs_divergence;
+        stats_.projection_rms_divergence = metrics.rms_divergence;
     }
 
     void StableSimulation::export_field(const FieldId field, void* destination) const {

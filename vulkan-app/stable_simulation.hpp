@@ -41,6 +41,8 @@ namespace smoke {
         double last_step_call_ms    = 0.0;
         double average_step_call_ms = 0.0;
         uint64_t step_count         = 0;
+        float projection_max_abs_divergence = 0.0f;
+        float projection_rms_divergence     = 0.0f;
     };
 
     struct FieldVisualPreset {

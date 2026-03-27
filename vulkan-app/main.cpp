@@ -219,6 +219,8 @@ int main() {
             ImGui::Text("Step calls: %llu", static_cast<unsigned long long>(simulation.stats().step_count));
             ImGui::Text("Last step call: %.3f ms", simulation.stats().last_step_call_ms);
             ImGui::Text("Avg step call: %.3f ms", simulation.stats().average_step_call_ms);
+            ImGui::Text("Projection max |div|: %.6g", simulation.stats().projection_max_abs_divergence);
+            ImGui::Text("Projection RMS div: %.6g", simulation.stats().projection_rms_divergence);
             ImGui::Text("Snapshot commits: %llu", static_cast<unsigned long long>(snapshots.stats().snapshot_count));
             ImGui::Text("Last snapshot: %.3f ms", snapshots.stats().last_snapshot_ms);
             ImGui::Text("Avg snapshot: %.3f ms", snapshots.stats().average_snapshot_ms);

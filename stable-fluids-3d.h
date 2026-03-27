@@ -174,6 +174,11 @@ typedef struct StableFluidsGridDesc {
     float cell_size;
 } StableFluidsGridDesc;
 
+typedef struct StableFluidsProjectionMetrics {
+    float max_abs_divergence;
+    float rms_divergence;
+} StableFluidsProjectionMetrics;
+
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(
     const StableFluidsContextCreateDesc* desc,
     StableFluidsContext* out_context,
@@ -202,6 +207,7 @@ STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_velocity_magnitude_cud
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_solid_mask_cuda(StableFluidsContext context, void* destination);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_pressure_cuda(StableFluidsContext context, void* destination);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_divergence_cuda(StableFluidsContext context, void* destination);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_projection_metrics_cuda(StableFluidsContext context, StableFluidsProjectionMetrics* out_metrics);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_grid_desc_cuda(StableFluidsContext context, StableFluidsGridDesc* out_desc);
 
 #ifdef __cplusplus
