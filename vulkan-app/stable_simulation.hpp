@@ -84,9 +84,9 @@ namespace smoke {
         bool enabled        = true;
         int type            = 0;
         float center_x      = 0.50f;
-        float center_y      = 0.50f;
+        float center_y      = 0.40f;
         float center_z      = 0.50f;
-        float radius        = 0.18f;
+        float radius        = 0.13f;
         float half_extent_x = 0.10f;
         float half_extent_y = 0.08f;
         float half_extent_z = 0.10f;
@@ -98,16 +98,16 @@ namespace smoke {
 
     struct SourceEmitterSettings {
         bool enabled         = true;
-        float center_x       = 0.16f;
-        float center_y       = 0.12f;
-        float center_z       = 0.78f;
-        float direction_x    = 0.57f;
-        float direction_y    = 0.64f;
-        float direction_z    = -0.52f;
-        float speed          = 0.75f;
-        float radius         = 0.035f;
-        float density_amount = 0.55f;
-        float dye_amount     = 0.65f;
+        float center_x       = 0.18f;
+        float center_y       = 0.18f;
+        float center_z       = 0.76f;
+        float direction_x    = 0.82f;
+        float direction_y    = 0.34f;
+        float direction_z    = -0.46f;
+        float speed          = 0.62f;
+        float radius         = 0.045f;
+        float density_amount = 0.80f;
+        float dye_amount     = 0.95f;
         float color_r        = 1.00f;
         float color_g        = 0.20f;
         float color_b        = 0.72f;
@@ -123,7 +123,7 @@ namespace smoke {
             .dt = 1.0f / 120.0f,
             .viscosity = 0.00015f,
             .diffuse_iterations = 24,
-            .pressure_iterations = 80,
+            .pressure_iterations = 96,
             .uniform_force_x = 0.0f,
             .uniform_force_y = 0.0f,
             .uniform_force_z = 0.0f,
@@ -142,23 +142,23 @@ namespace smoke {
         float density_diffusion = 0.00005f;
         float dye_diffusion     = 0.00003f;
         float gravity_y         = -9.81f;
-        float buoyancy_beta     = 0.05f;
+        float buoyancy_beta     = 0.10f;
         float ambient_density   = 0.0f;
         int selected_field      = 0;
         bool emit_source        = true;
         SourceEmitterSettings emitter_a{};
         SourceEmitterSettings emitter_b{
             .enabled = true,
-            .center_x = 0.84f,
-            .center_y = 0.12f,
-            .center_z = 0.22f,
-            .direction_x = -0.57f,
-            .direction_y = 0.64f,
-            .direction_z = 0.52f,
-            .speed = 0.75f,
-            .radius = 0.035f,
-            .density_amount = 0.55f,
-            .dye_amount = 0.65f,
+            .center_x = 0.82f,
+            .center_y = 0.18f,
+            .center_z = 0.24f,
+            .direction_x = -0.82f,
+            .direction_y = 0.34f,
+            .direction_z = 0.46f,
+            .speed = 0.62f,
+            .radius = 0.045f,
+            .density_amount = 0.80f,
+            .dye_amount = 0.95f,
             .color_r = 0.12f,
             .color_g = 0.38f,
             .color_b = 1.00f,

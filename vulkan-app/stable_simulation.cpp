@@ -19,8 +19,8 @@ namespace smoke {
                 .semantic = FieldSemantic::DyeColor,
                 .preset = {
                     .display_mode = FieldDisplayMode::Smoke,
-                    .density_scale = 0.95f,
-                    .absorption = 1.20f,
+                    .density_scale = 1.60f,
+                    .absorption = 2.40f,
                     .scalar_min = 0.0f,
                     .scalar_max = 1.0f,
                     .scalar_opacity = 2.0f,
@@ -42,8 +42,8 @@ namespace smoke {
                     .density_scale = 1.0f,
                     .absorption = 1.20f,
                     .scalar_min = 0.0f,
-                    .scalar_max = 0.70f,
-                    .scalar_opacity = 2.1f,
+                    .scalar_max = 1.40f,
+                    .scalar_opacity = 3.00f,
                     .scalar_low_r = 0.10f,
                     .scalar_low_g = 0.08f,
                     .scalar_low_b = 0.30f,
@@ -62,8 +62,8 @@ namespace smoke {
                     .density_scale = 1.0f,
                     .absorption = 1.20f,
                     .scalar_min = 0.0f,
-                    .scalar_max = 3.0f,
-                    .scalar_opacity = 1.4f,
+                    .scalar_max = 1.20f,
+                    .scalar_opacity = 1.80f,
                     .scalar_low_r = 0.06f,
                     .scalar_low_g = 0.10f,
                     .scalar_low_b = 0.42f,
@@ -101,9 +101,9 @@ namespace smoke {
                     .display_mode = FieldDisplayMode::Scalar,
                     .density_scale = 1.0f,
                     .absorption = 1.20f,
-                    .scalar_min = 0.0f,
-                    .scalar_max = 1.5f,
-                    .scalar_opacity = 1.4f,
+                    .scalar_min = -0.12f,
+                    .scalar_max = 0.12f,
+                    .scalar_opacity = 2.20f,
                     .scalar_low_r = 0.06f,
                     .scalar_low_g = 0.10f,
                     .scalar_low_b = 0.42f,
@@ -121,9 +121,9 @@ namespace smoke {
                     .display_mode = FieldDisplayMode::Scalar,
                     .density_scale = 1.0f,
                     .absorption = 1.20f,
-                    .scalar_min = -50.0f,
-                    .scalar_max = 50.0f,
-                    .scalar_opacity = 1.4f,
+                    .scalar_min = -120.0f,
+                    .scalar_max = 120.0f,
+                    .scalar_opacity = 1.80f,
                     .scalar_low_r = 0.06f,
                     .scalar_low_g = 0.10f,
                     .scalar_low_b = 0.42f,
@@ -158,16 +158,16 @@ namespace smoke {
             settings.density_diffusion = 0.00005f;
             settings.dye_diffusion = 0.00003f;
             settings.gravity_y = -9.81f;
-            settings.buoyancy_beta = 0.05f;
+            settings.buoyancy_beta = 0.10f;
             settings.ambient_density = 0.0f;
             settings.emit_source = true;
             settings.collider = {
                 .enabled = true,
                 .type = 0,
                 .center_x = 0.50f,
-                .center_y = 0.50f,
+                .center_y = 0.40f,
                 .center_z = 0.50f,
-                .radius = 0.18f,
+                .radius = 0.13f,
                 .half_extent_x = 0.10f,
                 .half_extent_y = 0.08f,
                 .half_extent_z = 0.10f,
@@ -179,39 +179,47 @@ namespace smoke {
 
             if (preset == ScenePreset::SmokePlume) {
                 settings.config.dt = 1.0f / 120.0f;
-                settings.config.pressure_iterations = 96;
-                settings.density_diffusion = 0.00002f;
-                settings.dye_diffusion = 0.00001f;
+                settings.config.pressure_iterations = 120;
+                settings.config.domain_boundary = {
+                    .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
+                    .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
+                    .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP), .velocity = 0.0f, },
+                    .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+                    .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
+                    .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
+                };
+                settings.density_diffusion = 0.00001f;
+                settings.dye_diffusion = 0.000008f;
                 settings.gravity_y = -9.81f;
-                settings.buoyancy_beta = 0.35f;
+                settings.buoyancy_beta = 0.65f;
                 settings.ambient_density = 0.0f;
                 settings.collider.enabled = false;
                 settings.emitter_a = {
                     .enabled = true,
                     .center_x = 0.50f,
-                    .center_y = 0.03f,
+                    .center_y = 0.04f,
                     .center_z = 0.50f,
                     .direction_x = 0.0f,
                     .direction_y = 1.0f,
                     .direction_z = 0.0f,
-                    .speed = 0.08f,
-                    .radius = 0.02f,
-                    .density_amount = 1.0f,
-                    .dye_amount = 0.12f,
-                    .color_r = 0.92f,
+                    .speed = 0.03f,
+                    .radius = 0.035f,
+                    .density_amount = 1.40f,
+                    .dye_amount = 1.10f,
+                    .color_r = 0.95f,
                     .color_g = 0.92f,
-                    .color_b = 0.92f,
+                    .color_b = 0.86f,
                 };
                 settings.emitter_b = {
                     .enabled = false,
                     .center_x = 0.50f,
-                    .center_y = 0.08f,
+                    .center_y = 0.10f,
                     .center_z = 0.50f,
                     .direction_x = 0.0f,
                     .direction_y = 1.0f,
                     .direction_z = 0.0f,
                     .speed = 0.0f,
-                    .radius = 0.025f,
+                    .radius = 0.04f,
                     .density_amount = 0.0f,
                     .dye_amount = 0.0f,
                     .color_r = 1.0f,
@@ -222,34 +230,56 @@ namespace smoke {
             }
 
             settings.scene_preset = ScenePreset::DualJetCollider;
+            settings.config.dt = 1.0f / 120.0f;
+            settings.config.pressure_iterations = 96;
+            settings.density_diffusion = 0.00003f;
+            settings.dye_diffusion = 0.000015f;
+            settings.gravity_y = -9.81f;
+            settings.buoyancy_beta = 0.12f;
+            settings.ambient_density = 0.0f;
+            settings.collider = {
+                .enabled = true,
+                .type = 0,
+                .center_x = 0.50f,
+                .center_y = 0.40f,
+                .center_z = 0.50f,
+                .radius = 0.13f,
+                .half_extent_x = 0.10f,
+                .half_extent_y = 0.08f,
+                .half_extent_z = 0.10f,
+                .velocity_x = 0.0f,
+                .velocity_y = 0.0f,
+                .velocity_z = 0.0f,
+                .boundary = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP),
+            };
             settings.emitter_a = {
                 .enabled = true,
-                .center_x = 0.16f,
-                .center_y = 0.12f,
-                .center_z = 0.78f,
-                .direction_x = 0.57f,
-                .direction_y = 0.64f,
-                .direction_z = -0.52f,
-                .speed = 0.75f,
-                .radius = 0.035f,
-                .density_amount = 0.55f,
-                .dye_amount = 0.65f,
+                .center_x = 0.18f,
+                .center_y = 0.18f,
+                .center_z = 0.76f,
+                .direction_x = 0.82f,
+                .direction_y = 0.34f,
+                .direction_z = -0.46f,
+                .speed = 0.62f,
+                .radius = 0.045f,
+                .density_amount = 0.80f,
+                .dye_amount = 0.95f,
                 .color_r = 1.00f,
                 .color_g = 0.20f,
                 .color_b = 0.72f,
             };
             settings.emitter_b = {
                 .enabled = true,
-                .center_x = 0.84f,
-                .center_y = 0.12f,
-                .center_z = 0.22f,
-                .direction_x = -0.57f,
-                .direction_y = 0.64f,
-                .direction_z = 0.52f,
-                .speed = 0.75f,
-                .radius = 0.035f,
-                .density_amount = 0.55f,
-                .dye_amount = 0.65f,
+                .center_x = 0.82f,
+                .center_y = 0.18f,
+                .center_z = 0.24f,
+                .direction_x = -0.82f,
+                .direction_y = 0.34f,
+                .direction_z = 0.46f,
+                .speed = 0.62f,
+                .radius = 0.045f,
+                .density_amount = 0.80f,
+                .dye_amount = 0.95f,
                 .color_r = 0.12f,
                 .color_g = 0.38f,
                 .color_b = 1.00f,

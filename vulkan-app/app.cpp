@@ -174,13 +174,13 @@ namespace app {
                 ImGui::TextUnformatted("Field Mode: Scalar");
             }
 
-            ImGui::SliderFloat("Density Scale", &settings_.density_scale, 0.05f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Density Scale", &settings_.density_scale, 0.05f, 8.0f, "%.2f");
             if (resolved_view == ViewMode::Volume) ImGui::SliderInt("March Steps", &settings_.march_steps, 24, 224);
             if (settings_.render_mode == RenderMode::Smoke) {
-                ImGui::SliderFloat("Absorption", &settings_.absorption, 0.05f, 2.5f, "%.2f");
+                ImGui::SliderFloat("Absorption", &settings_.absorption, 0.05f, 8.0f, "%.2f");
             } else {
-                ImGui::SliderFloat("Value Min", &settings_.scalar_min, -2.0f, 8.0f, "%.3f");
-                ImGui::SliderFloat("Value Max", &settings_.scalar_max, -2.0f, 8.0f, "%.3f");
+                ImGui::SliderFloat("Value Min", &settings_.scalar_min, -200.0f, 200.0f, "%.3f");
+                ImGui::SliderFloat("Value Max", &settings_.scalar_max, -200.0f, 200.0f, "%.3f");
                 ImGui::SliderFloat("Opacity", &settings_.scalar_opacity, 0.05f, 8.0f, "%.2f");
                 ImGui::ColorEdit3("Low Color", &settings_.scalar_low_r);
                 ImGui::ColorEdit3("High Color", &settings_.scalar_high_r);
@@ -194,7 +194,7 @@ namespace app {
                 ImGui::SliderInt("Vector Grid", &settings_.velocity_grid, 4, 48);
                 ImGui::SliderInt("Vector Steps", &settings_.velocity_steps, 4, 96);
                 ImGui::SliderFloat("Vector Step", &settings_.velocity_step, 0.10f, 3.0f, "%.2f");
-                ImGui::SliderFloat("Min Speed", &settings_.velocity_min_speed, 0.0f, 2.0f, "%.3f");
+                ImGui::SliderFloat("Min Speed", &settings_.velocity_min_speed, 0.0f, 4.0f, "%.3f");
                 ImGui::SliderFloat("Line Width", &settings_.velocity_thickness, 0.5f, 4.0f, "%.2f");
             }
         } else {

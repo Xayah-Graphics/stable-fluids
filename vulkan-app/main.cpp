@@ -298,8 +298,8 @@ int main() {
                 if (ImGui::SliderFloat((std::string("Dir Z##") + label).c_str(), &emitter.direction_z, -1.0f, 1.0f, "%.2f")) request_scene_reset();
                 if (ImGui::SliderFloat((std::string("Speed (m/s)##") + label).c_str(), &emitter.speed, 0.0f, 5.0f, "%.3f")) request_scene_reset();
                 if (ImGui::SliderFloat((std::string("Radius (m)##") + label).c_str(), &emitter.radius, settings.config.cell_size, min_extent * 0.25f, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Density##") + label).c_str(), &emitter.density_amount, 0.0f, 2.0f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Dye##") + label).c_str(), &emitter.dye_amount, 0.0f, 2.0f, "%.2f")) request_scene_reset();
+                if (ImGui::SliderFloat((std::string("Density##") + label).c_str(), &emitter.density_amount, 0.0f, 3.0f, "%.2f")) request_scene_reset();
+                if (ImGui::SliderFloat((std::string("Dye##") + label).c_str(), &emitter.dye_amount, 0.0f, 3.0f, "%.2f")) request_scene_reset();
                 if (ImGui::ColorEdit3((std::string("Color##") + label).c_str(), &emitter.color_r)) request_scene_reset();
                 ImGui::TreePop();
             };
