@@ -709,43 +709,6 @@ namespace app {
 
         constexpr uint32_t snapshot_slot_count = 4;
 
-        enum class FieldId : uint32_t {
-            SmokeColor        = 0,
-            Density           = 1,
-            VelocityMagnitude = 2,
-            SolidMask         = 3,
-            Pressure          = 4,
-            Divergence        = 5,
-        };
-
-        enum class FieldDisplayMode : uint32_t {
-            Scalar = 0,
-            Smoke  = 1,
-        };
-
-        struct FieldVisualPreset {
-            FieldDisplayMode display_mode = FieldDisplayMode::Scalar;
-            float density_scale           = 0.95f;
-            float absorption              = 1.20f;
-            float scalar_min              = 0.0f;
-            float scalar_max              = 1.0f;
-            float scalar_opacity          = 2.0f;
-            float scalar_low_r            = 0.08f;
-            float scalar_low_g            = 0.18f;
-            float scalar_low_b            = 0.46f;
-            float scalar_high_r           = 0.98f;
-            float scalar_high_g           = 0.82f;
-            float scalar_high_b           = 0.24f;
-        };
-
-        struct FieldInfo {
-            FieldId id{};
-            std::string_view label{};
-            uint32_t component_count = 1;
-            FieldSemantic semantic   = FieldSemantic::GenericScalar;
-            FieldVisualPreset preset{};
-        };
-
         constexpr std::array boundary_labels{
             "No-slip",
             "Free-slip",
@@ -764,7 +727,7 @@ namespace app {
             "Custom",
         };
 
-        constexpr std::array field_catalog{
+        constexpr std::array field_catalog_storage{
             FieldInfo{
                 .id = FieldId::SmokeColor,
                 .label = "Smoke Color",
@@ -887,16 +850,6 @@ namespace app {
             },
         };
 
-        void check_cuda(const cudaError_t status, const std::string_view what) {
-            if (status == cudaSuccess) return;
-            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
-        }
-
-        void check_stable(const StableFluidsResult code, const std::string_view what) {
-            if (code == STABLE_FLUIDS_RESULT_OK) return;
-            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
-        }
-
         struct CaptureRequest {
             GridShape grid{};
             uint32_t field_component_count = 1;
@@ -913,528 +866,155 @@ namespace app {
             uint64_t ready_generation                  = 0;
         };
 
-        struct SnapshotStatsState {
-            uint64_t field_bytes          = 0;
-            uint64_t velocity_bytes       = 0;
-            uint64_t snapshot_generation  = 0;
-            uint64_t submit_serial        = 0;
-            uint32_t steps_since_snapshot = 0;
-            int active_slot               = -1;
-            double last_snapshot_ms       = 0.0;
-            double average_snapshot_ms    = 0.0;
-            uint64_t snapshot_count       = 0;
-        };
+        void check_cuda(const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        }
 
-        class SnapshotSet {
-        public:
-            SnapshotSet() = default;
-            ~SnapshotSet() {
-                destroy();
-            }
+        void check_stable(const StableFluidsResult code, const std::string_view what) {
+            if (code == STABLE_FLUIDS_RESULT_OK) return;
+            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
+        }
 
-            SnapshotSet(const SnapshotSet&)                = delete;
-            SnapshotSet& operator=(const SnapshotSet&)     = delete;
-            SnapshotSet(SnapshotSet&&) noexcept            = delete;
-            SnapshotSet& operator=(SnapshotSet&&) noexcept = delete;
+        uint64_t field_bytes_for(const CaptureRequest& request) {
+            const uint64_t nx = request.grid.nx;
+            const uint64_t ny = request.grid.ny;
+            const uint64_t nz = static_cast<uint64_t>((std::max)(request.grid.nz, 1u));
+            return nx * ny * nz * static_cast<uint64_t>((std::max)(request.field_component_count, 1u)) * sizeof(float);
+        }
 
-            void reset(const vk::context::VulkanContext& vkctx, std::span<vk::raii::DescriptorSet> descriptor_sets, const CaptureRequest& request) {
-                destroy();
-                request_ = request;
-                stats_.field_bytes = field_bytes_for(request);
-                stats_.velocity_bytes = velocity_bytes_for(request);
+        uint64_t velocity_bytes_for(const CaptureRequest& request) {
+            if (!request.export_velocity_host) return 0;
+            const uint64_t nx = request.grid.nx;
+            const uint64_t ny = request.grid.ny;
+            const uint64_t nz = static_cast<uint64_t>((std::max)(request.grid.nz, 1u));
+            return nx * ny * nz * 3ull * sizeof(float);
+        }
 
-                slots_.reserve(descriptor_sets.size());
-                for (size_t slot_index = 0; slot_index < descriptor_sets.size(); ++slot_index) {
-                    Slot slot{};
-                    slot.descriptor_set = std::move(descriptor_sets[slot_index]);
-#if defined(_WIN32)
-                    constexpr auto memory_handle_type    = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueWin32;
-                    constexpr auto semaphore_handle_type = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueWin32;
-#else
-                    constexpr auto memory_handle_type    = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
-                    constexpr auto semaphore_handle_type = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueFd;
-#endif
-                    vk::SemaphoreTypeCreateInfo timeline_semaphore_ci{
-                        .semaphoreType = vk::SemaphoreType::eTimeline,
-                        .initialValue = 0,
-                    };
-                    vk::ExportSemaphoreCreateInfo export_semaphore_ci{
-                        .pNext = &timeline_semaphore_ci,
-                        .handleTypes = semaphore_handle_type,
-                    };
-                    vk::SemaphoreCreateInfo semaphore_ci{
-                        .pNext = &export_semaphore_ci,
-                    };
-                    slot.timeline_semaphore = vk::raii::Semaphore{vkctx.device, semaphore_ci};
+        StableFluidsGridDesc physics_grid_desc(const AppData& data) {
+            StableFluidsGridDesc desc{};
+            check_stable(stable_fluids_get_grid_desc_cuda(data.physics.context, &desc), "stable_fluids_get_grid_desc_cuda");
+            return desc;
+        }
 
-                    vk::ExternalMemoryBufferCreateInfo external_buffer_ci{
-                        .handleTypes = memory_handle_type,
-                    };
-                    vk::BufferCreateInfo buffer_ci{
-                        .pNext = &external_buffer_ci,
-                        .size = stats_.field_bytes,
-                        .usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
-                        .sharingMode = vk::SharingMode::eExclusive,
-                    };
-                    slot.buffer = vk::raii::Buffer{vkctx.device, buffer_ci};
-                    const vk::MemoryRequirements requirements = slot.buffer.getMemoryRequirements();
-                    vk::ExportMemoryAllocateInfo export_memory_ci{
-                        .handleTypes = memory_handle_type,
-                    };
-                    vk::MemoryAllocateInfo alloc_ci{
-                        .pNext = &export_memory_ci,
-                        .allocationSize = requirements.size,
-                        .memoryTypeIndex = vk::memory::find_memory_type(vkctx.physical_device, requirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal),
-                    };
-                    slot.memory = vk::raii::DeviceMemory{vkctx.device, alloc_ci};
-                    slot.buffer.bindMemory(*slot.memory, 0);
-
-#if defined(_WIN32)
-                    vk::MemoryGetWin32HandleInfoKHR memory_handle_info{
-                        .memory = *slot.memory,
-                        .handleType = memory_handle_type,
-                    };
-                    HANDLE memory_handle = vkctx.device.getMemoryWin32HandleKHR(memory_handle_info);
-                    cudaExternalMemoryHandleDesc external_memory_desc{
-                        .type = cudaExternalMemoryHandleTypeOpaqueWin32,
-                        .handle = { .win32 = { .handle = memory_handle, }, },
-                        .size = requirements.size,
-                    };
-                    check_cuda(cudaImportExternalMemory(&slot.external_memory, &external_memory_desc), "cudaImportExternalMemory");
-                    CloseHandle(memory_handle);
-
-                    vk::SemaphoreGetWin32HandleInfoKHR semaphore_handle_info{
-                        .semaphore = *slot.timeline_semaphore,
-                        .handleType = semaphore_handle_type,
-                    };
-                    HANDLE semaphore_handle = vkctx.device.getSemaphoreWin32HandleKHR(semaphore_handle_info);
-                    cudaExternalSemaphoreHandleDesc external_semaphore_desc{
-                        .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreWin32,
-                        .handle = { .win32 = { .handle = semaphore_handle, }, },
-                    };
-                    check_cuda(cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc), "cudaImportExternalSemaphore");
-                    CloseHandle(semaphore_handle);
-#else
-                    vk::MemoryGetFdInfoKHR memory_handle_info{
-                        .memory = *slot.memory,
-                        .handleType = memory_handle_type,
-                    };
-                    const int memory_fd = vkctx.device.getMemoryFdKHR(memory_handle_info);
-                    cudaExternalMemoryHandleDesc external_memory_desc{
-                        .type = cudaExternalMemoryHandleTypeOpaqueFd,
-                        .handle = { .fd = memory_fd, },
-                        .size = requirements.size,
-                    };
-                    check_cuda(cudaImportExternalMemory(&slot.external_memory, &external_memory_desc), "cudaImportExternalMemory");
-
-                    vk::SemaphoreGetFdInfoKHR semaphore_handle_info{
-                        .semaphore = *slot.timeline_semaphore,
-                        .handleType = semaphore_handle_type,
-                    };
-                    const int semaphore_fd = vkctx.device.getSemaphoreFdKHR(semaphore_handle_info);
-                    cudaExternalSemaphoreHandleDesc external_semaphore_desc{
-                        .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
-                        .handle = { .fd = semaphore_fd, },
-                    };
-                    check_cuda(cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc), "cudaImportExternalSemaphore");
-#endif
-
-                    cudaExternalMemoryBufferDesc buffer_desc{
-                        .offset = 0,
-                        .size = stats_.field_bytes,
-                    };
-                    check_cuda(cudaExternalMemoryGetMappedBuffer(&slot.field_cuda_ptr, slot.external_memory, &buffer_desc), "cudaExternalMemoryGetMappedBuffer");
-                    if (stats_.velocity_bytes != 0) {
-                        check_cuda(cudaMalloc(&slot.velocity_cuda_ptr, stats_.velocity_bytes), "cudaMalloc velocity snapshot");
-                        slot.velocity_host.resize(static_cast<size_t>(stats_.velocity_bytes / sizeof(float)));
-                    }
-
-                    vk::DescriptorBufferInfo field_info{
-                        .buffer = *slot.buffer,
-                        .offset = 0,
-                        .range = stats_.field_bytes,
-                    };
-                    vk::WriteDescriptorSet field_write{
-                        .dstSet = *slot.descriptor_set,
-                        .dstBinding = 0,
-                        .descriptorCount = 1,
-                        .descriptorType = vk::DescriptorType::eStorageBuffer,
-                        .pBufferInfo = &field_info,
-                    };
-                    vkctx.device.updateDescriptorSets(field_write, {});
-                    slots_.push_back(std::move(slot));
-                }
-            }
-
-            void destroy() {
-                for (auto& slot : slots_) {
-                    if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
-                    if (slot.velocity_cuda_ptr != nullptr) cudaFree(slot.velocity_cuda_ptr);
-                    if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
-                    if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
-                    slot = {};
-                }
-                slots_.clear();
-                request_ = {};
-                stats_ = {};
-            }
-
-            [[nodiscard]] bool matches(const CaptureRequest& request) const {
-                return !slots_.empty()
-                    && request_.grid.nx == request.grid.nx
-                    && request_.grid.ny == request.grid.ny
-                    && request_.grid.nz == request.grid.nz
-                    && request_.grid.cell_size == request.grid.cell_size
-                    && request_.field_component_count == request.field_component_count
-                    && request_.export_velocity_host == request.export_velocity_host;
-            }
-
-            [[nodiscard]] int find_available_slot(const uint32_t frames_in_flight) const {
-                for (uint32_t slot_index = 0; slot_index < slots_.size(); ++slot_index) {
-                    const auto& slot = slots_[slot_index];
-                    if (static_cast<int>(slot_index) == stats_.active_slot) continue;
-                    if (slot.ready_generation != 0 && stats_.submit_serial < slot.last_used_submit_serial + frames_in_flight + 1) continue;
-                    return static_cast<int>(slot_index);
-                }
-                return -1;
-            }
-
-            [[nodiscard]] CaptureResources begin_capture(const int slot_index) {
-                auto& slot = slots_.at(static_cast<size_t>(slot_index));
-                return CaptureResources{
-                    .field_cuda_ptr = slot.field_cuda_ptr,
-                    .velocity_cuda_ptr = slot.velocity_cuda_ptr,
-                    .velocity_host_ptr = slot.velocity_host.empty() ? nullptr : slot.velocity_host.data(),
-                    .external_semaphore = slot.external_semaphore,
-                    .ready_generation = stats_.snapshot_generation + 1,
-                };
-            }
-
-            void complete_capture(const int slot_index, const CaptureRequest& request, const double capture_ms) {
-                auto& slot = slots_.at(static_cast<size_t>(slot_index));
-                slot.ready_generation = stats_.snapshot_generation + 1;
-                slot.grid = request.grid;
-                slot.field_component_count = request.field_component_count;
-                slot.semantic = request.semantic;
-                slot.label = request.label;
-                slot.has_velocity_host = request.export_velocity_host;
-                stats_.snapshot_generation = slot.ready_generation;
-                stats_.active_slot = slot_index;
-                stats_.steps_since_snapshot = 0;
-                stats_.last_snapshot_ms = capture_ms;
-                ++stats_.snapshot_count;
-                stats_.average_snapshot_ms += (capture_ms - stats_.average_snapshot_ms) / static_cast<double>(stats_.snapshot_count);
-            }
-
-            [[nodiscard]] std::optional<VisualizationSnapshotView> active_snapshot(const ColliderOverlay& collider) const {
-                if (stats_.active_slot < 0) return std::nullopt;
-                const auto& slot = slots_.at(static_cast<size_t>(stats_.active_slot));
-                return VisualizationSnapshotView{
-                    .grid = slot.grid,
-                    .field = {
-                        .descriptor_set = *slot.descriptor_set,
-                        .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
-                        .ready_generation = slot.ready_generation,
-                        .component_count = slot.field_component_count,
-                        .semantic = slot.semantic,
-                        .label = slot.label,
-                    },
-                    .collider = collider,
-                    .velocity = {
-                        .data = slot.has_velocity_host ? slot.velocity_host.data() : nullptr,
-                    },
-                };
-            }
-
-            void mark_submitted() {
-                const uint64_t next_submit_serial = stats_.submit_serial + 1;
-                if (stats_.active_slot >= 0) slots_[static_cast<size_t>(stats_.active_slot)].last_used_submit_serial = next_submit_serial;
-                stats_.submit_serial = next_submit_serial;
-            }
-
-            [[nodiscard]] SnapshotStatsState& stats() {
-                return stats_;
-            }
-
-            [[nodiscard]] const SnapshotStatsState& stats() const {
-                return stats_;
-            }
-
-        private:
-            struct Slot {
-                vk::raii::Buffer buffer{nullptr};
-                vk::raii::DeviceMemory memory{nullptr};
-                vk::raii::Semaphore timeline_semaphore{nullptr};
-                vk::raii::DescriptorSet descriptor_set{nullptr};
-                cudaExternalMemory_t external_memory       = nullptr;
-                cudaExternalSemaphore_t external_semaphore = nullptr;
-                void* field_cuda_ptr                       = nullptr;
-                void* velocity_cuda_ptr                    = nullptr;
-                std::vector<float> velocity_host{};
-                uint64_t ready_generation                  = 0;
-                uint64_t last_used_submit_serial           = 0;
-                GridShape grid{};
-                uint32_t field_component_count             = 1;
-                FieldSemantic semantic                     = FieldSemantic::GenericScalar;
-                std::string_view label{};
-                bool has_velocity_host                     = false;
+        ColliderOverlay collider_overlay(const AppState& state) {
+            return ColliderOverlay{
+                .enabled = state.physics.scene.collider.enabled,
+                .type = static_cast<uint32_t>(state.physics.scene.collider.type),
+                .center_x = state.physics.scene.collider.center_x,
+                .center_y = state.physics.scene.collider.center_y,
+                .center_z = state.physics.scene.collider.center_z,
+                .radius = state.physics.scene.collider.radius,
+                .half_x = state.physics.scene.collider.half_extent_x,
+                .half_y = state.physics.scene.collider.half_extent_y,
+                .half_z = state.physics.scene.collider.half_extent_z,
             };
-
-            static uint64_t field_bytes_for(const CaptureRequest& request) {
-                const uint64_t nx = request.grid.nx;
-                const uint64_t ny = request.grid.ny;
-                const uint64_t nz = static_cast<uint64_t>((std::max)(request.grid.nz, 1u));
-                return nx * ny * nz * static_cast<uint64_t>((std::max)(request.field_component_count, 1u)) * sizeof(float);
-            }
-
-            static uint64_t velocity_bytes_for(const CaptureRequest& request) {
-                if (!request.export_velocity_host) return 0;
-                const uint64_t nx = request.grid.nx;
-                const uint64_t ny = request.grid.ny;
-                const uint64_t nz = static_cast<uint64_t>((std::max)(request.grid.nz, 1u));
-                return nx * ny * nz * 3ull * sizeof(float);
-            }
-
-            std::vector<Slot> slots_{};
-            CaptureRequest request_{};
-            SnapshotStatsState stats_{};
-        };
-
-    } // namespace
-
-    struct AppRuntime {
-        SnapshotSet snapshots{};
-        cudaStream_t stream                   = nullptr;
-        StableFluidsContext context           = nullptr;
-        StableFluidsFieldHandle density_field = 0;
-        StableFluidsFieldHandle dye_field     = 0;
-    };
-
-    struct SmokeApp::Impl {
-        AppState state{};
-        VisualizationApp renderer{};
-        AppRuntime runtime{};
-
-        Impl() {
-            apply_scene_preset(ScenePreset::DualJetCollider);
-            check_cuda(cudaStreamCreateWithFlags(&runtime.stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags");
-            check_interop_support();
-            apply_field_defaults();
-            reset_backend();
         }
 
-        ~Impl() {
-            try {
-                renderer.vk_context().device.waitIdle();
-            } catch (...) {
-            }
-            if (runtime.context != nullptr) stable_fluids_destroy_context_cuda(runtime.context);
-            if (runtime.stream != nullptr) cudaStreamDestroy(runtime.stream);
-        }
-
-        [[nodiscard]] const FieldInfo& current_field() {
-            auto& selected = state.physics.selected_field;
-            selected = std::clamp(selected, 0, static_cast<int>(field_catalog.size()) - 1);
-            return field_catalog[static_cast<size_t>(selected)];
-        }
-
-        void apply_field_defaults() {
-            const auto& preset = current_field().preset;
-            auto& render = state.ui.render;
-            render.render_mode = preset.display_mode == FieldDisplayMode::Smoke ? RenderMode::Smoke : RenderMode::Scalar;
-            render.density_scale = preset.density_scale;
-            render.absorption = preset.absorption;
-            render.scalar_min = preset.scalar_min;
-            render.scalar_max = preset.scalar_max;
-            render.scalar_opacity = preset.scalar_opacity;
-            render.scalar_low_r = preset.scalar_low_r;
-            render.scalar_low_g = preset.scalar_low_g;
-            render.scalar_low_b = preset.scalar_low_b;
-            render.scalar_high_r = preset.scalar_high_r;
-            render.scalar_high_g = preset.scalar_high_g;
-            render.scalar_high_b = preset.scalar_high_b;
-        }
-
-        void check_interop_support() {
-            const auto timeline_features = renderer.vk_context().physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features>();
-            if (!timeline_features.get<vk::PhysicalDeviceVulkan12Features>().timelineSemaphore) throw std::runtime_error("stable-fluids visualizer requires Vulkan timeline semaphore support");
-            int cuda_device_index = 0;
-            check_cuda(cudaGetDevice(&cuda_device_index), "cudaGetDevice");
-            int timeline_supported = 0;
-            check_cuda(cudaDeviceGetAttribute(&timeline_supported, cudaDevAttrTimelineSemaphoreInteropSupported, cuda_device_index), "cudaDeviceGetAttribute");
-            if (timeline_supported == 0) throw std::runtime_error("CUDA timeline semaphore interop is required");
-        }
-
-        void apply_scene_preset(const ScenePreset preset) {
-            const int selected_field = state.physics.selected_field;
-            state.physics = {};
-            state.physics.preset = preset;
-            state.physics.selected_field = selected_field;
-            state.physics.scene.collider = ColliderSettings{
-                .enabled = true,
-                .type = ColliderType::Sphere,
-                .center_x = 0.50f,
-                .center_y = 0.40f,
-                .center_z = 0.50f,
-                .radius = 0.15f,
-                .half_extent_x = 0.10f,
-                .half_extent_y = 0.08f,
-                .half_extent_z = 0.10f,
-                .velocity_x = 0.0f,
-                .velocity_y = 0.0f,
-                .velocity_z = 0.0f,
-                .boundary = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP),
-            };
-
-            if (preset == ScenePreset::SmokePlume) {
-                state.physics.solver.backend.pressure_iterations = 120;
-                state.physics.solver.backend.domain_boundary = {
-                    .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
-                    .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
-                    .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP), .velocity = 0.0f, },
-                    .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                    .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
-                    .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
-                };
-                state.physics.solver.density_diffusion = 0.00001f;
-                state.physics.solver.dye_diffusion = 0.000008f;
-                state.physics.solver.buoyancy_beta = 0.65f;
-                state.physics.scene.collider.enabled = false;
-                state.physics.emitters.a = SourceEmitterSettings{
-                    .enabled = true,
-                    .center_x = 0.50f,
-                    .center_y = 0.04f,
-                    .center_z = 0.50f,
-                    .speed = 0.03f,
-                    .radius = 0.035f,
-                    .density_amount = 1.40f,
-                    .dye_amount = 1.10f,
-                    .color_r = 0.95f,
-                    .color_g = 0.92f,
-                    .color_b = 0.86f,
-                };
-                state.physics.emitters.b = {};
+        void export_field(const AppState& state, const AppData& data, const FieldId field, void* destination) {
+            if (field == FieldId::SmokeColor) {
+                check_stable(stable_fluids_export_alpha_rgb_rgba_cuda(data.physics.context, data.physics.density_field, data.physics.dye_field, destination), "stable_fluids_export_alpha_rgb_rgba_cuda");
                 return;
             }
-
-            state.physics.solver.density_diffusion = 0.00003f;
-            state.physics.solver.dye_diffusion = 0.000015f;
-            state.physics.solver.buoyancy_beta = 0.12f;
-            state.physics.emitters.a = SourceEmitterSettings{
-                .enabled = true,
-                .center_x = 0.1f,
-                .center_y = 0.1f,
-                .center_z = 0.5f,
-                .direction_x = 1.0f,
-                .direction_y = 0.0f,
-                .direction_z = 0.0f,
-                .speed = 0.62f,
-                .radius = 0.045f,
-                .density_amount = 0.80f,
-                .dye_amount = 0.95f,
-                .color_r = 1.00f,
-                .color_g = 0.20f,
-                .color_b = 0.72f,
-            };
-            state.physics.emitters.b = SourceEmitterSettings{
-                .enabled = true,
-                .center_x = 0.9f,
-                .center_y = 0.1f,
-                .center_z = 0.5f,
-                .direction_x = -1.0f,
-                .direction_y = 0.0f,
-                .direction_z = 0.0f,
-                .speed = 0.62f,
-                .radius = 0.045f,
-                .density_amount = 0.80f,
-                .dye_amount = 0.95f,
-                .color_r = 0.12f,
-                .color_g = 0.38f,
-                .color_b = 1.00f,
-            };
-        }
-
-        void rebuild_physics() {
-            const float extent_x = static_cast<float>(state.physics.solver.backend.nx) * state.physics.solver.backend.cell_size;
-            const float extent_y = static_cast<float>(state.physics.solver.backend.ny) * state.physics.solver.backend.cell_size;
-            const float extent_z = static_cast<float>((std::max)(state.physics.solver.backend.nz, 1)) * state.physics.solver.backend.cell_size;
-            const float min_extent = (std::min)({extent_x, extent_y, extent_z});
-            auto clamp_emitter = [&](SourceEmitterSettings& emitter) {
-                emitter.center_x = std::clamp(emitter.center_x, 0.0f, extent_x);
-                emitter.center_y = std::clamp(emitter.center_y, 0.0f, extent_y);
-                emitter.center_z = std::clamp(emitter.center_z, 0.0f, extent_z);
-                emitter.radius = std::clamp(emitter.radius, state.physics.solver.backend.cell_size, min_extent * 0.25f);
-                emitter.speed = std::max(emitter.speed, 0.0f);
-            };
-            clamp_emitter(state.physics.emitters.a);
-            clamp_emitter(state.physics.emitters.b);
-
-            auto& collider = state.physics.scene.collider;
-            collider.center_x = std::clamp(collider.center_x, 0.0f, extent_x);
-            collider.center_y = std::clamp(collider.center_y, 0.0f, extent_y);
-            collider.center_z = std::clamp(collider.center_z, 0.0f, extent_z);
-            collider.radius = std::clamp(collider.radius, state.physics.solver.backend.cell_size, min_extent * 0.45f);
-            collider.half_extent_x = std::clamp(collider.half_extent_x, state.physics.solver.backend.cell_size, extent_x * 0.45f);
-            collider.half_extent_y = std::clamp(collider.half_extent_y, state.physics.solver.backend.cell_size, extent_y * 0.45f);
-            collider.half_extent_z = std::clamp(collider.half_extent_z, state.physics.solver.backend.cell_size, extent_z * 0.45f);
-
-            if (runtime.context != nullptr) {
-                check_stable(stable_fluids_destroy_context_cuda(runtime.context), "stable_fluids_destroy_context_cuda");
-                runtime.context = nullptr;
+            if (field == FieldId::Density) {
+                check_stable(stable_fluids_export_field_components_cuda(data.physics.context, data.physics.density_field, 0, 1, destination), "stable_fluids_export_field_components_cuda");
+                return;
             }
-            runtime.density_field = 0;
-            runtime.dye_field = 0;
-
-            std::array fields{
-                StableFluidsFieldCreateDesc{
-                    .name = "density",
-                    .component_count = 1,
-                    .flags = STABLE_FLUIDS_FIELD_ADVECT | STABLE_FLUIDS_FIELD_DIFFUSE,
-                    .diffusion = state.physics.solver.density_diffusion,
-                    .extension_mode = static_cast<uint32_t>(STABLE_FLUIDS_FIELD_EXTENSION_STREAK),
-                    .default_value_0 = 0.0f,
-                    .default_value_1 = 0.0f,
-                    .default_value_2 = 0.0f,
-                    .default_value_3 = 0.0f,
-                },
-                StableFluidsFieldCreateDesc{
-                    .name = "dye",
-                    .component_count = 3,
-                    .flags = STABLE_FLUIDS_FIELD_ADVECT | STABLE_FLUIDS_FIELD_DIFFUSE,
-                    .diffusion = state.physics.solver.dye_diffusion,
-                    .extension_mode = static_cast<uint32_t>(STABLE_FLUIDS_FIELD_EXTENSION_STREAK),
-                    .default_value_0 = 0.0f,
-                    .default_value_1 = 0.0f,
-                    .default_value_2 = 0.0f,
-                    .default_value_3 = 0.0f,
-                },
-            };
-            const float buoyancy_weight = -state.physics.solver.gravity_y * state.physics.solver.buoyancy_beta;
-            std::array buoyancy_terms{
-                StableFluidsBuoyancyDesc{
-                    .field_index = 0,
-                    .weight = buoyancy_weight,
-                    .ambient = state.physics.solver.ambient_density,
-                },
-            };
-            const uint32_t buoyancy_term_count = std::abs(buoyancy_weight) > 1.0e-6f ? static_cast<uint32_t>(buoyancy_terms.size()) : 0u;
-            std::array<StableFluidsFieldHandle, 2> field_handles{};
-            StableFluidsContextCreateDesc create_desc{
-                .config = state.physics.solver.backend,
-                .stream = runtime.stream,
-                .fields = fields.data(),
-                .field_count = static_cast<uint32_t>(fields.size()),
-                .buoyancy_terms = buoyancy_term_count > 0 ? buoyancy_terms.data() : nullptr,
-                .buoyancy_term_count = buoyancy_term_count,
-            };
-            check_stable(stable_fluids_create_context_cuda(&create_desc, &runtime.context, field_handles.data(), static_cast<uint32_t>(field_handles.size())), "stable_fluids_create_context_cuda");
-            runtime.density_field = field_handles[0];
-            runtime.dye_field = field_handles[1];
-            update_scene();
-            state.physics.stats = {};
+            if (field == FieldId::VelocityMagnitude) {
+                check_stable(stable_fluids_export_velocity_magnitude_cuda(data.physics.context, destination), "stable_fluids_export_velocity_magnitude_cuda");
+                return;
+            }
+            if (field == FieldId::SolidMask) {
+                check_stable(stable_fluids_export_solid_mask_cuda(data.physics.context, destination), "stable_fluids_export_solid_mask_cuda");
+                return;
+            }
+            if (field == FieldId::Pressure) {
+                check_stable(stable_fluids_export_pressure_cuda(data.physics.context, destination), "stable_fluids_export_pressure_cuda");
+                return;
+            }
+            check_stable(stable_fluids_export_divergence_cuda(data.physics.context, destination), "stable_fluids_export_divergence_cuda");
         }
 
-        void update_scene() {
+        void export_velocity(const AppData& data, void* destination) {
+            check_stable(stable_fluids_export_velocity_cuda(data.physics.context, destination), "stable_fluids_export_velocity_cuda");
+        }
+
+        CaptureRequest make_capture_request(AppState& state, const AppData& data) {
+            const auto grid = physics_grid_desc(data);
+            const auto& field = current_field_info(state);
+            return CaptureRequest{
+                .grid = {
+                    .nx = static_cast<uint32_t>(grid.nx),
+                    .ny = static_cast<uint32_t>(grid.ny),
+                    .nz = static_cast<uint32_t>((std::max)(grid.nz, 1)),
+                    .cell_size = grid.cell_size,
+                },
+                .field_component_count = field.component_count,
+                .semantic = field.semantic,
+                .label = field.label,
+                .export_velocity_host = state.ui.render.show_velocity_plane,
+            };
+        }
+
+        bool capture_matches_request(const AppData& data, const CaptureRequest& request) {
+            return !data.capture.slots.empty()
+                && data.capture.request_grid.nx == request.grid.nx
+                && data.capture.request_grid.ny == request.grid.ny
+                && data.capture.request_grid.nz == request.grid.nz
+                && data.capture.request_grid.cell_size == request.grid.cell_size
+                && data.capture.request_field_component_count == request.field_component_count
+                && data.capture.request_export_velocity_host == request.export_velocity_host;
+        }
+
+        int find_available_capture_slot(const AppData& data, const uint32_t frames_in_flight) {
+            for (uint32_t slot_index = 0; slot_index < data.capture.slots.size(); ++slot_index) {
+                const auto& slot = data.capture.slots[slot_index];
+                if (static_cast<int>(slot_index) == data.capture.active_slot) continue;
+                if (slot.ready_generation != 0 && data.capture.submit_serial < slot.last_used_submit_serial + frames_in_flight + 1) continue;
+                return static_cast<int>(slot_index);
+            }
+            return -1;
+        }
+
+        CaptureResources begin_capture(AppData& data, const int slot_index) {
+            auto& slot = data.capture.slots.at(static_cast<size_t>(slot_index));
+            return CaptureResources{
+                .field_cuda_ptr = slot.field_cuda_ptr,
+                .velocity_cuda_ptr = slot.velocity_cuda_ptr,
+                .velocity_host_ptr = slot.velocity_host.empty() ? nullptr : slot.velocity_host.data(),
+                .external_semaphore = slot.external_semaphore,
+                .ready_generation = data.capture.generation + 1,
+            };
+        }
+
+        void complete_capture(AppData& data, const int slot_index, const CaptureRequest& request, const double capture_ms) {
+            auto& slot = data.capture.slots.at(static_cast<size_t>(slot_index));
+            slot.ready_generation = data.capture.generation + 1;
+            slot.grid = request.grid;
+            slot.field_component_count = request.field_component_count;
+            slot.semantic = request.semantic;
+            slot.label = request.label;
+            slot.has_velocity_host = request.export_velocity_host;
+            data.capture.generation = slot.ready_generation;
+            data.capture.active_slot = slot_index;
+            data.capture.steps_since_snapshot = 0;
+            data.capture.stats.last_snapshot_ms = capture_ms;
+            ++data.capture.stats.snapshot_count;
+            data.capture.stats.average_snapshot_ms += (capture_ms - data.capture.stats.average_snapshot_ms) / static_cast<double>(data.capture.stats.snapshot_count);
+        }
+
+        void destroy_capture_storage(AppData& data) {
+            for (auto& slot : data.capture.slots) {
+                if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
+                if (slot.velocity_cuda_ptr != nullptr) cudaFree(slot.velocity_cuda_ptr);
+                if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
+                if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
+                slot = {};
+            }
+            data.capture = {};
+        }
+
+        void upload_scene(const AppState& state, AppData& data) {
             StableFluidsSceneDesc scene_desc{
                 .colliders = nullptr,
                 .collider_count = 0,
@@ -1457,442 +1037,658 @@ namespace app {
                 scene_desc.colliders = &collider;
                 scene_desc.collider_count = 1;
             }
-            check_stable(stable_fluids_update_scene_cuda(runtime.context, &scene_desc), "stable_fluids_update_scene_cuda");
+            check_stable(stable_fluids_update_scene_cuda(data.physics.context, &scene_desc), "stable_fluids_update_scene_cuda");
         }
 
-        void step_physics(const int sim_steps) {
-            std::array<StableFluidsVelocitySourceDesc, 2> velocity_sources{};
-            std::array<StableFluidsFieldSourceDesc, 4> field_sources{};
-            uint32_t velocity_source_count = 0;
-            uint32_t field_source_count = 0;
-            const auto append_emitter = [&](const SourceEmitterSettings& emitter) {
-                if (!emitter.enabled) return;
-                const float dir_len = std::sqrt(emitter.direction_x * emitter.direction_x + emitter.direction_y * emitter.direction_y + emitter.direction_z * emitter.direction_z);
-                const float inv_len = dir_len > 1.0e-5f ? 1.0f / dir_len : 1.0f;
-                const float dir_x = dir_len > 1.0e-5f ? emitter.direction_x * inv_len : 0.0f;
-                const float dir_y = dir_len > 1.0e-5f ? emitter.direction_y * inv_len : 1.0f;
-                const float dir_z = dir_len > 1.0e-5f ? emitter.direction_z * inv_len : 0.0f;
-                velocity_sources[velocity_source_count++] = {
-                    .center_x = emitter.center_x,
-                    .center_y = emitter.center_y,
-                    .center_z = emitter.center_z,
-                    .radius = emitter.radius,
-                    .velocity_x = dir_x * emitter.speed,
-                    .velocity_y = dir_y * emitter.speed,
-                    .velocity_z = dir_z * emitter.speed,
-                };
-                field_sources[field_source_count++] = {
-                    .field = runtime.density_field,
-                    .center_x = emitter.center_x,
-                    .center_y = emitter.center_y,
-                    .center_z = emitter.center_z,
-                    .radius = emitter.radius,
-                    .value_0 = emitter.density_amount,
-                    .value_1 = 0.0f,
-                    .value_2 = 0.0f,
-                    .value_3 = 0.0f,
-                };
-                field_sources[field_source_count++] = {
-                    .field = runtime.dye_field,
-                    .center_x = emitter.center_x,
-                    .center_y = emitter.center_y,
-                    .center_z = emitter.center_z,
-                    .radius = emitter.radius,
-                    .value_0 = emitter.dye_amount * emitter.color_r,
-                    .value_1 = emitter.dye_amount * emitter.color_g,
-                    .value_2 = emitter.dye_amount * emitter.color_b,
-                    .value_3 = 0.0f,
-                };
+    } // namespace
+
+    std::span<const FieldInfo> field_catalog() {
+        return field_catalog_storage;
+    }
+
+    const FieldInfo& current_field_info(AppState& state) {
+        auto& selected = state.physics.selected_field;
+        selected = std::clamp(selected, 0, static_cast<int>(field_catalog_storage.size()) - 1);
+        return field_catalog_storage[static_cast<size_t>(selected)];
+    }
+
+    void apply_scene_preset(AppState& state, const ScenePreset preset) {
+        const int selected_field = state.physics.selected_field;
+        state.physics = {};
+        state.physics.preset = preset;
+        state.physics.selected_field = selected_field;
+        state.physics.scene.collider = ColliderSettings{
+            .enabled = true,
+            .type = ColliderType::Sphere,
+            .center_x = 0.50f,
+            .center_y = 0.40f,
+            .center_z = 0.50f,
+            .radius = 0.15f,
+            .half_extent_x = 0.10f,
+            .half_extent_y = 0.08f,
+            .half_extent_z = 0.10f,
+            .velocity_x = 0.0f,
+            .velocity_y = 0.0f,
+            .velocity_z = 0.0f,
+            .boundary = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP),
+        };
+
+        if (preset == ScenePreset::SmokePlume) {
+            state.physics.solver.backend.pressure_iterations = 120;
+            state.physics.solver.backend.domain_boundary = {
+                .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
+                .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
+                .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP), .velocity = 0.0f, },
+                .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+                .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
+                .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP), .velocity = 0.0f, },
             };
-            append_emitter(state.physics.emitters.a);
-            append_emitter(state.physics.emitters.b);
-
-            for (int step_index = 0; step_index < sim_steps; ++step_index) {
-                StableFluidsStepDesc step_desc{
-                    .velocity_sources = state.physics.emit_source ? velocity_sources.data() : nullptr,
-                    .velocity_source_count = state.physics.emit_source ? velocity_source_count : 0u,
-                    .field_sources = state.physics.emit_source ? field_sources.data() : nullptr,
-                    .field_source_count = state.physics.emit_source ? field_source_count : 0u,
-                };
-                const auto begin = std::chrono::steady_clock::now();
-                check_stable(stable_fluids_step_cuda(runtime.context, &step_desc), "stable_fluids_step_cuda");
-                const auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
-                state.physics.stats.last_step_call_ms = elapsed_ms;
-                ++state.physics.stats.step_count;
-                state.physics.stats.average_step_call_ms += (elapsed_ms - state.physics.stats.average_step_call_ms) / static_cast<double>(state.physics.stats.step_count);
-            }
-            if (sim_steps <= 0) return;
-            StableFluidsProjectionMetrics metrics{};
-            check_stable(stable_fluids_get_projection_metrics_cuda(runtime.context, &metrics), "stable_fluids_get_projection_metrics_cuda");
-            state.physics.stats.projection_max_abs_divergence = metrics.max_abs_divergence;
-            state.physics.stats.projection_rms_divergence = metrics.rms_divergence;
-        }
-
-        void export_field(const FieldId field, void* destination) const {
-            if (field == FieldId::SmokeColor) {
-                check_stable(stable_fluids_export_alpha_rgb_rgba_cuda(runtime.context, runtime.density_field, runtime.dye_field, destination), "stable_fluids_export_alpha_rgb_rgba_cuda");
-                return;
-            }
-            if (field == FieldId::Density) {
-                check_stable(stable_fluids_export_field_components_cuda(runtime.context, runtime.density_field, 0, 1, destination), "stable_fluids_export_field_components_cuda");
-                return;
-            }
-            if (field == FieldId::VelocityMagnitude) {
-                check_stable(stable_fluids_export_velocity_magnitude_cuda(runtime.context, destination), "stable_fluids_export_velocity_magnitude_cuda");
-                return;
-            }
-            if (field == FieldId::SolidMask) {
-                check_stable(stable_fluids_export_solid_mask_cuda(runtime.context, destination), "stable_fluids_export_solid_mask_cuda");
-                return;
-            }
-            if (field == FieldId::Pressure) {
-                check_stable(stable_fluids_export_pressure_cuda(runtime.context, destination), "stable_fluids_export_pressure_cuda");
-                return;
-            }
-            check_stable(stable_fluids_export_divergence_cuda(runtime.context, destination), "stable_fluids_export_divergence_cuda");
-        }
-
-        void export_velocity(void* destination) const {
-            check_stable(stable_fluids_export_velocity_cuda(runtime.context, destination), "stable_fluids_export_velocity_cuda");
-        }
-
-        [[nodiscard]] StableFluidsGridDesc grid_desc() const {
-            StableFluidsGridDesc desc{};
-            check_stable(stable_fluids_get_grid_desc_cuda(runtime.context, &desc), "stable_fluids_get_grid_desc_cuda");
-            return desc;
-        }
-
-        [[nodiscard]] ColliderOverlay collider_overlay() const {
-            return ColliderOverlay{
-                .enabled = state.physics.scene.collider.enabled,
-                .type = static_cast<uint32_t>(state.physics.scene.collider.type),
-                .center_x = state.physics.scene.collider.center_x,
-                .center_y = state.physics.scene.collider.center_y,
-                .center_z = state.physics.scene.collider.center_z,
-                .radius = state.physics.scene.collider.radius,
-                .half_x = state.physics.scene.collider.half_extent_x,
-                .half_y = state.physics.scene.collider.half_extent_y,
-                .half_z = state.physics.scene.collider.half_extent_z,
+            state.physics.solver.density_diffusion = 0.00001f;
+            state.physics.solver.dye_diffusion = 0.000008f;
+            state.physics.solver.buoyancy_beta = 0.65f;
+            state.physics.scene.collider.enabled = false;
+            state.physics.emitters.a = SourceEmitterSettings{
+                .enabled = true,
+                .center_x = 0.50f,
+                .center_y = 0.04f,
+                .center_z = 0.50f,
+                .speed = 0.03f,
+                .radius = 0.035f,
+                .density_amount = 1.40f,
+                .dye_amount = 1.10f,
+                .color_r = 0.95f,
+                .color_g = 0.92f,
+                .color_b = 0.86f,
             };
+            state.physics.emitters.b = {};
+            return;
         }
 
-        [[nodiscard]] CaptureRequest make_capture_request() {
-            const auto grid = grid_desc();
-            const auto& field = current_field();
-            return CaptureRequest{
-                .grid = {
-                    .nx = static_cast<uint32_t>(grid.nx),
-                    .ny = static_cast<uint32_t>(grid.ny),
-                    .nz = static_cast<uint32_t>((std::max)(grid.nz, 1)),
-                    .cell_size = grid.cell_size,
-                },
-                .field_component_count = field.component_count,
-                .semantic = field.semantic,
-                .label = field.label,
-                .export_velocity_host = state.ui.render.show_velocity_plane,
+        state.physics.solver.density_diffusion = 0.00003f;
+        state.physics.solver.dye_diffusion = 0.000015f;
+        state.physics.solver.buoyancy_beta = 0.12f;
+        state.physics.emitters.a = SourceEmitterSettings{
+            .enabled = true,
+            .center_x = 0.1f,
+            .center_y = 0.1f,
+            .center_z = 0.5f,
+            .direction_x = 1.0f,
+            .direction_y = 0.0f,
+            .direction_z = 0.0f,
+            .speed = 0.62f,
+            .radius = 0.045f,
+            .density_amount = 0.80f,
+            .dye_amount = 0.95f,
+            .color_r = 1.00f,
+            .color_g = 0.20f,
+            .color_b = 0.72f,
+        };
+        state.physics.emitters.b = SourceEmitterSettings{
+            .enabled = true,
+            .center_x = 0.9f,
+            .center_y = 0.1f,
+            .center_z = 0.5f,
+            .direction_x = -1.0f,
+            .direction_y = 0.0f,
+            .direction_z = 0.0f,
+            .speed = 0.62f,
+            .radius = 0.045f,
+            .density_amount = 0.80f,
+            .dye_amount = 0.95f,
+            .color_r = 0.12f,
+            .color_g = 0.38f,
+            .color_b = 1.00f,
+        };
+    }
+
+    void apply_field_visual_preset(AppState& state) {
+        const auto& preset = current_field_info(state).preset;
+        auto& render = state.ui.render;
+        render.render_mode = preset.display_mode == FieldDisplayMode::Smoke ? RenderMode::Smoke : RenderMode::Scalar;
+        render.density_scale = preset.density_scale;
+        render.absorption = preset.absorption;
+        render.scalar_min = preset.scalar_min;
+        render.scalar_max = preset.scalar_max;
+        render.scalar_opacity = preset.scalar_opacity;
+        render.scalar_low_r = preset.scalar_low_r;
+        render.scalar_low_g = preset.scalar_low_g;
+        render.scalar_low_b = preset.scalar_low_b;
+        render.scalar_high_r = preset.scalar_high_r;
+        render.scalar_high_g = preset.scalar_high_g;
+        render.scalar_high_b = preset.scalar_high_b;
+    }
+
+    void create_runtime_data(AppData& data) {
+        destroy_runtime_data(data);
+        check_cuda(cudaStreamCreateWithFlags(&data.physics.stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags");
+    }
+
+    void destroy_runtime_data(AppData& data) {
+        destroy_capture_storage(data);
+        if (data.physics.context != nullptr) stable_fluids_destroy_context_cuda(data.physics.context);
+        if (data.physics.stream != nullptr) cudaStreamDestroy(data.physics.stream);
+        data.physics = {};
+    }
+
+    void check_interop_support(const VisualizationApp& renderer) {
+        const auto timeline_features = renderer.vk_context().physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features>();
+        if (!timeline_features.get<vk::PhysicalDeviceVulkan12Features>().timelineSemaphore) throw std::runtime_error("stable-fluids visualizer requires Vulkan timeline semaphore support");
+        int cuda_device_index = 0;
+        check_cuda(cudaGetDevice(&cuda_device_index), "cudaGetDevice");
+        int timeline_supported = 0;
+        check_cuda(cudaDeviceGetAttribute(&timeline_supported, cudaDevAttrTimelineSemaphoreInteropSupported, cuda_device_index), "cudaDeviceGetAttribute");
+        if (timeline_supported == 0) throw std::runtime_error("CUDA timeline semaphore interop is required");
+    }
+
+    void rebuild_physics(AppState& state, AppData& data) {
+        const float extent_x = static_cast<float>(state.physics.solver.backend.nx) * state.physics.solver.backend.cell_size;
+        const float extent_y = static_cast<float>(state.physics.solver.backend.ny) * state.physics.solver.backend.cell_size;
+        const float extent_z = static_cast<float>((std::max)(state.physics.solver.backend.nz, 1)) * state.physics.solver.backend.cell_size;
+        const float min_extent = (std::min)({extent_x, extent_y, extent_z});
+
+        auto clamp_emitter = [&](SourceEmitterSettings& emitter) {
+            emitter.center_x = std::clamp(emitter.center_x, 0.0f, extent_x);
+            emitter.center_y = std::clamp(emitter.center_y, 0.0f, extent_y);
+            emitter.center_z = std::clamp(emitter.center_z, 0.0f, extent_z);
+            emitter.radius = std::clamp(emitter.radius, state.physics.solver.backend.cell_size, min_extent * 0.25f);
+            emitter.speed = std::max(emitter.speed, 0.0f);
+        };
+        clamp_emitter(state.physics.emitters.a);
+        clamp_emitter(state.physics.emitters.b);
+        auto& collider = state.physics.scene.collider;
+        collider.center_x = std::clamp(collider.center_x, 0.0f, extent_x);
+        collider.center_y = std::clamp(collider.center_y, 0.0f, extent_y);
+        collider.center_z = std::clamp(collider.center_z, 0.0f, extent_z);
+        collider.radius = std::clamp(collider.radius, state.physics.solver.backend.cell_size, min_extent * 0.45f);
+        collider.half_extent_x = std::clamp(collider.half_extent_x, state.physics.solver.backend.cell_size, extent_x * 0.45f);
+        collider.half_extent_y = std::clamp(collider.half_extent_y, state.physics.solver.backend.cell_size, extent_y * 0.45f);
+        collider.half_extent_z = std::clamp(collider.half_extent_z, state.physics.solver.backend.cell_size, extent_z * 0.45f);
+
+        if (data.physics.context != nullptr) {
+            check_stable(stable_fluids_destroy_context_cuda(data.physics.context), "stable_fluids_destroy_context_cuda");
+            data.physics.context = nullptr;
+        }
+        data.physics.density_field = 0;
+        data.physics.dye_field = 0;
+
+        std::array fields{
+            StableFluidsFieldCreateDesc{
+                .name = "density",
+                .component_count = 1,
+                .flags = STABLE_FLUIDS_FIELD_ADVECT | STABLE_FLUIDS_FIELD_DIFFUSE,
+                .diffusion = state.physics.solver.density_diffusion,
+                .extension_mode = static_cast<uint32_t>(STABLE_FLUIDS_FIELD_EXTENSION_STREAK),
+                .default_value_0 = 0.0f,
+                .default_value_1 = 0.0f,
+                .default_value_2 = 0.0f,
+                .default_value_3 = 0.0f,
+            },
+            StableFluidsFieldCreateDesc{
+                .name = "dye",
+                .component_count = 3,
+                .flags = STABLE_FLUIDS_FIELD_ADVECT | STABLE_FLUIDS_FIELD_DIFFUSE,
+                .diffusion = state.physics.solver.dye_diffusion,
+                .extension_mode = static_cast<uint32_t>(STABLE_FLUIDS_FIELD_EXTENSION_STREAK),
+                .default_value_0 = 0.0f,
+                .default_value_1 = 0.0f,
+                .default_value_2 = 0.0f,
+                .default_value_3 = 0.0f,
+            },
+        };
+        const float buoyancy_weight = -state.physics.solver.gravity_y * state.physics.solver.buoyancy_beta;
+        std::array buoyancy_terms{
+            StableFluidsBuoyancyDesc{
+                .field_index = 0,
+                .weight = buoyancy_weight,
+                .ambient = state.physics.solver.ambient_density,
+            },
+        };
+        const uint32_t buoyancy_term_count = std::abs(buoyancy_weight) > 1.0e-6f ? static_cast<uint32_t>(buoyancy_terms.size()) : 0u;
+        std::array<StableFluidsFieldHandle, 2> field_handles{};
+        StableFluidsContextCreateDesc create_desc{
+            .config = state.physics.solver.backend,
+            .stream = data.physics.stream,
+            .fields = fields.data(),
+            .field_count = static_cast<uint32_t>(fields.size()),
+            .buoyancy_terms = buoyancy_term_count > 0 ? buoyancy_terms.data() : nullptr,
+            .buoyancy_term_count = buoyancy_term_count,
+        };
+        check_stable(stable_fluids_create_context_cuda(&create_desc, &data.physics.context, field_handles.data(), static_cast<uint32_t>(field_handles.size())), "stable_fluids_create_context_cuda");
+        data.physics.density_field = field_handles[0];
+        data.physics.dye_field = field_handles[1];
+        data.physics.stats = {};
+
+        upload_scene(state, data);
+    }
+
+    void step_physics(const AppState& state, AppData& data, const int sim_steps) {
+        std::array<StableFluidsVelocitySourceDesc, 2> velocity_sources{};
+        std::array<StableFluidsFieldSourceDesc, 4> field_sources{};
+        uint32_t velocity_source_count = 0;
+        uint32_t field_source_count = 0;
+        const auto append_emitter = [&](const SourceEmitterSettings& emitter) {
+            if (!emitter.enabled) return;
+            const float dir_len = std::sqrt(emitter.direction_x * emitter.direction_x + emitter.direction_y * emitter.direction_y + emitter.direction_z * emitter.direction_z);
+            const float inv_len = dir_len > 1.0e-5f ? 1.0f / dir_len : 1.0f;
+            const float dir_x = dir_len > 1.0e-5f ? emitter.direction_x * inv_len : 0.0f;
+            const float dir_y = dir_len > 1.0e-5f ? emitter.direction_y * inv_len : 1.0f;
+            const float dir_z = dir_len > 1.0e-5f ? emitter.direction_z * inv_len : 0.0f;
+            velocity_sources[velocity_source_count++] = {
+                .center_x = emitter.center_x,
+                .center_y = emitter.center_y,
+                .center_z = emitter.center_z,
+                .radius = emitter.radius,
+                .velocity_x = dir_x * emitter.speed,
+                .velocity_y = dir_y * emitter.speed,
+                .velocity_z = dir_z * emitter.speed,
             };
-        }
+            field_sources[field_source_count++] = {
+                .field = data.physics.density_field,
+                .center_x = emitter.center_x,
+                .center_y = emitter.center_y,
+                .center_z = emitter.center_z,
+                .radius = emitter.radius,
+                .value_0 = emitter.density_amount,
+                .value_1 = 0.0f,
+                .value_2 = 0.0f,
+                .value_3 = 0.0f,
+            };
+            field_sources[field_source_count++] = {
+                .field = data.physics.dye_field,
+                .center_x = emitter.center_x,
+                .center_y = emitter.center_y,
+                .center_z = emitter.center_z,
+                .radius = emitter.radius,
+                .value_0 = emitter.dye_amount * emitter.color_r,
+                .value_1 = emitter.dye_amount * emitter.color_g,
+                .value_2 = emitter.dye_amount * emitter.color_b,
+                .value_3 = 0.0f,
+            };
+        };
+        append_emitter(state.physics.emitters.a);
+        append_emitter(state.physics.emitters.b);
 
-        void capture_snapshot(const int slot_index, const char* tag) {
-            nvtx3::scoped_range range{tag};
-            const auto request = make_capture_request();
+        for (int step_index = 0; step_index < sim_steps; ++step_index) {
+            StableFluidsStepDesc step_desc{
+                .velocity_sources = state.physics.emit_source ? velocity_sources.data() : nullptr,
+                .velocity_source_count = state.physics.emit_source ? velocity_source_count : 0u,
+                .field_sources = state.physics.emit_source ? field_sources.data() : nullptr,
+                .field_source_count = state.physics.emit_source ? field_source_count : 0u,
+            };
             const auto begin = std::chrono::steady_clock::now();
-            const auto capture = runtime.snapshots.begin_capture(slot_index);
-            export_field(current_field().id, capture.field_cuda_ptr);
-            if (request.export_velocity_host) {
-                export_velocity(capture.velocity_cuda_ptr);
-                check_cuda(cudaMemcpyAsync(capture.velocity_host_ptr, capture.velocity_cuda_ptr, runtime.snapshots.stats().velocity_bytes, cudaMemcpyDeviceToHost, runtime.stream), "cudaMemcpyAsync velocity snapshot");
-            }
-            cudaExternalSemaphoreSignalParams signal_params{};
-            signal_params.params.fence.value = capture.ready_generation;
-            check_cuda(cudaSignalExternalSemaphoresAsync(&capture.external_semaphore, &signal_params, 1, runtime.stream), "cudaSignalExternalSemaphoresAsync");
-            check_cuda(cudaStreamSynchronize(runtime.stream), "cudaStreamSynchronize");
-            runtime.snapshots.complete_capture(slot_index, request, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
-            state.ui.capture.last_snapshot_ms = runtime.snapshots.stats().last_snapshot_ms;
-            state.ui.capture.average_snapshot_ms = runtime.snapshots.stats().average_snapshot_ms;
-            state.ui.capture.snapshot_count = runtime.snapshots.stats().snapshot_count;
+            check_stable(stable_fluids_step_cuda(data.physics.context, &step_desc), "stable_fluids_step_cuda");
+            const auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+            data.physics.stats.last_step_call_ms = elapsed_ms;
+            ++data.physics.stats.step_count;
+            data.physics.stats.average_step_call_ms += (elapsed_ms - data.physics.stats.average_step_call_ms) / static_cast<double>(data.physics.stats.step_count);
         }
+        if (sim_steps <= 0) return;
+        StableFluidsProjectionMetrics metrics{};
+        check_stable(stable_fluids_get_projection_metrics_cuda(data.physics.context, &metrics), "stable_fluids_get_projection_metrics_cuda");
+        data.physics.stats.projection_max_abs_divergence = metrics.max_abs_divergence;
+        data.physics.stats.projection_rms_divergence = metrics.rms_divergence;
+    }
 
-        bool ensure_snapshot_storage() {
-            const auto request = make_capture_request();
-            if (runtime.snapshots.matches(request)) return false;
-            renderer.vk_context().device.waitIdle();
-            auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
-            runtime.snapshots.reset(renderer.vk_context(), descriptor_sets, request);
-            state.ui.capture = {};
-            return true;
-        }
+    bool sync_capture_storage(AppState& state, AppData& data, VisualizationApp& renderer) {
+        const auto request = make_capture_request(state, data);
+        if (capture_matches_request(data, request)) return false;
+        renderer.vk_context().device.waitIdle();
+        destroy_capture_storage(data);
+        data.capture.request_grid = request.grid;
+        data.capture.request_field_component_count = request.field_component_count;
+        data.capture.request_export_velocity_host = request.export_velocity_host;
+        data.capture.field_bytes = field_bytes_for(request);
+        data.capture.velocity_bytes = velocity_bytes_for(request);
 
-        void reset_backend() {
-            nvtx3::scoped_range range{"stable_fluids.reset_backend"};
-            renderer.vk_context().device.waitIdle();
-            rebuild_physics();
-            if (state.physics.emit_source) step_physics(1);
-            ensure_snapshot_storage();
-            const int slot_index = runtime.snapshots.find_available_slot(renderer.frames_in_flight());
-            if (slot_index >= 0) capture_snapshot(slot_index, "stable_fluids.initial_snapshot");
-            if (const auto snapshot = runtime.snapshots.active_snapshot(collider_overlay())) renderer.frame_content(state.ui.render, *snapshot);
-        }
-
-        bool capture_if_possible(const char* tag) {
-            const int slot_index = runtime.snapshots.find_available_slot(renderer.frames_in_flight());
-            if (slot_index < 0) return false;
-            capture_snapshot(slot_index, tag);
-            return true;
-        }
-
-        void frame_latest_snapshot() {
-            if (const auto snapshot = runtime.snapshots.active_snapshot(collider_overlay())) renderer.frame_content(state.ui.render, *snapshot);
-        }
-
-        void draw_simulation_ui(bool& reset_requested, bool& field_changed) {
-            ImGui::Begin("Simulation");
-            auto& physics = state.physics;
-            auto& solver = physics.solver;
-            auto& playback = state.ui.playback;
-            const float extent_x = static_cast<float>(solver.backend.nx) * solver.backend.cell_size;
-            const float extent_y = static_cast<float>(solver.backend.ny) * solver.backend.cell_size;
-            const float extent_z = static_cast<float>(solver.backend.nz) * solver.backend.cell_size;
-            const float min_extent = (std::min)({extent_x, extent_y, extent_z});
-            auto mark_scene_custom = [&]() {
-                if (physics.preset != ScenePreset::Custom) physics.preset = ScenePreset::Custom;
+        auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
+        data.capture.slots.reserve(descriptor_sets.size());
+        for (size_t slot_index = 0; slot_index < descriptor_sets.size(); ++slot_index) {
+            auto& slot = data.capture.slots.emplace_back();
+            slot.descriptor_set = std::move(descriptor_sets[slot_index]);
+#if defined(_WIN32)
+            constexpr auto memory_handle_type    = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueWin32;
+            constexpr auto semaphore_handle_type = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueWin32;
+#else
+            constexpr auto memory_handle_type    = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
+            constexpr auto semaphore_handle_type = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueFd;
+#endif
+            vk::SemaphoreTypeCreateInfo timeline_semaphore_ci{
+                .semaphoreType = vk::SemaphoreType::eTimeline,
+                .initialValue = 0,
             };
-            auto request_scene_reset = [&]() {
-                mark_scene_custom();
-                reset_requested = true;
+            vk::ExportSemaphoreCreateInfo export_semaphore_ci{
+                .pNext = &timeline_semaphore_ci,
+                .handleTypes = semaphore_handle_type,
             };
+            vk::SemaphoreCreateInfo semaphore_ci{
+                .pNext = &export_semaphore_ci,
+            };
+            slot.timeline_semaphore = vk::raii::Semaphore{renderer.vk_context().device, semaphore_ci};
 
-            if (ImGui::BeginCombo("Field", current_field().label.data())) {
-                for (int i = 0; i < static_cast<int>(field_catalog.size()); ++i) {
-                    const bool is_selected = physics.selected_field == i;
-                    if (ImGui::Selectable(field_catalog[static_cast<size_t>(i)].label.data(), is_selected)) {
-                        physics.selected_field = i;
-                        field_changed = true;
-                    }
-                    if (is_selected) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
+            vk::ExternalMemoryBufferCreateInfo external_buffer_ci{
+                .handleTypes = memory_handle_type,
+            };
+            vk::BufferCreateInfo buffer_ci{
+                .pNext = &external_buffer_ci,
+                .size = data.capture.field_bytes,
+                .usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
+                .sharingMode = vk::SharingMode::eExclusive,
+            };
+            slot.buffer = vk::raii::Buffer{renderer.vk_context().device, buffer_ci};
+            const vk::MemoryRequirements requirements = slot.buffer.getMemoryRequirements();
+            vk::ExportMemoryAllocateInfo export_memory_ci{
+                .handleTypes = memory_handle_type,
+            };
+            vk::MemoryAllocateInfo alloc_ci{
+                .pNext = &export_memory_ci,
+                .allocationSize = requirements.size,
+                .memoryTypeIndex = vk::memory::find_memory_type(renderer.vk_context().physical_device, requirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal),
+            };
+            slot.memory = vk::raii::DeviceMemory{renderer.vk_context().device, alloc_ci};
+            slot.buffer.bindMemory(*slot.memory, 0);
+
+#if defined(_WIN32)
+            vk::MemoryGetWin32HandleInfoKHR memory_handle_info{
+                .memory = *slot.memory,
+                .handleType = memory_handle_type,
+            };
+            HANDLE memory_handle = renderer.vk_context().device.getMemoryWin32HandleKHR(memory_handle_info);
+            cudaExternalMemoryHandleDesc external_memory_desc{
+                .type = cudaExternalMemoryHandleTypeOpaqueWin32,
+                .handle = { .win32 = { .handle = memory_handle, }, },
+                .size = requirements.size,
+            };
+            check_cuda(cudaImportExternalMemory(&slot.external_memory, &external_memory_desc), "cudaImportExternalMemory");
+            CloseHandle(memory_handle);
+
+            vk::SemaphoreGetWin32HandleInfoKHR semaphore_handle_info{
+                .semaphore = *slot.timeline_semaphore,
+                .handleType = semaphore_handle_type,
+            };
+            HANDLE semaphore_handle = renderer.vk_context().device.getSemaphoreWin32HandleKHR(semaphore_handle_info);
+            cudaExternalSemaphoreHandleDesc external_semaphore_desc{
+                .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreWin32,
+                .handle = { .win32 = { .handle = semaphore_handle, }, },
+            };
+            check_cuda(cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc), "cudaImportExternalSemaphore");
+            CloseHandle(semaphore_handle);
+#else
+            vk::MemoryGetFdInfoKHR memory_handle_info{
+                .memory = *slot.memory,
+                .handleType = memory_handle_type,
+            };
+            const int memory_fd = renderer.vk_context().device.getMemoryFdKHR(memory_handle_info);
+            cudaExternalMemoryHandleDesc external_memory_desc{
+                .type = cudaExternalMemoryHandleTypeOpaqueFd,
+                .handle = { .fd = memory_fd, },
+                .size = requirements.size,
+            };
+            check_cuda(cudaImportExternalMemory(&slot.external_memory, &external_memory_desc), "cudaImportExternalMemory");
+
+            vk::SemaphoreGetFdInfoKHR semaphore_handle_info{
+                .semaphore = *slot.timeline_semaphore,
+                .handleType = semaphore_handle_type,
+            };
+            const int semaphore_fd = renderer.vk_context().device.getSemaphoreFdKHR(semaphore_handle_info);
+            cudaExternalSemaphoreHandleDesc external_semaphore_desc{
+                .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
+                .handle = { .fd = semaphore_fd, },
+            };
+            check_cuda(cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc), "cudaImportExternalSemaphore");
+#endif
+
+            cudaExternalMemoryBufferDesc buffer_desc{
+                .offset = 0,
+                .size = data.capture.field_bytes,
+            };
+            check_cuda(cudaExternalMemoryGetMappedBuffer(&slot.field_cuda_ptr, slot.external_memory, &buffer_desc), "cudaExternalMemoryGetMappedBuffer");
+            if (data.capture.velocity_bytes != 0) {
+                check_cuda(cudaMalloc(&slot.velocity_cuda_ptr, data.capture.velocity_bytes), "cudaMalloc velocity snapshot");
+                slot.velocity_host.resize(static_cast<size_t>(data.capture.velocity_bytes / sizeof(float)));
             }
 
-            int scene_preset = std::clamp(static_cast<int>(physics.preset), 0, static_cast<int>(scene_preset_labels.size()) - 1);
-            if (ImGui::BeginCombo("Scene Preset", scene_preset_labels[static_cast<size_t>(scene_preset)])) {
-                for (int i = 0; i < static_cast<int>(scene_preset_labels.size()); ++i) {
-                    const bool is_selected = scene_preset == i;
-                    if (ImGui::Selectable(scene_preset_labels[static_cast<size_t>(i)], is_selected)) {
-                        if (i < static_cast<int>(ScenePreset::Custom)) {
-                            apply_scene_preset(static_cast<ScenePreset>(i));
-                            reset_requested = true;
-                        } else {
-                            physics.preset = ScenePreset::Custom;
-                        }
-                    }
-                    if (is_selected) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-
-            ImGui::Checkbox("Pause Simulation", &playback.paused);
-            if (ImGui::Button("Single Step")) playback.step_once = true;
-            ImGui::SameLine();
-            if (ImGui::Button("Reset Backend")) reset_requested = true;
-            ImGui::SliderInt("Sim Steps / Frame", &playback.sim_steps_per_frame, 1, 8);
-            ImGui::SliderInt("Snapshot Interval", &playback.snapshot_interval, 1, 8);
-
-            ImGui::Separator();
-            ImGui::TextUnformatted("Solver");
-            ImGui::Text("Step calls: %llu", static_cast<unsigned long long>(physics.stats.step_count));
-            ImGui::Text("Last step call: %.3f ms", physics.stats.last_step_call_ms);
-            ImGui::Text("Avg step call: %.3f ms", physics.stats.average_step_call_ms);
-            ImGui::Text("Projection max |div|: %.6g", physics.stats.projection_max_abs_divergence);
-            ImGui::Text("Projection RMS div: %.6g", physics.stats.projection_rms_divergence);
-            ImGui::Text("Snapshot commits: %llu", static_cast<unsigned long long>(state.ui.capture.snapshot_count));
-            ImGui::Text("Last snapshot: %.3f ms", state.ui.capture.last_snapshot_ms);
-            ImGui::Text("Avg snapshot: %.3f ms", state.ui.capture.average_snapshot_ms);
-
-            ImGui::Separator();
-            ImGui::TextUnformatted("Grid / Time");
-            ImGui::Text("Domain Size: %.3f m x %.3f m x %.3f m", extent_x, extent_y, extent_z);
-            if (ImGui::SliderInt("Grid X (cells)", &solver.backend.nx, 16, 512)) request_scene_reset();
-            if (ImGui::SliderInt("Grid Y (cells)", &solver.backend.ny, 16, 512)) request_scene_reset();
-            if (ImGui::SliderInt("Grid Z (cells)", &solver.backend.nz, 16, 512)) request_scene_reset();
-            if (ImGui::SliderFloat("Dt (s)", &solver.backend.dt, 1.0f / 480.0f, 1.0f / 24.0f, "%.5f")) request_scene_reset();
-            if (ImGui::SliderFloat("Cell Size (m)", &solver.backend.cell_size, 0.0025f, 0.05f, "%.4f")) request_scene_reset();
-            if (ImGui::SliderFloat("Viscosity (m^2/s)", &solver.backend.viscosity, 0.0f, 0.002f, "%.5f")) request_scene_reset();
-            if (ImGui::SliderFloat("Density Diffusion (m^2/s)", &solver.density_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
-            if (ImGui::SliderFloat("Dye Diffusion (m^2/s)", &solver.dye_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
-            if (ImGui::SliderInt("Diffuse Iterations", &solver.backend.diffuse_iterations, 1, 64)) request_scene_reset();
-            if (ImGui::SliderInt("Pressure Iterations", &solver.backend.pressure_iterations, 4, 192)) request_scene_reset();
-
-            auto draw_boundary_combo = [&](const char* label, StableFluidsBoundaryFaceDesc& face) {
-                int boundary = std::clamp(static_cast<int>(face.type), 0, static_cast<int>(boundary_labels.size()) - 1);
-                if (ImGui::BeginCombo(label, boundary_labels[static_cast<size_t>(boundary)])) {
-                    for (int i = 0; i < static_cast<int>(boundary_labels.size()); ++i) {
-                        const bool is_selected = boundary == i;
-                        if (ImGui::Selectable(boundary_labels[static_cast<size_t>(i)], is_selected)) {
-                            boundary = i;
-                            face.type = static_cast<uint32_t>(i);
-                            request_scene_reset();
-                        }
-                        if (is_selected) ImGui::SetItemDefaultFocus();
-                    }
-                    ImGui::EndCombo();
-                }
+            vk::DescriptorBufferInfo field_info{
+                .buffer = *slot.buffer,
+                .offset = 0,
+                .range = data.capture.field_bytes,
             };
-
-            ImGui::Separator();
-            ImGui::TextUnformatted("Domain Boundary");
-            draw_boundary_combo("Boundary X-", solver.backend.domain_boundary.x_min);
-            draw_boundary_combo("Boundary X+", solver.backend.domain_boundary.x_max);
-            draw_boundary_combo("Boundary Y-", solver.backend.domain_boundary.y_min);
-            draw_boundary_combo("Boundary Y+", solver.backend.domain_boundary.y_max);
-            draw_boundary_combo("Boundary Z-", solver.backend.domain_boundary.z_min);
-            draw_boundary_combo("Boundary Z+", solver.backend.domain_boundary.z_max);
-            if (ImGui::SliderFloat("Inflow Vel X- (m/s)", &solver.backend.domain_boundary.x_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel X+ (m/s)", &solver.backend.domain_boundary.x_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Y- (m/s)", &solver.backend.domain_boundary.y_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Y+ (m/s)", &solver.backend.domain_boundary.y_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Z- (m/s)", &solver.backend.domain_boundary.z_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Z+ (m/s)", &solver.backend.domain_boundary.z_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-
-            ImGui::Separator();
-            ImGui::TextUnformatted("Forces");
-            if (ImGui::SliderFloat("Gravity Y (m/s^2)", &solver.gravity_y, -20.0f, 20.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Buoyancy Beta", &solver.buoyancy_beta, 0.0f, 2.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Ambient Density", &solver.ambient_density, 0.0f, 2.0f, "%.3f")) request_scene_reset();
-            ImGui::Text("Buoyancy accel / density: %.3f m/s^2", -solver.gravity_y * solver.buoyancy_beta);
-            if (ImGui::SliderFloat("Uniform Force X (m/s^2)", &solver.backend.uniform_force_x, -20.0f, 20.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Uniform Force Y (m/s^2)", &solver.backend.uniform_force_y, -20.0f, 20.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Uniform Force Z (m/s^2)", &solver.backend.uniform_force_z, -20.0f, 20.0f, "%.3f")) request_scene_reset();
-
-            ImGui::Separator();
-            ImGui::TextUnformatted("Sources");
-            if (ImGui::Checkbox("Emit Source", &physics.emit_source)) request_scene_reset();
-            auto draw_emitter_controls = [&](const char* label, SourceEmitterSettings& emitter) {
-                if (!ImGui::TreeNode(label)) return;
-                if (ImGui::Checkbox((std::string("Enabled##") + label).c_str(), &emitter.enabled)) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Center X (m)##") + label).c_str(), &emitter.center_x, 0.0f, extent_x, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Center Y (m)##") + label).c_str(), &emitter.center_y, 0.0f, extent_y, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Center Z (m)##") + label).c_str(), &emitter.center_z, 0.0f, extent_z, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Dir X##") + label).c_str(), &emitter.direction_x, -1.0f, 1.0f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Dir Y##") + label).c_str(), &emitter.direction_y, -1.0f, 1.0f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Dir Z##") + label).c_str(), &emitter.direction_z, -1.0f, 1.0f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Speed (m/s)##") + label).c_str(), &emitter.speed, 0.0f, 5.0f, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Radius (m)##") + label).c_str(), &emitter.radius, solver.backend.cell_size, min_extent * 0.25f, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Density##") + label).c_str(), &emitter.density_amount, 0.0f, 3.0f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Dye##") + label).c_str(), &emitter.dye_amount, 0.0f, 3.0f, "%.2f")) request_scene_reset();
-                if (ImGui::ColorEdit3((std::string("Color##") + label).c_str(), &emitter.color_r)) request_scene_reset();
-                ImGui::TreePop();
+            vk::WriteDescriptorSet field_write{
+                .dstSet = *slot.descriptor_set,
+                .dstBinding = 0,
+                .descriptorCount = 1,
+                .descriptorType = vk::DescriptorType::eStorageBuffer,
+                .pBufferInfo = &field_info,
             };
-            draw_emitter_controls("Emitter A", physics.emitters.a);
-            draw_emitter_controls("Emitter B", physics.emitters.b);
+            renderer.vk_context().device.updateDescriptorSets(field_write, {});
+        }
+        return true;
+    }
 
-            ImGui::Separator();
-            ImGui::TextUnformatted("Collider");
-            if (ImGui::Checkbox("Enable Collider", &physics.scene.collider.enabled)) request_scene_reset();
-            int collider_type = std::clamp(static_cast<int>(physics.scene.collider.type), 0, static_cast<int>(collider_type_labels.size()) - 1);
-            if (ImGui::BeginCombo("Collider Type", collider_type_labels[static_cast<size_t>(collider_type)])) {
-                for (int i = 0; i < static_cast<int>(collider_type_labels.size()); ++i) {
-                    const bool is_selected = collider_type == i;
-                    if (ImGui::Selectable(collider_type_labels[static_cast<size_t>(i)], is_selected)) {
-                        physics.scene.collider.type = static_cast<ColliderType>(i);
-                        request_scene_reset();
-                    }
-                    if (is_selected) ImGui::SetItemDefaultFocus();
+    bool capture_snapshot(AppState& state, AppData& data, VisualizationApp& renderer, const char* tag) {
+        const int slot_index = find_available_capture_slot(data, renderer.frames_in_flight());
+        if (slot_index < 0) return false;
+        nvtx3::scoped_range range{tag};
+        const auto request = make_capture_request(state, data);
+        const auto begin = std::chrono::steady_clock::now();
+        const auto capture = begin_capture(data, slot_index);
+        export_field(state, data, current_field_info(state).id, capture.field_cuda_ptr);
+        if (request.export_velocity_host) {
+            export_velocity(data, capture.velocity_cuda_ptr);
+            check_cuda(cudaMemcpyAsync(capture.velocity_host_ptr, capture.velocity_cuda_ptr, data.capture.velocity_bytes, cudaMemcpyDeviceToHost, data.physics.stream), "cudaMemcpyAsync velocity snapshot");
+        }
+        cudaExternalSemaphoreSignalParams signal_params{};
+        signal_params.params.fence.value = capture.ready_generation;
+        check_cuda(cudaSignalExternalSemaphoresAsync(&capture.external_semaphore, &signal_params, 1, data.physics.stream), "cudaSignalExternalSemaphoresAsync");
+        check_cuda(cudaStreamSynchronize(data.physics.stream), "cudaStreamSynchronize");
+        complete_capture(data, slot_index, request, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
+        return true;
+    }
+
+    std::optional<VisualizationSnapshotView> active_snapshot(const AppState& state, const AppData& data) {
+        if (data.capture.active_slot < 0) return std::nullopt;
+        const auto& slot = data.capture.slots.at(static_cast<size_t>(data.capture.active_slot));
+        return VisualizationSnapshotView{
+            .grid = slot.grid,
+            .field = {
+                .descriptor_set = *slot.descriptor_set,
+                .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
+                .ready_generation = slot.ready_generation,
+                .component_count = slot.field_component_count,
+                .semantic = slot.semantic,
+                .label = slot.label,
+            },
+            .collider = collider_overlay(state),
+            .velocity = {
+                .data = slot.has_velocity_host ? slot.velocity_host.data() : nullptr,
+            },
+        };
+    }
+
+    void mark_snapshot_submitted(AppData& data) {
+        const uint64_t next_submit_serial = data.capture.submit_serial + 1;
+        if (data.capture.active_slot >= 0) data.capture.slots[static_cast<size_t>(data.capture.active_slot)].last_used_submit_serial = next_submit_serial;
+        data.capture.submit_serial = next_submit_serial;
+    }
+
+    void draw_simulation_controls(AppState& state, const AppData& data, bool& reset_requested, bool& field_changed) {
+        ImGui::Begin("Simulation");
+        auto& physics = state.physics;
+        auto& solver = physics.solver;
+        auto& playback = state.ui.playback;
+        const float extent_x = static_cast<float>(solver.backend.nx) * solver.backend.cell_size;
+        const float extent_y = static_cast<float>(solver.backend.ny) * solver.backend.cell_size;
+        const float extent_z = static_cast<float>(solver.backend.nz) * solver.backend.cell_size;
+        const float min_extent = (std::min)({extent_x, extent_y, extent_z});
+        auto request_scene_reset = [&]() {
+            if (physics.preset != ScenePreset::Custom) physics.preset = ScenePreset::Custom;
+            reset_requested = true;
+        };
+
+        if (ImGui::BeginCombo("Field", current_field_info(state).label.data())) {
+            for (int i = 0; i < static_cast<int>(field_catalog_storage.size()); ++i) {
+                const bool is_selected = physics.selected_field == i;
+                if (ImGui::Selectable(field_catalog_storage[static_cast<size_t>(i)].label.data(), is_selected)) {
+                    physics.selected_field = i;
+                    field_changed = true;
                 }
-                ImGui::EndCombo();
+                if (is_selected) ImGui::SetItemDefaultFocus();
             }
-            int collider_boundary = std::clamp(static_cast<int>(physics.scene.collider.boundary), 0, 1);
-            if (ImGui::BeginCombo("Collider Boundary", boundary_labels[static_cast<size_t>(collider_boundary)])) {
-                for (int i = 0; i < 2; ++i) {
-                    const bool is_selected = collider_boundary == i;
+            ImGui::EndCombo();
+        }
+
+        int scene_preset = std::clamp(static_cast<int>(physics.preset), 0, static_cast<int>(scene_preset_labels.size()) - 1);
+        if (ImGui::BeginCombo("Scene Preset", scene_preset_labels[static_cast<size_t>(scene_preset)])) {
+            for (int i = 0; i < static_cast<int>(scene_preset_labels.size()); ++i) {
+                const bool is_selected = scene_preset == i;
+                if (ImGui::Selectable(scene_preset_labels[static_cast<size_t>(i)], is_selected)) {
+                    if (i < static_cast<int>(ScenePreset::Custom)) {
+                        apply_scene_preset(state, static_cast<ScenePreset>(i));
+                        reset_requested = true;
+                    } else {
+                        physics.preset = ScenePreset::Custom;
+                    }
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::Checkbox("Pause Simulation", &playback.paused);
+        if (ImGui::Button("Single Step")) playback.step_once = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Backend")) reset_requested = true;
+        ImGui::SliderInt("Sim Steps / Frame", &playback.sim_steps_per_frame, 1, 8);
+        ImGui::SliderInt("Snapshot Interval", &playback.snapshot_interval, 1, 8);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Solver");
+        ImGui::Text("Step calls: %llu", static_cast<unsigned long long>(data.physics.stats.step_count));
+        ImGui::Text("Last step call: %.3f ms", data.physics.stats.last_step_call_ms);
+        ImGui::Text("Avg step call: %.3f ms", data.physics.stats.average_step_call_ms);
+        ImGui::Text("Projection max |div|: %.6g", data.physics.stats.projection_max_abs_divergence);
+        ImGui::Text("Projection RMS div: %.6g", data.physics.stats.projection_rms_divergence);
+        ImGui::Text("Snapshot commits: %llu", static_cast<unsigned long long>(data.capture.stats.snapshot_count));
+        ImGui::Text("Last snapshot: %.3f ms", data.capture.stats.last_snapshot_ms);
+        ImGui::Text("Avg snapshot: %.3f ms", data.capture.stats.average_snapshot_ms);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Grid / Time");
+        ImGui::Text("Domain Size: %.3f m x %.3f m x %.3f m", extent_x, extent_y, extent_z);
+        if (ImGui::SliderInt("Grid X (cells)", &solver.backend.nx, 16, 512)) request_scene_reset();
+        if (ImGui::SliderInt("Grid Y (cells)", &solver.backend.ny, 16, 512)) request_scene_reset();
+        if (ImGui::SliderInt("Grid Z (cells)", &solver.backend.nz, 16, 512)) request_scene_reset();
+        if (ImGui::SliderFloat("Dt (s)", &solver.backend.dt, 1.0f / 480.0f, 1.0f / 24.0f, "%.5f")) request_scene_reset();
+        if (ImGui::SliderFloat("Cell Size (m)", &solver.backend.cell_size, 0.0025f, 0.05f, "%.4f")) request_scene_reset();
+        if (ImGui::SliderFloat("Viscosity (m^2/s)", &solver.backend.viscosity, 0.0f, 0.002f, "%.5f")) request_scene_reset();
+        if (ImGui::SliderFloat("Density Diffusion (m^2/s)", &solver.density_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
+        if (ImGui::SliderFloat("Dye Diffusion (m^2/s)", &solver.dye_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
+        if (ImGui::SliderInt("Diffuse Iterations", &solver.backend.diffuse_iterations, 1, 64)) request_scene_reset();
+        if (ImGui::SliderInt("Pressure Iterations", &solver.backend.pressure_iterations, 4, 192)) request_scene_reset();
+
+        auto draw_boundary_combo = [&](const char* label, StableFluidsBoundaryFaceDesc& face) {
+            int boundary = std::clamp(static_cast<int>(face.type), 0, static_cast<int>(boundary_labels.size()) - 1);
+            if (ImGui::BeginCombo(label, boundary_labels[static_cast<size_t>(boundary)])) {
+                for (int i = 0; i < static_cast<int>(boundary_labels.size()); ++i) {
+                    const bool is_selected = boundary == i;
                     if (ImGui::Selectable(boundary_labels[static_cast<size_t>(i)], is_selected)) {
-                        physics.scene.collider.boundary = static_cast<uint32_t>(i);
+                        boundary = i;
+                        face.type = static_cast<uint32_t>(i);
                         request_scene_reset();
                     }
                     if (is_selected) ImGui::SetItemDefaultFocus();
                 }
                 ImGui::EndCombo();
             }
-            if (ImGui::SliderFloat("Collider X (m)", &physics.scene.collider.center_x, 0.0f, extent_x, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Y (m)", &physics.scene.collider.center_y, 0.0f, extent_y, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Z (m)", &physics.scene.collider.center_z, 0.0f, extent_z, "%.3f")) request_scene_reset();
-            if (physics.scene.collider.type == ColliderType::Sphere) {
-                if (ImGui::SliderFloat("Collider Radius (m)", &physics.scene.collider.radius, solver.backend.cell_size, min_extent * 0.45f, "%.3f")) request_scene_reset();
-            } else {
-                if (ImGui::SliderFloat("Half Extent X (m)", &physics.scene.collider.half_extent_x, solver.backend.cell_size, extent_x * 0.45f, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat("Half Extent Y (m)", &physics.scene.collider.half_extent_y, solver.backend.cell_size, extent_y * 0.45f, "%.3f")) request_scene_reset();
-                if (ImGui::SliderFloat("Half Extent Z (m)", &physics.scene.collider.half_extent_z, solver.backend.cell_size, extent_z * 0.45f, "%.3f")) request_scene_reset();
+        };
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Domain Boundary");
+        draw_boundary_combo("Boundary X-", solver.backend.domain_boundary.x_min);
+        draw_boundary_combo("Boundary X+", solver.backend.domain_boundary.x_max);
+        draw_boundary_combo("Boundary Y-", solver.backend.domain_boundary.y_min);
+        draw_boundary_combo("Boundary Y+", solver.backend.domain_boundary.y_max);
+        draw_boundary_combo("Boundary Z-", solver.backend.domain_boundary.z_min);
+        draw_boundary_combo("Boundary Z+", solver.backend.domain_boundary.z_max);
+        if (ImGui::SliderFloat("Inflow Vel X- (m/s)", &solver.backend.domain_boundary.x_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+        if (ImGui::SliderFloat("Inflow Vel X+ (m/s)", &solver.backend.domain_boundary.x_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+        if (ImGui::SliderFloat("Inflow Vel Y- (m/s)", &solver.backend.domain_boundary.y_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+        if (ImGui::SliderFloat("Inflow Vel Y+ (m/s)", &solver.backend.domain_boundary.y_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+        if (ImGui::SliderFloat("Inflow Vel Z- (m/s)", &solver.backend.domain_boundary.z_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+        if (ImGui::SliderFloat("Inflow Vel Z+ (m/s)", &solver.backend.domain_boundary.z_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Forces");
+        if (ImGui::SliderFloat("Gravity Y (m/s^2)", &solver.gravity_y, -20.0f, 20.0f, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Buoyancy Beta", &solver.buoyancy_beta, 0.0f, 2.0f, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Ambient Density", &solver.ambient_density, 0.0f, 2.0f, "%.3f")) request_scene_reset();
+        ImGui::Text("Buoyancy accel / density: %.3f m/s^2", -solver.gravity_y * solver.buoyancy_beta);
+        if (ImGui::SliderFloat("Uniform Force X (m/s^2)", &solver.backend.uniform_force_x, -20.0f, 20.0f, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Uniform Force Y (m/s^2)", &solver.backend.uniform_force_y, -20.0f, 20.0f, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Uniform Force Z (m/s^2)", &solver.backend.uniform_force_z, -20.0f, 20.0f, "%.3f")) request_scene_reset();
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Sources");
+        if (ImGui::Checkbox("Emit Source", &physics.emit_source)) request_scene_reset();
+        auto draw_emitter_controls = [&](const char* label, SourceEmitterSettings& emitter) {
+            if (!ImGui::TreeNode(label)) return;
+            if (ImGui::Checkbox((std::string("Enabled##") + label).c_str(), &emitter.enabled)) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Center X (m)##") + label).c_str(), &emitter.center_x, 0.0f, extent_x, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Center Y (m)##") + label).c_str(), &emitter.center_y, 0.0f, extent_y, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Center Z (m)##") + label).c_str(), &emitter.center_z, 0.0f, extent_z, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Dir X##") + label).c_str(), &emitter.direction_x, -1.0f, 1.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Dir Y##") + label).c_str(), &emitter.direction_y, -1.0f, 1.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Dir Z##") + label).c_str(), &emitter.direction_z, -1.0f, 1.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Speed (m/s)##") + label).c_str(), &emitter.speed, 0.0f, 5.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Radius (m)##") + label).c_str(), &emitter.radius, solver.backend.cell_size, min_extent * 0.25f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Density##") + label).c_str(), &emitter.density_amount, 0.0f, 3.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat((std::string("Dye##") + label).c_str(), &emitter.dye_amount, 0.0f, 3.0f, "%.2f")) request_scene_reset();
+            if (ImGui::ColorEdit3((std::string("Color##") + label).c_str(), &emitter.color_r)) request_scene_reset();
+            ImGui::TreePop();
+        };
+        draw_emitter_controls("Emitter A", physics.emitters.a);
+        draw_emitter_controls("Emitter B", physics.emitters.b);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Collider");
+        if (ImGui::Checkbox("Enable Collider", &physics.scene.collider.enabled)) request_scene_reset();
+        int collider_type = std::clamp(static_cast<int>(physics.scene.collider.type), 0, static_cast<int>(collider_type_labels.size()) - 1);
+        if (ImGui::BeginCombo("Collider Type", collider_type_labels[static_cast<size_t>(collider_type)])) {
+            for (int i = 0; i < static_cast<int>(collider_type_labels.size()); ++i) {
+                const bool is_selected = collider_type == i;
+                if (ImGui::Selectable(collider_type_labels[static_cast<size_t>(i)], is_selected)) {
+                    physics.scene.collider.type = static_cast<ColliderType>(i);
+                    request_scene_reset();
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
             }
-            if (ImGui::SliderFloat("Collider Vel X (m/s)", &physics.scene.collider.velocity_x, -3.0f, 3.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Vel Y (m/s)", &physics.scene.collider.velocity_y, -3.0f, 3.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Vel Z (m/s)", &physics.scene.collider.velocity_z, -3.0f, 3.0f, "%.3f")) request_scene_reset();
-            ImGui::End();
+            ImGui::EndCombo();
         }
-
-        int run() {
-            while (!renderer.should_close()) {
-                nvtx3::scoped_range frame_range{"stable_fluids.frame"};
-                renderer.begin_frame();
-
-                bool reset_requested = false;
-                bool field_changed = false;
-                draw_simulation_ui(reset_requested, field_changed);
-                if (field_changed) apply_field_defaults();
-
-                if (reset_requested) {
-                    reset_backend();
-                } else if (field_changed && ensure_snapshot_storage()) {
-                    capture_if_possible("stable_fluids.field_change_realloc");
-                    frame_latest_snapshot();
+        int collider_boundary = std::clamp(static_cast<int>(physics.scene.collider.boundary), 0, 1);
+        if (ImGui::BeginCombo("Collider Boundary", boundary_labels[static_cast<size_t>(collider_boundary)])) {
+            for (int i = 0; i < 2; ++i) {
+                const bool is_selected = collider_boundary == i;
+                if (ImGui::Selectable(boundary_labels[static_cast<size_t>(i)], is_selected)) {
+                    physics.scene.collider.boundary = static_cast<uint32_t>(i);
+                    request_scene_reset();
                 }
-
-                auto snapshot = runtime.snapshots.active_snapshot(collider_overlay());
-                renderer.draw_visualization_ui(state.ui.render, snapshot);
-                if (ensure_snapshot_storage()) {
-                    capture_if_possible("stable_fluids.visual_storage_reset");
-                    snapshot = runtime.snapshots.active_snapshot(collider_overlay());
-                    if (snapshot) renderer.frame_content(state.ui.render, *snapshot);
-                }
-
-                if (!reset_requested) {
-                    const bool run_simulation = !state.ui.playback.paused || state.ui.playback.step_once;
-                    if (run_simulation) {
-                        step_physics(state.ui.playback.sim_steps_per_frame);
-                        if (runtime.snapshots.stats().steps_since_snapshot < static_cast<uint32_t>(state.ui.playback.snapshot_interval)) ++runtime.snapshots.stats().steps_since_snapshot;
-                        if (runtime.snapshots.stats().steps_since_snapshot >= static_cast<uint32_t>(state.ui.playback.snapshot_interval)) capture_if_possible("stable_fluids.simulation_snapshot");
-                    }
-                }
-
-                state.ui.playback.step_once = false;
-                if ((field_changed || !snapshot) && !reset_requested) capture_if_possible("stable_fluids.refresh_snapshot");
-
-                snapshot = runtime.snapshots.active_snapshot(collider_overlay());
-                const bool submitted = renderer.render_frame(state.ui.render, snapshot);
-                if (submitted) runtime.snapshots.mark_submitted();
+                if (is_selected) ImGui::SetItemDefaultFocus();
             }
-
-            renderer.vk_context().device.waitIdle();
-            runtime.snapshots.destroy();
-            return 0;
+            ImGui::EndCombo();
         }
-    };
-
-    SmokeApp::SmokeApp()
-        : impl_(std::make_unique<Impl>()) {
-    }
-
-    SmokeApp::~SmokeApp() = default;
-
-    AppState& SmokeApp::state() {
-        return impl_->state;
-    }
-
-    const AppState& SmokeApp::state() const {
-        return impl_->state;
-    }
-
-    int SmokeApp::run() {
-        return impl_->run();
+        if (ImGui::SliderFloat("Collider X (m)", &physics.scene.collider.center_x, 0.0f, extent_x, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Collider Y (m)", &physics.scene.collider.center_y, 0.0f, extent_y, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Collider Z (m)", &physics.scene.collider.center_z, 0.0f, extent_z, "%.3f")) request_scene_reset();
+        if (physics.scene.collider.type == ColliderType::Sphere) {
+            if (ImGui::SliderFloat("Collider Radius (m)", &physics.scene.collider.radius, solver.backend.cell_size, min_extent * 0.45f, "%.3f")) request_scene_reset();
+        } else {
+            if (ImGui::SliderFloat("Half Extent X (m)", &physics.scene.collider.half_extent_x, solver.backend.cell_size, extent_x * 0.45f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Half Extent Y (m)", &physics.scene.collider.half_extent_y, solver.backend.cell_size, extent_y * 0.45f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Half Extent Z (m)", &physics.scene.collider.half_extent_z, solver.backend.cell_size, extent_z * 0.45f, "%.3f")) request_scene_reset();
+        }
+        if (ImGui::SliderFloat("Collider Vel X (m/s)", &physics.scene.collider.velocity_x, -3.0f, 3.0f, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Collider Vel Y (m/s)", &physics.scene.collider.velocity_y, -3.0f, 3.0f, "%.3f")) request_scene_reset();
+        if (ImGui::SliderFloat("Collider Vel Z (m/s)", &physics.scene.collider.velocity_z, -3.0f, 3.0f, "%.3f")) request_scene_reset();
+        ImGui::End();
     }
 
 } // namespace app

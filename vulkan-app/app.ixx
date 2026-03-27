@@ -2,6 +2,7 @@ module;
 
 #include "stable-fluids-3d.h"
 
+#include <cuda_runtime.h>
 #include <GLFW/glfw3.h>
 
 #include <vulkan/vulkan_raii.hpp>
@@ -157,6 +158,43 @@ export namespace app {
         Box    = 1,
     };
 
+    enum class FieldId : uint32_t {
+        SmokeColor        = 0,
+        Density           = 1,
+        VelocityMagnitude = 2,
+        SolidMask         = 3,
+        Pressure          = 4,
+        Divergence        = 5,
+    };
+
+    enum class FieldDisplayMode : uint32_t {
+        Scalar = 0,
+        Smoke  = 1,
+    };
+
+    struct FieldVisualPreset {
+        FieldDisplayMode display_mode = FieldDisplayMode::Scalar;
+        float density_scale           = 0.95f;
+        float absorption              = 1.20f;
+        float scalar_min              = 0.0f;
+        float scalar_max              = 1.0f;
+        float scalar_opacity          = 2.0f;
+        float scalar_low_r            = 0.08f;
+        float scalar_low_g            = 0.18f;
+        float scalar_low_b            = 0.46f;
+        float scalar_high_r           = 0.98f;
+        float scalar_high_g           = 0.82f;
+        float scalar_high_b           = 0.24f;
+    };
+
+    struct FieldInfo {
+        FieldId id{};
+        std::string_view label{};
+        uint32_t component_count = 1;
+        FieldSemantic semantic   = FieldSemantic::GenericScalar;
+        FieldVisualPreset preset{};
+    };
+
     struct SolverStats {
         double last_step_call_ms              = 0.0;
         double average_step_call_ms           = 0.0;
@@ -257,15 +295,55 @@ export namespace app {
             struct {
                 ColliderSettings collider{};
             } scene{};
-
-            SolverStats stats{};
         } physics{};
 
         struct {
             VisualizationSettings render{};
             PlaybackSettings playback{};
-            CaptureStats capture{};
         } ui{};
+    };
+
+    struct CaptureSlot {
+        vk::raii::Buffer buffer{nullptr};
+        vk::raii::DeviceMemory memory{nullptr};
+        vk::raii::Semaphore timeline_semaphore{nullptr};
+        vk::raii::DescriptorSet descriptor_set{nullptr};
+        cudaExternalMemory_t external_memory       = nullptr;
+        cudaExternalSemaphore_t external_semaphore = nullptr;
+        void* field_cuda_ptr                       = nullptr;
+        void* velocity_cuda_ptr                    = nullptr;
+        std::vector<float> velocity_host{};
+        uint64_t ready_generation                  = 0;
+        uint64_t last_used_submit_serial           = 0;
+        GridShape grid{};
+        uint32_t field_component_count             = 1;
+        FieldSemantic semantic                     = FieldSemantic::GenericScalar;
+        std::string_view label{};
+        bool has_velocity_host                     = false;
+    };
+
+    struct AppData {
+        struct {
+            cudaStream_t stream                   = nullptr;
+            StableFluidsContext context           = nullptr;
+            StableFluidsFieldHandle density_field = 0;
+            StableFluidsFieldHandle dye_field     = 0;
+            SolverStats stats{};
+        } physics{};
+
+        struct {
+            CaptureStats stats{};
+            uint64_t field_bytes                  = 0;
+            uint64_t velocity_bytes               = 0;
+            uint64_t generation                   = 0;
+            uint64_t submit_serial                = 0;
+            uint32_t steps_since_snapshot         = 0;
+            int active_slot                       = -1;
+            GridShape request_grid{};
+            uint32_t request_field_component_count = 1;
+            bool request_export_velocity_host     = false;
+            std::vector<CaptureSlot> slots{};
+        } capture{};
     };
 
     class VisualizationApp {
@@ -321,23 +399,19 @@ export namespace app {
         std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
     };
 
-    class SmokeApp {
-    public:
-        SmokeApp();
-        ~SmokeApp();
-
-        SmokeApp(const SmokeApp&)                = delete;
-        SmokeApp& operator=(const SmokeApp&)     = delete;
-        SmokeApp(SmokeApp&&) noexcept            = delete;
-        SmokeApp& operator=(SmokeApp&&) noexcept = delete;
-
-        [[nodiscard]] AppState& state();
-        [[nodiscard]] const AppState& state() const;
-        int run();
-
-    private:
-        struct Impl;
-        std::unique_ptr<Impl> impl_{};
-    };
+    [[nodiscard]] std::span<const FieldInfo> field_catalog();
+    [[nodiscard]] const FieldInfo& current_field_info(AppState& state);
+    void apply_scene_preset(AppState& state, ScenePreset preset);
+    void apply_field_visual_preset(AppState& state);
+    void create_runtime_data(AppData& data);
+    void destroy_runtime_data(AppData& data);
+    void check_interop_support(const VisualizationApp& renderer);
+    void rebuild_physics(AppState& state, AppData& data);
+    void step_physics(const AppState& state, AppData& data, int sim_steps);
+    bool sync_capture_storage(AppState& state, AppData& data, VisualizationApp& renderer);
+    bool capture_snapshot(AppState& state, AppData& data, VisualizationApp& renderer, const char* tag);
+    [[nodiscard]] std::optional<VisualizationSnapshotView> active_snapshot(const AppState& state, const AppData& data);
+    void mark_snapshot_submitted(AppData& data);
+    void draw_simulation_controls(AppState& state, const AppData& data, bool& reset_requested, bool& field_changed);
 
 } // namespace app
