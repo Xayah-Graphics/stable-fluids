@@ -25,20 +25,27 @@ namespace {
 } // namespace
 
 int main() {
-    constexpr int32_t nx = 64;
-    constexpr int32_t ny = 96;
-    constexpr int32_t nz = 64;
+    constexpr int32_t nx = 100;
+    constexpr int32_t ny = 100;
+    constexpr int32_t nz = 100;
     constexpr int frames = 24;
+    constexpr float cell_size = 0.01f;
+    constexpr float extent_x = static_cast<float>(nx) * cell_size;
+    constexpr float extent_y = static_cast<float>(ny) * cell_size;
+    constexpr float extent_z = static_cast<float>(nz) * cell_size;
+    constexpr float gravity_y = -9.81f;
+    constexpr float buoyancy_beta = 0.35f;
+    constexpr float buoyancy_weight = -gravity_y * buoyancy_beta;
 
     StableFluidsSimulationConfig config{
         .nx = nx,
         .ny = ny,
         .nz = nz,
-        .cell_size = 1.0f,
-        .dt = 1.0f / 90.0f,
-        .viscosity = 0.0001f,
-        .diffuse_iterations = 20,
-        .pressure_iterations = 80,
+        .cell_size = cell_size,
+        .dt = 1.0f / 120.0f,
+        .viscosity = 0.00015f,
+        .diffuse_iterations = 24,
+        .pressure_iterations = 96,
         .uniform_force_x = 0.0f,
         .uniform_force_y = 0.0f,
         .uniform_force_z = 0.0f,
@@ -82,7 +89,7 @@ int main() {
     std::array buoyancy_terms{
         StableFluidsBuoyancyDesc{
             .field_index = 0,
-            .weight = 0.35f,
+            .weight = buoyancy_weight,
             .ambient = 0.0f,
         },
     };
@@ -103,10 +110,10 @@ int main() {
     const StableFluidsColliderDesc collider{
         .collider_type = static_cast<uint32_t>(STABLE_FLUIDS_COLLIDER_SPHERE),
         .velocity_boundary_type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP),
-        .center_x = static_cast<float>(nx) * 0.5f,
-        .center_y = static_cast<float>(ny) * 0.36f,
-        .center_z = static_cast<float>(nz) * 0.5f,
-        .radius = 8.0f,
+        .center_x = extent_x * 0.5f,
+        .center_y = extent_y * 0.36f,
+        .center_z = extent_z * 0.5f,
+        .radius = 0.08f,
         .half_extent_x = 0.0f,
         .half_extent_y = 0.0f,
         .half_extent_z = 0.0f,
@@ -125,17 +132,17 @@ int main() {
 
     const auto begin = std::chrono::steady_clock::now();
     for (int frame = 0; frame < frames; ++frame) {
-        const float center_x = static_cast<float>(nx) * 0.18f;
-        const float center_y = static_cast<float>(ny) * 0.14f;
-        const float center_z = static_cast<float>(nz) * 0.28f + static_cast<float>(frame & 1) * 0.35f;
+        const float center_x = extent_x * 0.18f;
+        const float center_y = extent_y * 0.14f;
+        const float center_z = extent_z * 0.28f + static_cast<float>(frame & 1) * 0.005f;
         const StableFluidsVelocitySourceDesc velocity_source{
             .center_x = center_x,
             .center_y = center_y,
             .center_z = center_z,
-            .radius = 4.5f,
-            .velocity_x = 1.8f,
-            .velocity_y = 3.8f,
-            .velocity_z = 1.2f,
+            .radius = 0.045f,
+            .velocity_x = 0.18f,
+            .velocity_y = 0.42f,
+            .velocity_z = 0.12f,
         };
         const std::array field_sources{
             StableFluidsFieldSourceDesc{
@@ -143,7 +150,7 @@ int main() {
                 .center_x = center_x,
                 .center_y = center_y,
                 .center_z = center_z,
-                .radius = 4.5f,
+                .radius = 0.045f,
                 .value_0 = 0.55f,
                 .value_1 = 0.0f,
                 .value_2 = 0.0f,
@@ -154,7 +161,7 @@ int main() {
                 .center_x = center_x,
                 .center_y = center_y,
                 .center_z = center_z,
-                .radius = 4.5f,
+                .radius = 0.045f,
                 .value_0 = 0.85f,
                 .value_1 = 0.22f,
                 .value_2 = 1.10f,

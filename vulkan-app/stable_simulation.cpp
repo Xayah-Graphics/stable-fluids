@@ -121,8 +121,8 @@ namespace smoke {
                     .display_mode = FieldDisplayMode::Scalar,
                     .density_scale = 1.0f,
                     .absorption = 1.20f,
-                    .scalar_min = -2.0f,
-                    .scalar_max = 1.5f,
+                    .scalar_min = -50.0f,
+                    .scalar_max = 50.0f,
                     .scalar_opacity = 1.4f,
                     .scalar_low_r = 0.06f,
                     .scalar_low_g = 0.10f,
@@ -147,7 +147,6 @@ namespace smoke {
         [[nodiscard]] Settings make_settings_for_preset(const ScenePreset preset) {
             Settings settings{};
             settings.scene_preset = preset;
-            settings.config.uniform_force_z = 0.0f;
             settings.config.domain_boundary = {
                 .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
                 .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
@@ -158,7 +157,9 @@ namespace smoke {
             };
             settings.density_diffusion = 0.00005f;
             settings.dye_diffusion = 0.00003f;
-            settings.density_buoyancy = 0.35f;
+            settings.gravity_y = -9.81f;
+            settings.buoyancy_beta = 0.05f;
+            settings.ambient_density = 0.0f;
             settings.emit_source = true;
             settings.collider = {
                 .enabled = true,
@@ -166,7 +167,7 @@ namespace smoke {
                 .center_x = 0.50f,
                 .center_y = 0.50f,
                 .center_z = 0.50f,
-                .radius = 0.25f,
+                .radius = 0.18f,
                 .half_extent_x = 0.10f,
                 .half_extent_y = 0.08f,
                 .half_extent_z = 0.10f,
@@ -181,18 +182,20 @@ namespace smoke {
                 settings.config.pressure_iterations = 96;
                 settings.density_diffusion = 0.00002f;
                 settings.dye_diffusion = 0.00001f;
-                settings.density_buoyancy = 0.85f;
+                settings.gravity_y = -9.81f;
+                settings.buoyancy_beta = 0.35f;
+                settings.ambient_density = 0.0f;
                 settings.collider.enabled = false;
                 settings.emitter_a = {
                     .enabled = true,
-                    .position_x = 0.49f,
-                    .position_y = 0.03f,
-                    .position_z = 0.51f,
-                    .direction_x = 0.06f,
+                    .center_x = 0.50f,
+                    .center_y = 0.03f,
+                    .center_z = 0.50f,
+                    .direction_x = 0.0f,
                     .direction_y = 1.0f,
-                    .direction_z = 0.03f,
-                    .speed = 9.0f,
-                    .radius_cells = 2.0f,
+                    .direction_z = 0.0f,
+                    .speed = 0.08f,
+                    .radius = 0.02f,
                     .density_amount = 1.0f,
                     .dye_amount = 0.12f,
                     .color_r = 0.92f,
@@ -201,14 +204,14 @@ namespace smoke {
                 };
                 settings.emitter_b = {
                     .enabled = false,
-                    .position_x = 0.50f,
-                    .position_y = 0.08f,
-                    .position_z = 0.50f,
+                    .center_x = 0.50f,
+                    .center_y = 0.08f,
+                    .center_z = 0.50f,
                     .direction_x = 0.0f,
                     .direction_y = 1.0f,
                     .direction_z = 0.0f,
                     .speed = 0.0f,
-                    .radius_cells = 2.5f,
+                    .radius = 0.025f,
                     .density_amount = 0.0f,
                     .dye_amount = 0.0f,
                     .color_r = 1.0f,
@@ -221,14 +224,14 @@ namespace smoke {
             settings.scene_preset = ScenePreset::DualJetCollider;
             settings.emitter_a = {
                 .enabled = true,
-                .position_x = 0.16f,
-                .position_y = 0.12f,
-                .position_z = 0.78f,
+                .center_x = 0.16f,
+                .center_y = 0.12f,
+                .center_z = 0.78f,
                 .direction_x = 0.57f,
                 .direction_y = 0.64f,
                 .direction_z = -0.52f,
-                .speed = 52.0f,
-                .radius_cells = 3.5f,
+                .speed = 0.75f,
+                .radius = 0.035f,
                 .density_amount = 0.55f,
                 .dye_amount = 0.65f,
                 .color_r = 1.00f,
@@ -237,14 +240,14 @@ namespace smoke {
             };
             settings.emitter_b = {
                 .enabled = true,
-                .position_x = 0.84f,
-                .position_y = 0.12f,
-                .position_z = 0.22f,
+                .center_x = 0.84f,
+                .center_y = 0.12f,
+                .center_z = 0.22f,
                 .direction_x = -0.57f,
                 .direction_y = 0.64f,
                 .direction_z = 0.52f,
-                .speed = 52.0f,
-                .radius_cells = 3.5f,
+                .speed = 0.75f,
+                .radius = 0.035f,
                 .density_amount = 0.55f,
                 .dye_amount = 0.65f,
                 .color_r = 0.12f,
@@ -299,19 +302,16 @@ namespace smoke {
     }
 
     ColliderOverlay StableSimulation::collider_overlay() const {
-        const float extent_x = static_cast<float>(settings_.config.nx) * settings_.config.cell_size;
-        const float extent_y = static_cast<float>(settings_.config.ny) * settings_.config.cell_size;
-        const float extent_z = static_cast<float>((std::max)(settings_.config.nz, 1)) * settings_.config.cell_size;
         return ColliderOverlay{
             .enabled = settings_.collider.enabled,
             .type = static_cast<uint32_t>(settings_.collider.type),
-            .center_x = settings_.collider.center_x * extent_x,
-            .center_y = settings_.collider.center_y * extent_y,
-            .center_z = settings_.collider.center_z * extent_z,
-            .radius = settings_.collider.radius * (std::max)({extent_x, extent_y, extent_z}),
-            .half_x = settings_.collider.half_extent_x * extent_x,
-            .half_y = settings_.collider.half_extent_y * extent_y,
-            .half_z = settings_.collider.half_extent_z * extent_z,
+            .center_x = settings_.collider.center_x,
+            .center_y = settings_.collider.center_y,
+            .center_z = settings_.collider.center_z,
+            .radius = settings_.collider.radius,
+            .half_x = settings_.collider.half_extent_x,
+            .half_y = settings_.collider.half_extent_y,
+            .half_z = settings_.collider.half_extent_z,
         };
     }
 
@@ -322,6 +322,27 @@ namespace smoke {
     }
 
     void StableSimulation::rebuild() {
+        const float extent_x = static_cast<float>(settings_.config.nx) * settings_.config.cell_size;
+        const float extent_y = static_cast<float>(settings_.config.ny) * settings_.config.cell_size;
+        const float extent_z = static_cast<float>((std::max)(settings_.config.nz, 1)) * settings_.config.cell_size;
+        const float min_extent = (std::min)({extent_x, extent_y, extent_z});
+        auto clamp_emitter = [&](SourceEmitterSettings& emitter) {
+            emitter.center_x = std::clamp(emitter.center_x, 0.0f, extent_x);
+            emitter.center_y = std::clamp(emitter.center_y, 0.0f, extent_y);
+            emitter.center_z = std::clamp(emitter.center_z, 0.0f, extent_z);
+            emitter.radius = std::clamp(emitter.radius, settings_.config.cell_size, min_extent * 0.25f);
+            emitter.speed = std::max(emitter.speed, 0.0f);
+        };
+        clamp_emitter(settings_.emitter_a);
+        clamp_emitter(settings_.emitter_b);
+        settings_.collider.center_x = std::clamp(settings_.collider.center_x, 0.0f, extent_x);
+        settings_.collider.center_y = std::clamp(settings_.collider.center_y, 0.0f, extent_y);
+        settings_.collider.center_z = std::clamp(settings_.collider.center_z, 0.0f, extent_z);
+        settings_.collider.radius = std::clamp(settings_.collider.radius, settings_.config.cell_size, min_extent * 0.45f);
+        settings_.collider.half_extent_x = std::clamp(settings_.collider.half_extent_x, settings_.config.cell_size, extent_x * 0.45f);
+        settings_.collider.half_extent_y = std::clamp(settings_.collider.half_extent_y, settings_.config.cell_size, extent_y * 0.45f);
+        settings_.collider.half_extent_z = std::clamp(settings_.collider.half_extent_z, settings_.config.cell_size, extent_z * 0.45f);
+
         if (context_ != nullptr) {
             check_stable(stable_fluids_destroy_context_cuda(context_), "stable_fluids_destroy_context_cuda");
             context_ = nullptr;
@@ -353,21 +374,23 @@ namespace smoke {
                 .default_value_3 = 0.0f,
             },
         };
+        const float buoyancy_weight = -settings_.gravity_y * settings_.buoyancy_beta;
         std::array buoyancy_terms{
             StableFluidsBuoyancyDesc{
                 .field_index = 0,
-                .weight = settings_.density_buoyancy,
-                .ambient = 0.0f,
+                .weight = buoyancy_weight,
+                .ambient = settings_.ambient_density,
             },
         };
+        const uint32_t buoyancy_term_count = std::abs(buoyancy_weight) > 1.0e-6f ? static_cast<uint32_t>(buoyancy_terms.size()) : 0u;
         std::array<StableFluidsFieldHandle, 2> field_handles{};
         StableFluidsContextCreateDesc create_desc{
             .config = settings_.config,
             .stream = stream_,
             .fields = fields.data(),
             .field_count = static_cast<uint32_t>(fields.size()),
-            .buoyancy_terms = buoyancy_terms.data(),
-            .buoyancy_term_count = static_cast<uint32_t>(buoyancy_terms.size()),
+            .buoyancy_terms = buoyancy_term_count > 0 ? buoyancy_terms.data() : nullptr,
+            .buoyancy_term_count = buoyancy_term_count,
         };
         check_stable(stable_fluids_create_context_cuda(&create_desc, &context_, field_handles.data(), static_cast<uint32_t>(field_handles.size())), "stable_fluids_create_context_cuda");
         density_field_ = field_handles[0];
@@ -384,13 +407,13 @@ namespace smoke {
         StableFluidsColliderDesc collider{
             .collider_type = static_cast<uint32_t>(settings_.collider.type == 0 ? STABLE_FLUIDS_COLLIDER_SPHERE : STABLE_FLUIDS_COLLIDER_BOX),
             .velocity_boundary_type = settings_.collider.boundary,
-            .center_x = settings_.collider.center_x * static_cast<float>(settings_.config.nx) * settings_.config.cell_size,
-            .center_y = settings_.collider.center_y * static_cast<float>(settings_.config.ny) * settings_.config.cell_size,
-            .center_z = settings_.collider.center_z * static_cast<float>(settings_.config.nz) * settings_.config.cell_size,
-            .radius = settings_.collider.radius * static_cast<float>((std::max)({settings_.config.nx, settings_.config.ny, settings_.config.nz})) * settings_.config.cell_size,
-            .half_extent_x = settings_.collider.half_extent_x * static_cast<float>(settings_.config.nx) * settings_.config.cell_size,
-            .half_extent_y = settings_.collider.half_extent_y * static_cast<float>(settings_.config.ny) * settings_.config.cell_size,
-            .half_extent_z = settings_.collider.half_extent_z * static_cast<float>(settings_.config.nz) * settings_.config.cell_size,
+            .center_x = settings_.collider.center_x,
+            .center_y = settings_.collider.center_y,
+            .center_z = settings_.collider.center_z,
+            .radius = settings_.collider.radius,
+            .half_extent_x = settings_.collider.half_extent_x,
+            .half_extent_y = settings_.collider.half_extent_y,
+            .half_extent_z = settings_.collider.half_extent_z,
             .linear_velocity_x = settings_.collider.velocity_x,
             .linear_velocity_y = settings_.collider.velocity_y,
             .linear_velocity_z = settings_.collider.velocity_z,
@@ -403,10 +426,6 @@ namespace smoke {
     }
 
     void StableSimulation::step(const int sim_steps) {
-        const auto nx = static_cast<float>(settings_.config.nx);
-        const auto ny = static_cast<float>(settings_.config.ny);
-        const auto nz = static_cast<float>((std::max)(settings_.config.nz, 1));
-        const auto h = settings_.config.cell_size;
         std::array<StableFluidsVelocitySourceDesc, 2> velocity_sources{};
         std::array<StableFluidsFieldSourceDesc, 4> field_sources{};
         uint32_t velocity_source_count = 0;
@@ -419,20 +438,20 @@ namespace smoke {
             const float dir_y = dir_len > 1.0e-5f ? emitter.direction_y * inv_len : 1.0f;
             const float dir_z = dir_len > 1.0e-5f ? emitter.direction_z * inv_len : 0.0f;
             velocity_sources[velocity_source_count++] = {
-                .center_x = emitter.position_x * nx * h,
-                .center_y = emitter.position_y * ny * h,
-                .center_z = emitter.position_z * nz * h,
-                .radius = emitter.radius_cells * h,
+                .center_x = emitter.center_x,
+                .center_y = emitter.center_y,
+                .center_z = emitter.center_z,
+                .radius = emitter.radius,
                 .velocity_x = dir_x * emitter.speed,
                 .velocity_y = dir_y * emitter.speed,
                 .velocity_z = dir_z * emitter.speed,
             };
             field_sources[field_source_count++] = {
                 .field = density_field_,
-                .center_x = emitter.position_x * nx * h,
-                .center_y = emitter.position_y * ny * h,
-                .center_z = emitter.position_z * nz * h,
-                .radius = emitter.radius_cells * h,
+                .center_x = emitter.center_x,
+                .center_y = emitter.center_y,
+                .center_z = emitter.center_z,
+                .radius = emitter.radius,
                 .value_0 = emitter.density_amount,
                 .value_1 = 0.0f,
                 .value_2 = 0.0f,
@@ -440,10 +459,10 @@ namespace smoke {
             };
             field_sources[field_source_count++] = {
                 .field = dye_field_,
-                .center_x = emitter.position_x * nx * h,
-                .center_y = emitter.position_y * ny * h,
-                .center_z = emitter.position_z * nz * h,
-                .radius = emitter.radius_cells * h,
+                .center_x = emitter.center_x,
+                .center_y = emitter.center_y,
+                .center_z = emitter.center_z,
+                .radius = emitter.radius,
                 .value_0 = emitter.dye_amount * emitter.color_r,
                 .value_1 = emitter.dye_amount * emitter.color_g,
                 .value_2 = emitter.dye_amount * emitter.color_b,

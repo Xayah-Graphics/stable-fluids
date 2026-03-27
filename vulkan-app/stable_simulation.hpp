@@ -86,7 +86,7 @@ namespace smoke {
         float center_x      = 0.50f;
         float center_y      = 0.50f;
         float center_z      = 0.50f;
-        float radius        = 0.25f;
+        float radius        = 0.18f;
         float half_extent_x = 0.10f;
         float half_extent_y = 0.08f;
         float half_extent_z = 0.10f;
@@ -98,14 +98,14 @@ namespace smoke {
 
     struct SourceEmitterSettings {
         bool enabled         = true;
-        float position_x     = 0.16f;
-        float position_y     = 0.12f;
-        float position_z     = 0.78f;
+        float center_x       = 0.16f;
+        float center_y       = 0.12f;
+        float center_z       = 0.78f;
         float direction_x    = 0.57f;
         float direction_y    = 0.64f;
         float direction_z    = -0.52f;
-        float speed          = 52.0f;
-        float radius_cells   = 3.5f;
+        float speed          = 0.75f;
+        float radius         = 0.035f;
         float density_amount = 0.55f;
         float dye_amount     = 0.65f;
         float color_r        = 1.00f;
@@ -116,11 +116,11 @@ namespace smoke {
     struct Settings {
         ScenePreset scene_preset = ScenePreset::DualJetCollider;
         StableFluidsSimulationConfig config{
-            .nx = 128,
-            .ny = 128,
-            .nz = 128,
-            .cell_size = 1.0f,
-            .dt = 1.0f / 90.0f,
+            .nx = 100,
+            .ny = 100,
+            .nz = 100,
+            .cell_size = 0.01f,
+            .dt = 1.0f / 120.0f,
             .viscosity = 0.00015f,
             .diffuse_iterations = 24,
             .pressure_iterations = 80,
@@ -141,20 +141,22 @@ namespace smoke {
         };
         float density_diffusion = 0.00005f;
         float dye_diffusion     = 0.00003f;
-        float density_buoyancy  = 0.35f;
+        float gravity_y         = -9.81f;
+        float buoyancy_beta     = 0.05f;
+        float ambient_density   = 0.0f;
         int selected_field      = 0;
         bool emit_source        = true;
         SourceEmitterSettings emitter_a{};
         SourceEmitterSettings emitter_b{
             .enabled = true,
-            .position_x = 0.84f,
-            .position_y = 0.12f,
-            .position_z = 0.22f,
+            .center_x = 0.84f,
+            .center_y = 0.12f,
+            .center_z = 0.22f,
             .direction_x = -0.57f,
             .direction_y = 0.64f,
             .direction_z = 0.52f,
-            .speed = 52.0f,
-            .radius_cells = 3.5f,
+            .speed = 0.75f,
+            .radius = 0.035f,
             .density_amount = 0.55f,
             .dye_amount = 0.65f,
             .color_r = 0.12f,

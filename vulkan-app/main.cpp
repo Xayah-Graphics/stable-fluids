@@ -170,6 +170,10 @@ int main() {
 
             ImGui::Begin("Simulation");
             auto& settings = simulation.settings();
+            const float extent_x = static_cast<float>(settings.config.nx) * settings.config.cell_size;
+            const float extent_y = static_cast<float>(settings.config.ny) * settings.config.cell_size;
+            const float extent_z = static_cast<float>(settings.config.nz) * settings.config.cell_size;
+            const float min_extent = (std::min)({extent_x, extent_y, extent_z});
             auto mark_scene_custom = [&]() {
                 if (settings.scene_preset != smoke::ScenePreset::Custom) settings.scene_preset = smoke::ScenePreset::Custom;
             };
@@ -227,14 +231,15 @@ int main() {
 
             ImGui::Separator();
             ImGui::TextUnformatted("Grid / Time");
-            if (ImGui::SliderInt("Grid X", &settings.config.nx, 16, 192)) request_scene_reset();
-            if (ImGui::SliderInt("Grid Y", &settings.config.ny, 16, 192)) request_scene_reset();
-            if (ImGui::SliderInt("Grid Z", &settings.config.nz, 1, 192)) request_scene_reset();
-            if (ImGui::SliderFloat("Dt", &settings.config.dt, 1.0f / 240.0f, 1.0f / 24.0f, "%.5f")) request_scene_reset();
-            if (ImGui::SliderFloat("Cell Size", &settings.config.cell_size, 0.25f, 2.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Viscosity", &settings.config.viscosity, 0.0f, 0.002f, "%.5f")) request_scene_reset();
-            if (ImGui::SliderFloat("Density Diffusion", &settings.density_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
-            if (ImGui::SliderFloat("Dye Diffusion", &settings.dye_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
+            ImGui::Text("Domain Size: %.3f m x %.3f m x %.3f m", extent_x, extent_y, extent_z);
+            if (ImGui::SliderInt("Grid X (cells)", &settings.config.nx, 16, 192)) request_scene_reset();
+            if (ImGui::SliderInt("Grid Y (cells)", &settings.config.ny, 16, 192)) request_scene_reset();
+            if (ImGui::SliderInt("Grid Z (cells)", &settings.config.nz, 16, 192)) request_scene_reset();
+            if (ImGui::SliderFloat("Dt (s)", &settings.config.dt, 1.0f / 480.0f, 1.0f / 24.0f, "%.5f")) request_scene_reset();
+            if (ImGui::SliderFloat("Cell Size (m)", &settings.config.cell_size, 0.0025f, 0.05f, "%.4f")) request_scene_reset();
+            if (ImGui::SliderFloat("Viscosity (m^2/s)", &settings.config.viscosity, 0.0f, 0.002f, "%.5f")) request_scene_reset();
+            if (ImGui::SliderFloat("Density Diffusion (m^2/s)", &settings.density_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
+            if (ImGui::SliderFloat("Dye Diffusion (m^2/s)", &settings.dye_diffusion, 0.0f, 0.002f, "%.5f")) request_scene_reset();
             if (ImGui::SliderInt("Diffuse Iterations", &settings.config.diffuse_iterations, 1, 64)) request_scene_reset();
             if (ImGui::SliderInt("Pressure Iterations", &settings.config.pressure_iterations, 4, 192)) request_scene_reset();
 
@@ -262,19 +267,22 @@ int main() {
             draw_boundary_combo("Boundary Y+", settings.config.domain_boundary.y_max);
             draw_boundary_combo("Boundary Z-", settings.config.domain_boundary.z_min);
             draw_boundary_combo("Boundary Z+", settings.config.domain_boundary.z_max);
-            if (ImGui::SliderFloat("Inflow Vel X-", &settings.config.domain_boundary.x_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel X+", &settings.config.domain_boundary.x_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Y-", &settings.config.domain_boundary.y_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Y+", &settings.config.domain_boundary.y_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Z-", &settings.config.domain_boundary.z_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Inflow Vel Z+", &settings.config.domain_boundary.z_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Inflow Vel X- (m/s)", &settings.config.domain_boundary.x_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Inflow Vel X+ (m/s)", &settings.config.domain_boundary.x_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Inflow Vel Y- (m/s)", &settings.config.domain_boundary.y_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Inflow Vel Y+ (m/s)", &settings.config.domain_boundary.y_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Inflow Vel Z- (m/s)", &settings.config.domain_boundary.z_min.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Inflow Vel Z+ (m/s)", &settings.config.domain_boundary.z_max.velocity, -4.0f, 4.0f, "%.2f")) request_scene_reset();
 
             ImGui::Separator();
             ImGui::TextUnformatted("Forces");
-            if (ImGui::SliderFloat("Density Buoyancy", &settings.density_buoyancy, 0.0f, 2.0f, "%.4f")) request_scene_reset();
-            if (ImGui::SliderFloat("Uniform Force X", &settings.config.uniform_force_x, -2.0f, 2.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Uniform Force Y", &settings.config.uniform_force_y, -2.0f, 2.0f, "%.3f")) request_scene_reset();
-            if (ImGui::SliderFloat("Uniform Force Z", &settings.config.uniform_force_z, -2.0f, 2.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Gravity Y (m/s^2)", &settings.gravity_y, -20.0f, 20.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Buoyancy Beta", &settings.buoyancy_beta, 0.0f, 2.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Ambient Density", &settings.ambient_density, 0.0f, 2.0f, "%.3f")) request_scene_reset();
+            ImGui::Text("Buoyancy accel / density: %.3f m/s^2", -settings.gravity_y * settings.buoyancy_beta);
+            if (ImGui::SliderFloat("Uniform Force X (m/s^2)", &settings.config.uniform_force_x, -20.0f, 20.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Uniform Force Y (m/s^2)", &settings.config.uniform_force_y, -20.0f, 20.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Uniform Force Z (m/s^2)", &settings.config.uniform_force_z, -20.0f, 20.0f, "%.3f")) request_scene_reset();
 
             ImGui::Separator();
             ImGui::TextUnformatted("Sources");
@@ -282,14 +290,14 @@ int main() {
             auto draw_emitter_controls = [&](const char* label, smoke::SourceEmitterSettings& emitter) {
                 if (!ImGui::TreeNode(label)) return;
                 if (ImGui::Checkbox((std::string("Enabled##") + label).c_str(), &emitter.enabled)) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Pos X##") + label).c_str(), &emitter.position_x, 0.03f, 0.97f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Pos Y##") + label).c_str(), &emitter.position_y, 0.03f, 0.97f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Pos Z##") + label).c_str(), &emitter.position_z, 0.03f, 0.97f, "%.2f")) request_scene_reset();
+                if (ImGui::SliderFloat((std::string("Center X (m)##") + label).c_str(), &emitter.center_x, 0.0f, extent_x, "%.3f")) request_scene_reset();
+                if (ImGui::SliderFloat((std::string("Center Y (m)##") + label).c_str(), &emitter.center_y, 0.0f, extent_y, "%.3f")) request_scene_reset();
+                if (ImGui::SliderFloat((std::string("Center Z (m)##") + label).c_str(), &emitter.center_z, 0.0f, extent_z, "%.3f")) request_scene_reset();
                 if (ImGui::SliderFloat((std::string("Dir X##") + label).c_str(), &emitter.direction_x, -1.0f, 1.0f, "%.2f")) request_scene_reset();
                 if (ImGui::SliderFloat((std::string("Dir Y##") + label).c_str(), &emitter.direction_y, -1.0f, 1.0f, "%.2f")) request_scene_reset();
                 if (ImGui::SliderFloat((std::string("Dir Z##") + label).c_str(), &emitter.direction_z, -1.0f, 1.0f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Speed##") + label).c_str(), &emitter.speed, 0.0f, 200.0f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat((std::string("Radius##") + label).c_str(), &emitter.radius_cells, 0.5f, 16.0f, "%.1f")) request_scene_reset();
+                if (ImGui::SliderFloat((std::string("Speed (m/s)##") + label).c_str(), &emitter.speed, 0.0f, 5.0f, "%.3f")) request_scene_reset();
+                if (ImGui::SliderFloat((std::string("Radius (m)##") + label).c_str(), &emitter.radius, settings.config.cell_size, min_extent * 0.25f, "%.3f")) request_scene_reset();
                 if (ImGui::SliderFloat((std::string("Density##") + label).c_str(), &emitter.density_amount, 0.0f, 2.0f, "%.2f")) request_scene_reset();
                 if (ImGui::SliderFloat((std::string("Dye##") + label).c_str(), &emitter.dye_amount, 0.0f, 2.0f, "%.2f")) request_scene_reset();
                 if (ImGui::ColorEdit3((std::string("Color##") + label).c_str(), &emitter.color_r)) request_scene_reset();
@@ -325,19 +333,19 @@ int main() {
                 }
                 ImGui::EndCombo();
             }
-            if (ImGui::SliderFloat("Collider X", &settings.collider.center_x, 0.05f, 0.95f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Y", &settings.collider.center_y, 0.05f, 0.95f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Z", &settings.collider.center_z, 0.05f, 0.95f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Collider X (m)", &settings.collider.center_x, 0.0f, extent_x, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Collider Y (m)", &settings.collider.center_y, 0.0f, extent_y, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Collider Z (m)", &settings.collider.center_z, 0.0f, extent_z, "%.3f")) request_scene_reset();
             if (settings.collider.type == 0) {
-                if (ImGui::SliderFloat("Collider Radius", &settings.collider.radius, 0.03f, 0.30f, "%.2f")) request_scene_reset();
+                if (ImGui::SliderFloat("Collider Radius (m)", &settings.collider.radius, settings.config.cell_size, min_extent * 0.45f, "%.3f")) request_scene_reset();
             } else {
-                if (ImGui::SliderFloat("Half Extent X", &settings.collider.half_extent_x, 0.03f, 0.30f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat("Half Extent Y", &settings.collider.half_extent_y, 0.03f, 0.30f, "%.2f")) request_scene_reset();
-                if (ImGui::SliderFloat("Half Extent Z", &settings.collider.half_extent_z, 0.03f, 0.30f, "%.2f")) request_scene_reset();
+                if (ImGui::SliderFloat("Half Extent X (m)", &settings.collider.half_extent_x, settings.config.cell_size, extent_x * 0.45f, "%.3f")) request_scene_reset();
+                if (ImGui::SliderFloat("Half Extent Y (m)", &settings.collider.half_extent_y, settings.config.cell_size, extent_y * 0.45f, "%.3f")) request_scene_reset();
+                if (ImGui::SliderFloat("Half Extent Z (m)", &settings.collider.half_extent_z, settings.config.cell_size, extent_z * 0.45f, "%.3f")) request_scene_reset();
             }
-            if (ImGui::SliderFloat("Collider Vel X", &settings.collider.velocity_x, -3.0f, 3.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Vel Y", &settings.collider.velocity_y, -3.0f, 3.0f, "%.2f")) request_scene_reset();
-            if (ImGui::SliderFloat("Collider Vel Z", &settings.collider.velocity_z, -3.0f, 3.0f, "%.2f")) request_scene_reset();
+            if (ImGui::SliderFloat("Collider Vel X (m/s)", &settings.collider.velocity_x, -3.0f, 3.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Collider Vel Y (m/s)", &settings.collider.velocity_y, -3.0f, 3.0f, "%.3f")) request_scene_reset();
+            if (ImGui::SliderFloat("Collider Vel Z (m/s)", &settings.collider.velocity_z, -3.0f, 3.0f, "%.3f")) request_scene_reset();
             ImGui::End();
 
             if (field_changed) apply_field_defaults(current_field());
