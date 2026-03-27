@@ -188,7 +188,7 @@ namespace app {
                 ImGui::SliderInt("Vector Grid", &settings_.velocity_grid, 4, 48);
                 ImGui::SliderInt("Vector Steps", &settings_.velocity_steps, 4, 96);
                 ImGui::SliderFloat("Vector Step", &settings_.velocity_step, 0.10f, 3.0f, "%.2f");
-                ImGui::SliderFloat("Min Speed", &settings_.velocity_min_speed, 0.1f, 4.0f, "%.3f");
+                ImGui::SliderFloat("Min Speed", &settings_.velocity_min_speed, 0.01f, 4.0f, "%.3f");
                 ImGui::SliderFloat("Line Width", &settings_.velocity_thickness, 0.5f, 4.0f, "%.2f");
             }
         } else {

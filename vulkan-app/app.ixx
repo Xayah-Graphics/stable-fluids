@@ -134,13 +134,13 @@ export namespace app {
         float scalar_high_r             = 0.98f;
         float scalar_high_g             = 0.82f;
         float scalar_high_b             = 0.24f;
-        bool show_bounds                = true;
+        bool show_bounds                = false;
         bool show_collider              = true;
         bool show_velocity_plane        = false;
-        int velocity_grid               = 18;
-        int velocity_steps              = 28;
-        float velocity_step             = 0.85f;
-        float velocity_min_speed        = 0.04f;
+        int velocity_grid               = 24;
+        int velocity_steps              = 64;
+        float velocity_step             = 0.24f;
+        float velocity_min_speed        = 0.02f;
         float velocity_thickness        = 1.6f;
     };
 

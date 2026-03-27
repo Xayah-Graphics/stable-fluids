@@ -19,8 +19,8 @@ namespace smoke {
                 .semantic = FieldSemantic::DyeColor,
                 .preset = {
                     .display_mode = FieldDisplayMode::Smoke,
-                    .density_scale = 1.60f,
-                    .absorption = 2.40f,
+                    .density_scale = 10.f,
+                    .absorption = 10.f,
                     .scalar_min = 0.0f,
                     .scalar_max = 1.0f,
                     .scalar_opacity = 2.0f,
