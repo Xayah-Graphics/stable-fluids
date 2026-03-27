@@ -121,7 +121,7 @@ namespace smoke {
             .nz = 100,
             .cell_size = 0.01f,
             .dt = 1.0f / 120.0f,
-            .viscosity = 0.00015f,
+            .viscosity = 0.f,
             .diffuse_iterations = 24,
             .pressure_iterations = 96,
             .uniform_force_x = 0.0f,

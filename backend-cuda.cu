@@ -64,6 +64,7 @@ namespace stable_fluids {
 
     struct HostBoundaryAtlas {
         std::vector<uint8_t> cell_flags{};
+        std::vector<int32_t> cell_owner{};
         std::vector<uint8_t> u_flags{};
         std::vector<uint8_t> v_flags{};
         std::vector<uint8_t> w_flags{};
@@ -164,23 +165,63 @@ namespace stable_fluids {
         return outside + inside;
     }
 
-    float sample_collider_velocity_axis(const std::vector<StableFluidsColliderDesc>& colliders, const float x, const float y, const float z, const Axis axis) {
+    float collider_axis_velocity(const StableFluidsColliderDesc& collider, const Axis axis) {
+        if (axis == Axis::x) return collider.linear_velocity_x;
+        if (axis == Axis::y) return collider.linear_velocity_y;
+        return collider.linear_velocity_z;
+    }
+
+    int select_collider_owner(const std::vector<StableFluidsColliderDesc>& colliders, const float x, const float y, const float z) {
         float best_distance = 1.0e30f;
-        float best_value    = 0.0f;
-        for (const auto& collider : colliders) {
+        int best_index      = -1;
+        for (std::size_t collider_index = 0; collider_index < colliders.size(); ++collider_index) {
+            const auto& collider = colliders[collider_index];
+            if (!point_inside_collider(collider, x, y, z)) continue;
+            const float distance = collider_signed_distance(collider, x, y, z);
+            if (distance >= best_distance) continue;
+            best_distance = distance;
+            best_index = static_cast<int>(collider_index);
+        }
+        return best_index;
+    }
+
+    int select_nearest_collider(const std::vector<StableFluidsColliderDesc>& colliders, const float x, const float y, const float z, const bool require_no_slip) {
+        float best_distance = 1.0e30f;
+        int best_index      = -1;
+        for (std::size_t collider_index = 0; collider_index < colliders.size(); ++collider_index) {
+            const auto& collider = colliders[collider_index];
+            if (require_no_slip && collider.velocity_boundary_type != STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP) continue;
             const float distance = collider_signed_distance(collider, x, y, z);
             if (distance > 0.75f) continue;
             if (distance >= best_distance) continue;
             best_distance = distance;
-            if (axis == Axis::x) best_value = collider.linear_velocity_x;
-            if (axis == Axis::y) best_value = collider.linear_velocity_y;
-            if (axis == Axis::z) best_value = collider.linear_velocity_z;
+            best_index = static_cast<int>(collider_index);
         }
-        return best_value;
+        return best_index;
+    }
+
+    int select_face_collider(
+        const std::vector<StableFluidsColliderDesc>& colliders,
+        const int primary_owner,
+        const int secondary_owner,
+        const float x,
+        const float y,
+        const float z
+    ) {
+        if (primary_owner >= 0 && secondary_owner < 0) return primary_owner;
+        if (secondary_owner >= 0 && primary_owner < 0) return secondary_owner;
+        if (primary_owner >= 0 && secondary_owner >= 0) {
+            const float primary_distance = collider_signed_distance(colliders[static_cast<std::size_t>(primary_owner)], x, y, z);
+            const float secondary_distance = collider_signed_distance(colliders[static_cast<std::size_t>(secondary_owner)], x, y, z);
+            return primary_distance <= secondary_distance ? primary_owner : secondary_owner;
+        }
+        const auto fallback_owner = select_nearest_collider(colliders, x, y, z, false);
+        return fallback_owner;
     }
 
     void resize_host_atlas(ContextStorage& context) {
         context.host_atlas.cell_flags.resize(static_cast<std::size_t>(scalar_count(context.config)), cell_fluid);
+        context.host_atlas.cell_owner.resize(static_cast<std::size_t>(scalar_count(context.config)), -1);
         context.host_atlas.u_flags.resize(static_cast<std::size_t>(u_face_count(context.config)), face_open);
         context.host_atlas.v_flags.resize(static_cast<std::size_t>(v_face_count(context.config)), face_open);
         context.host_atlas.w_flags.resize(static_cast<std::size_t>(w_face_count(context.config)), face_open);
@@ -216,6 +257,7 @@ namespace stable_fluids {
 
         resize_host_atlas(context);
         std::fill(context.host_atlas.cell_flags.begin(), context.host_atlas.cell_flags.end(), cell_fluid);
+        std::fill(context.host_atlas.cell_owner.begin(), context.host_atlas.cell_owner.end(), -1);
         std::fill(context.host_atlas.u_flags.begin(), context.host_atlas.u_flags.end(), face_open);
         std::fill(context.host_atlas.v_flags.begin(), context.host_atlas.v_flags.end(), face_open);
         std::fill(context.host_atlas.w_flags.begin(), context.host_atlas.w_flags.end(), face_open);
@@ -229,11 +271,11 @@ namespace stable_fluids {
                     const float px = (static_cast<float>(x) + 0.5f) * h;
                     const float py = (static_cast<float>(y) + 0.5f) * h;
                     const float pz = (static_cast<float>(z) + 0.5f) * h;
-                    for (const auto& collider : context.colliders) {
-                        if (!point_inside_collider(collider, px, py, pz)) continue;
-                        context.host_atlas.cell_flags[static_cast<std::size_t>(index_3d(x, y, z, nx, ny))] = cell_solid;
-                        break;
-                    }
+                    const auto cell_index = static_cast<std::size_t>(index_3d(x, y, z, nx, ny));
+                    const int owner = select_collider_owner(context.colliders, px, py, pz);
+                    if (owner < 0) continue;
+                    context.host_atlas.cell_flags[cell_index] = cell_solid;
+                    context.host_atlas.cell_owner[cell_index] = owner;
                 }
             }
         }
@@ -303,23 +345,56 @@ namespace stable_fluids {
         apply_no_slip_tangent_faces(context.config.domain_boundary.z_min, Axis::z, false);
         apply_no_slip_tangent_faces(context.config.domain_boundary.z_max, Axis::z, true);
 
-        auto is_solid = [&](const int x, const int y, const int z) {
-            if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return false;
-            return context.host_atlas.cell_flags[static_cast<std::size_t>(index_3d(x, y, z, nx, ny))] == cell_solid;
+        auto cell_owner = [&](const int x, const int y, const int z) {
+            if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return -1;
+            return context.host_atlas.cell_owner[static_cast<std::size_t>(index_3d(x, y, z, nx, ny))];
+        };
+        auto set_interface_face = [&](std::vector<uint8_t>& flags, std::vector<float>& values, const int face_index_x, const int face_index_y, const int face_index_z, const int sx, const int sy, const float px, const float py, const float pz, const Axis axis, const int owner_a, const int owner_b) {
+            const auto face_index = static_cast<std::size_t>(index_3d(face_index_x, face_index_y, face_index_z, sx, sy));
+            if (flags[face_index] != face_open) return;
+            const int owner = select_face_collider(context.colliders, owner_a, owner_b, px, py, pz);
+            if (owner < 0) return;
+            flags[face_index] = face_fixed;
+            values[face_index] = collider_axis_velocity(context.colliders[static_cast<std::size_t>(owner)], axis);
+        };
+        auto set_no_slip_touch_face = [&](std::vector<uint8_t>& flags, std::vector<float>& values, const int face_index_x, const int face_index_y, const int face_index_z, const int sx, const int sy, const float px, const float py, const float pz, const Axis axis, const int owner) {
+            if (owner < 0) return;
+            const auto face_index = static_cast<std::size_t>(index_3d(face_index_x, face_index_y, face_index_z, sx, sy));
+            if (flags[face_index] != face_open) return;
+            if (context.colliders[static_cast<std::size_t>(owner)].velocity_boundary_type != STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP) return;
+            flags[face_index] = face_fixed;
+            values[face_index] = collider_axis_velocity(context.colliders[static_cast<std::size_t>(owner)], axis);
+        };
+        auto pick_touch_owner = [&](const float px, const float py, const float pz, const int x_begin, const int x_end, const int y_begin, const int y_end, const int z_begin, const int z_end) {
+            float best_distance = 1.0e30f;
+            int best_owner      = -1;
+            for (int cell_z = z_begin; cell_z <= z_end; ++cell_z) {
+                for (int cell_y = y_begin; cell_y <= y_end; ++cell_y) {
+                    for (int cell_x = x_begin; cell_x <= x_end; ++cell_x) {
+                        const int owner = cell_owner(cell_x, cell_y, cell_z);
+                        if (owner < 0) continue;
+                        const auto& collider = context.colliders[static_cast<std::size_t>(owner)];
+                        if (collider.velocity_boundary_type != STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP) continue;
+                        const float distance = collider_signed_distance(collider, px, py, pz);
+                        if (distance >= best_distance) continue;
+                        best_distance = distance;
+                        best_owner = owner;
+                    }
+                }
+            }
+            return best_owner;
         };
 
         for (int z = 0; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
                 for (int x = 1; x < nx; ++x) {
-                    if (!is_solid(x - 1, y, z) && !is_solid(x, y, z)) continue;
+                    const int left_owner = cell_owner(x - 1, y, z);
+                    const int right_owner = cell_owner(x, y, z);
+                    if (left_owner < 0 && right_owner < 0) continue;
                     const float px = static_cast<float>(x) * h;
                     const float py = (static_cast<float>(y) + 0.5f) * h;
                     const float pz = (static_cast<float>(z) + 0.5f) * h;
-                    const auto index = static_cast<std::size_t>(index_3d(x, y, z, nx + 1, ny));
-                    if (context.host_atlas.u_flags[index] == face_open) {
-                        context.host_atlas.u_flags[index]  = face_fixed;
-                        context.host_atlas.u_target[index] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::x);
-                    }
+                    set_interface_face(context.host_atlas.u_flags, context.host_atlas.u_target, x, y, z, nx + 1, ny, px, py, pz, Axis::x, left_owner, right_owner);
                 }
             }
         }
@@ -327,15 +402,13 @@ namespace stable_fluids {
         for (int z = 0; z < nz; ++z) {
             for (int y = 1; y < ny; ++y) {
                 for (int x = 0; x < nx; ++x) {
-                    if (!is_solid(x, y - 1, z) && !is_solid(x, y, z)) continue;
+                    const int below_owner = cell_owner(x, y - 1, z);
+                    const int above_owner = cell_owner(x, y, z);
+                    if (below_owner < 0 && above_owner < 0) continue;
                     const float px = (static_cast<float>(x) + 0.5f) * h;
                     const float py = static_cast<float>(y) * h;
                     const float pz = (static_cast<float>(z) + 0.5f) * h;
-                    const auto index = static_cast<std::size_t>(index_3d(x, y, z, nx, ny + 1));
-                    if (context.host_atlas.v_flags[index] == face_open) {
-                        context.host_atlas.v_flags[index]  = face_fixed;
-                        context.host_atlas.v_target[index] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::y);
-                    }
+                    set_interface_face(context.host_atlas.v_flags, context.host_atlas.v_target, x, y, z, nx, ny + 1, px, py, pz, Axis::y, below_owner, above_owner);
                 }
             }
         }
@@ -343,15 +416,49 @@ namespace stable_fluids {
         for (int z = 1; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
                 for (int x = 0; x < nx; ++x) {
-                    if (!is_solid(x, y, z - 1) && !is_solid(x, y, z)) continue;
+                    const int back_owner = cell_owner(x, y, z - 1);
+                    const int front_owner = cell_owner(x, y, z);
+                    if (back_owner < 0 && front_owner < 0) continue;
                     const float px = (static_cast<float>(x) + 0.5f) * h;
                     const float py = (static_cast<float>(y) + 0.5f) * h;
                     const float pz = static_cast<float>(z) * h;
-                    const auto index = static_cast<std::size_t>(index_3d(x, y, z, nx, ny));
-                    if (context.host_atlas.w_flags[index] == face_open) {
-                        context.host_atlas.w_flags[index]  = face_fixed;
-                        context.host_atlas.w_target[index] = sample_collider_velocity_axis(context.colliders, px, py, pz, Axis::z);
-                    }
+                    set_interface_face(context.host_atlas.w_flags, context.host_atlas.w_target, x, y, z, nx, ny, px, py, pz, Axis::z, back_owner, front_owner);
+                }
+            }
+        }
+
+        for (int z = 0; z < nz; ++z) {
+            for (int y = 0; y < ny; ++y) {
+                for (int x = 0; x <= nx; ++x) {
+                    const float px = static_cast<float>(x) * h;
+                    const float py = (static_cast<float>(y) + 0.5f) * h;
+                    const float pz = (static_cast<float>(z) + 0.5f) * h;
+                    const int owner = pick_touch_owner(px, py, pz, x - 1, x, y - 1, y, z - 1, z);
+                    set_no_slip_touch_face(context.host_atlas.u_flags, context.host_atlas.u_target, x, y, z, nx + 1, ny, px, py, pz, Axis::x, owner);
+                }
+            }
+        }
+
+        for (int z = 0; z < nz; ++z) {
+            for (int y = 0; y <= ny; ++y) {
+                for (int x = 0; x < nx; ++x) {
+                    const float px = (static_cast<float>(x) + 0.5f) * h;
+                    const float py = static_cast<float>(y) * h;
+                    const float pz = (static_cast<float>(z) + 0.5f) * h;
+                    const int owner = pick_touch_owner(px, py, pz, x - 1, x, y - 1, y, z - 1, z);
+                    set_no_slip_touch_face(context.host_atlas.v_flags, context.host_atlas.v_target, x, y, z, nx, ny + 1, px, py, pz, Axis::y, owner);
+                }
+            }
+        }
+
+        for (int z = 0; z <= nz; ++z) {
+            for (int y = 0; y < ny; ++y) {
+                for (int x = 0; x < nx; ++x) {
+                    const float px = (static_cast<float>(x) + 0.5f) * h;
+                    const float py = (static_cast<float>(y) + 0.5f) * h;
+                    const float pz = static_cast<float>(z) * h;
+                    const int owner = pick_touch_owner(px, py, pz, x - 1, x, y - 1, y, z - 1, z);
+                    set_no_slip_touch_face(context.host_atlas.w_flags, context.host_atlas.w_target, x, y, z, nx, ny, px, py, pz, Axis::z, owner);
                 }
             }
         }
@@ -432,6 +539,10 @@ namespace stable_fluids {
         return cell_flags[index_3d(ix, iy, iz, nx, ny)] == cell_solid;
     }
 
+    __device__ bool point_inside_domain(const float3 point, const int nx, const int ny, const int nz, const float h) {
+        return point.x >= 0.0f && point.x <= static_cast<float>(nx) * h && point.y >= 0.0f && point.y <= static_cast<float>(ny) * h && point.z >= 0.0f && point.z <= static_cast<float>(nz) * h;
+    }
+
     __device__ float3 clip_backtrace_to_fluid(const uint8_t* cell_flags, const float3 origin, const float3 target, const int nx, const int ny, const int nz, const float h) {
         float3 lo = origin;
         float3 hi = target;
@@ -447,6 +558,52 @@ namespace stable_fluids {
     __device__ int wrap_index(const int value, const int size) {
         const int mod = value % size;
         return mod < 0 ? mod + size : mod;
+    }
+
+    struct ScalarAxisSample {
+        int i0;
+        int i1;
+        float t;
+    };
+
+    __device__ ScalarAxisSample resolve_scalar_axis(const float g, const int size, const uint32_t extension_mode) {
+        if (size <= 1) return { .i0 = 0, .i1 = 0, .t = 0.0f, };
+        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
+            const int i0 = static_cast<int>(floorf(g));
+            const int i1 = i0 + 1;
+            return {
+                .i0 = wrap_index(i0, size),
+                .i1 = wrap_index(i1, size),
+                .t = g - static_cast<float>(i0),
+            };
+        }
+        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
+            const float clamped = fminf(fmaxf(g, 0.0f), static_cast<float>(size - 1));
+            const int i0 = static_cast<int>(floorf(clamped));
+            const int i1 = min(i0 + 1, size - 1);
+            return {
+                .i0 = i0,
+                .i1 = i1,
+                .t = clamped - static_cast<float>(i0),
+            };
+        }
+        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
+            if (g <= 0.0f) return { .i0 = 0, .i1 = 1, .t = g, };
+            if (g >= static_cast<float>(size - 1)) return { .i0 = size - 2, .i1 = size - 1, .t = g - static_cast<float>(size - 2), };
+            const int i0 = static_cast<int>(floorf(g));
+            return {
+                .i0 = i0,
+                .i1 = i0 + 1,
+                .t = g - static_cast<float>(i0),
+            };
+        }
+        const int i0 = static_cast<int>(floorf(g));
+        const int i1 = i0 + 1;
+        return {
+            .i0 = i0,
+            .i1 = i1,
+            .t = g - static_cast<float>(i0),
+        };
     }
 
     __device__ float load_scalar_sample(const float* field, const uint8_t* cell_flags, int ix, int iy, int iz, const int nx, const int ny, const int nz, const uint32_t extension_mode, const float constant_value) {
@@ -468,30 +625,24 @@ namespace stable_fluids {
         const float gx = x / h - 0.5f;
         const float gy = y / h - 0.5f;
         const float gz = z / h - 0.5f;
-        const int x0 = static_cast<int>(floorf(gx));
-        const int y0 = static_cast<int>(floorf(gy));
-        const int z0 = static_cast<int>(floorf(gz));
-        const int x1 = x0 + 1;
-        const int y1 = y0 + 1;
-        const int z1 = z0 + 1;
-        const float tx = gx - static_cast<float>(x0);
-        const float ty = gy - static_cast<float>(y0);
-        const float tz = gz - static_cast<float>(z0);
-        const float c000 = load_scalar_sample(field, cell_flags, x0, y0, z0, nx, ny, nz, extension_mode, constant_value);
-        const float c100 = load_scalar_sample(field, cell_flags, x1, y0, z0, nx, ny, nz, extension_mode, constant_value);
-        const float c010 = load_scalar_sample(field, cell_flags, x0, y1, z0, nx, ny, nz, extension_mode, constant_value);
-        const float c110 = load_scalar_sample(field, cell_flags, x1, y1, z0, nx, ny, nz, extension_mode, constant_value);
-        const float c001 = load_scalar_sample(field, cell_flags, x0, y0, z1, nx, ny, nz, extension_mode, constant_value);
-        const float c101 = load_scalar_sample(field, cell_flags, x1, y0, z1, nx, ny, nz, extension_mode, constant_value);
-        const float c011 = load_scalar_sample(field, cell_flags, x0, y1, z1, nx, ny, nz, extension_mode, constant_value);
-        const float c111 = load_scalar_sample(field, cell_flags, x1, y1, z1, nx, ny, nz, extension_mode, constant_value);
-        const float c00 = c000 + (c100 - c000) * tx;
-        const float c10 = c010 + (c110 - c010) * tx;
-        const float c01 = c001 + (c101 - c001) * tx;
-        const float c11 = c011 + (c111 - c011) * tx;
-        const float c0 = c00 + (c10 - c00) * ty;
-        const float c1 = c01 + (c11 - c01) * ty;
-        return c0 + (c1 - c0) * tz;
+        const ScalarAxisSample xs = resolve_scalar_axis(gx, nx, extension_mode);
+        const ScalarAxisSample ys = resolve_scalar_axis(gy, ny, extension_mode);
+        const ScalarAxisSample zs = resolve_scalar_axis(gz, nz, extension_mode);
+        const float c000 = load_scalar_sample(field, cell_flags, xs.i0, ys.i0, zs.i0, nx, ny, nz, extension_mode, constant_value);
+        const float c100 = load_scalar_sample(field, cell_flags, xs.i1, ys.i0, zs.i0, nx, ny, nz, extension_mode, constant_value);
+        const float c010 = load_scalar_sample(field, cell_flags, xs.i0, ys.i1, zs.i0, nx, ny, nz, extension_mode, constant_value);
+        const float c110 = load_scalar_sample(field, cell_flags, xs.i1, ys.i1, zs.i0, nx, ny, nz, extension_mode, constant_value);
+        const float c001 = load_scalar_sample(field, cell_flags, xs.i0, ys.i0, zs.i1, nx, ny, nz, extension_mode, constant_value);
+        const float c101 = load_scalar_sample(field, cell_flags, xs.i1, ys.i0, zs.i1, nx, ny, nz, extension_mode, constant_value);
+        const float c011 = load_scalar_sample(field, cell_flags, xs.i0, ys.i1, zs.i1, nx, ny, nz, extension_mode, constant_value);
+        const float c111 = load_scalar_sample(field, cell_flags, xs.i1, ys.i1, zs.i1, nx, ny, nz, extension_mode, constant_value);
+        const float c00 = c000 + (c100 - c000) * xs.t;
+        const float c10 = c010 + (c110 - c010) * xs.t;
+        const float c01 = c001 + (c101 - c001) * xs.t;
+        const float c11 = c011 + (c111 - c011) * xs.t;
+        const float c0 = c00 + (c10 - c00) * ys.t;
+        const float c1 = c01 + (c11 - c01) * ys.t;
+        return c0 + (c1 - c0) * zs.t;
     }
 
     __device__ float load_u(const float* field, const uint8_t* flags, const float* target, const int x, const int y, const int z, const int nx, const int ny, const int nz) {
@@ -616,6 +767,24 @@ namespace stable_fluids {
         );
     }
 
+    __device__ float clamp_u_outflow(const float value, const int x, const int nx) {
+        if (x == 0) return fminf(value, 0.0f);
+        if (x == nx) return fmaxf(value, 0.0f);
+        return value;
+    }
+
+    __device__ float clamp_v_outflow(const float value, const int y, const int ny) {
+        if (y == 0) return fminf(value, 0.0f);
+        if (y == ny) return fmaxf(value, 0.0f);
+        return value;
+    }
+
+    __device__ float clamp_w_outflow(const float value, const int z, const int nz) {
+        if (z == 0) return fminf(value, 0.0f);
+        if (z == nz) return fmaxf(value, 0.0f);
+        return value;
+    }
+
     __global__ void clear_field_kernel(float* field, const int components, const float value_0, const float value_1, const float value_2, const float value_3, const int nx, const int ny, const int nz) {
         const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
         const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
@@ -645,14 +814,17 @@ namespace stable_fluids {
         if (x <= nx && y < ny && z < nz) {
             const auto index = index_3d(x, y, z, nx + 1, ny);
             if (u_flags[index] == face_fixed) u[index] = u_target[index];
+            else if (u_flags[index] == face_outflow) u[index] = clamp_u_outflow(u[index], x, nx);
         }
         if (x < nx && y <= ny && z < nz) {
             const auto index = index_3d(x, y, z, nx, ny + 1);
             if (v_flags[index] == face_fixed) v[index] = v_target[index];
+            else if (v_flags[index] == face_outflow) v[index] = clamp_v_outflow(v[index], y, ny);
         }
         if (x < nx && y < ny && z <= nz) {
             const auto index = index_3d(x, y, z, nx, ny);
             if (w_flags[index] == face_fixed) w[index] = w_target[index];
+            else if (w_flags[index] == face_outflow) w[index] = clamp_w_outflow(w[index], z, nz);
         }
     }
 
@@ -831,8 +1003,12 @@ namespace stable_fluids {
         }
         const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
         const float3 vel = sample_velocity_field(u, v, w, u_flags, v_flags, w_flags, u_target, v_target, w_target, pos, nx, ny, nz, h);
-        float3 back = make_float3(clamp_world(pos.x - dt * vel.x, static_cast<float>(nx) * h), clamp_world(pos.y - dt * vel.y, static_cast<float>(ny) * h), clamp_world(pos.z - dt * vel.z, static_cast<float>(nz) * h));
-        back = clip_backtrace_to_fluid(cell_flags, pos, back, nx, ny, nz, h);
+        const float3 raw_back = make_float3(pos.x - dt * vel.x, pos.y - dt * vel.y, pos.z - dt * vel.z);
+        float3 back = raw_back;
+        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT || extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
+            back = make_float3(clamp_world(back.x, static_cast<float>(nx) * h), clamp_world(back.y, static_cast<float>(ny) * h), clamp_world(back.z, static_cast<float>(nz) * h));
+        }
+        if (point_inside_domain(back, nx, ny, nz, h)) back = clip_backtrace_to_fluid(cell_flags, pos, back, nx, ny, nz, h);
         dst[index] = sample_scalar_field(src, cell_flags, back.x, back.y, back.z, nx, ny, nz, h, extension_mode, constant_value);
     }
 
@@ -919,26 +1095,38 @@ namespace stable_fluids {
         if (u_flags[index_3d(x, y, z, nx + 1, ny)] == face_open) {
             ++diag;
             if (x > 0 && cell_flags[index_3d(x - 1, y, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x - 1, y, z, nx, ny)];
+        } else if (u_flags[index_3d(x, y, z, nx + 1, ny)] == face_outflow) {
+            ++diag;
         }
         if (u_flags[index_3d(x + 1, y, z, nx + 1, ny)] == face_open) {
             ++diag;
             if (x + 1 < nx && cell_flags[index_3d(x + 1, y, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x + 1, y, z, nx, ny)];
+        } else if (u_flags[index_3d(x + 1, y, z, nx + 1, ny)] == face_outflow) {
+            ++diag;
         }
         if (v_flags[index_3d(x, y, z, nx, ny + 1)] == face_open) {
             ++diag;
             if (y > 0 && cell_flags[index_3d(x, y - 1, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y - 1, z, nx, ny)];
+        } else if (v_flags[index_3d(x, y, z, nx, ny + 1)] == face_outflow) {
+            ++diag;
         }
         if (v_flags[index_3d(x, y + 1, z, nx, ny + 1)] == face_open) {
             ++diag;
             if (y + 1 < ny && cell_flags[index_3d(x, y + 1, z, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y + 1, z, nx, ny)];
+        } else if (v_flags[index_3d(x, y + 1, z, nx, ny + 1)] == face_outflow) {
+            ++diag;
         }
         if (w_flags[index_3d(x, y, z, nx, ny)] == face_open) {
             ++diag;
             if (z > 0 && cell_flags[index_3d(x, y, z - 1, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y, z - 1, nx, ny)];
+        } else if (w_flags[index_3d(x, y, z, nx, ny)] == face_outflow) {
+            ++diag;
         }
         if (w_flags[index_3d(x, y, z + 1, nx, ny)] == face_open) {
             ++diag;
             if (z + 1 < nz && cell_flags[index_3d(x, y, z + 1, nx, ny)] != cell_solid) sum += pressure[index_3d(x, y, z + 1, nx, ny)];
+        } else if (w_flags[index_3d(x, y, z + 1, nx, ny)] == face_outflow) {
+            ++diag;
         }
 
         pressure[index] = diag > 0 ? (sum - divergence[index] * h2) / static_cast<float>(diag) : 0.0f;
@@ -952,18 +1140,30 @@ namespace stable_fluids {
         if (x <= nx && y < ny && z < nz) {
             const auto face_index = index_3d(x, y, z, nx + 1, ny);
             if (u_flags[face_index] == face_fixed) u[face_index] = u_target[face_index];
+            else if (u_flags[face_index] == face_outflow) {
+                if (x == 0 && cell_flags[index_3d(0, y, z, nx, ny)] != cell_solid) u[face_index] -= pressure[index_3d(0, y, z, nx, ny)] * inv_h;
+                else if (x == nx && cell_flags[index_3d(nx - 1, y, z, nx, ny)] != cell_solid) u[face_index] += pressure[index_3d(nx - 1, y, z, nx, ny)] * inv_h;
+            }
             else if (u_flags[face_index] == face_open && x > 0 && x < nx && cell_flags[index_3d(x - 1, y, z, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) u[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x - 1, y, z, nx, ny)]) * inv_h;
         }
 
         if (x < nx && y <= ny && z < nz) {
             const auto face_index = index_3d(x, y, z, nx, ny + 1);
             if (v_flags[face_index] == face_fixed) v[face_index] = v_target[face_index];
+            else if (v_flags[face_index] == face_outflow) {
+                if (y == 0 && cell_flags[index_3d(x, 0, z, nx, ny)] != cell_solid) v[face_index] -= pressure[index_3d(x, 0, z, nx, ny)] * inv_h;
+                else if (y == ny && cell_flags[index_3d(x, ny - 1, z, nx, ny)] != cell_solid) v[face_index] += pressure[index_3d(x, ny - 1, z, nx, ny)] * inv_h;
+            }
             else if (v_flags[face_index] == face_open && y > 0 && y < ny && cell_flags[index_3d(x, y - 1, z, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) v[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y - 1, z, nx, ny)]) * inv_h;
         }
 
         if (x < nx && y < ny && z <= nz) {
             const auto face_index = index_3d(x, y, z, nx, ny);
             if (w_flags[face_index] == face_fixed) w[face_index] = w_target[face_index];
+            else if (w_flags[face_index] == face_outflow) {
+                if (z == 0 && cell_flags[index_3d(x, y, 0, nx, ny)] != cell_solid) w[face_index] -= pressure[index_3d(x, y, 0, nx, ny)] * inv_h;
+                else if (z == nz && cell_flags[index_3d(x, y, nz - 1, nx, ny)] != cell_solid) w[face_index] += pressure[index_3d(x, y, nz - 1, nx, ny)] * inv_h;
+            }
             else if (w_flags[face_index] == face_open && z > 0 && z < nz && cell_flags[index_3d(x, y, z - 1, nx, ny)] != cell_solid && cell_flags[index_3d(x, y, z, nx, ny)] != cell_solid) w[face_index] -= (pressure[index_3d(x, y, z, nx, ny)] - pressure[index_3d(x, y, z - 1, nx, ny)]) * inv_h;
         }
     }
@@ -1078,6 +1278,9 @@ namespace {
         );
         const dim3 cells = stable_fluids::make_grid(context.config.nx, context.config.ny, context.config.nz, block);
         const dim3 faces = stable_fluids::make_grid(context.config.nx + 1, context.config.ny + 1, context.config.nz + 1, block);
+        if (cudaMemsetAsync(context.device.pressure, 0, stable_fluids::scalar_count(context.config) * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
+        if (cudaMemsetAsync(context.device.divergence, 0, stable_fluids::scalar_count(context.config) * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
+        if (cudaMemsetAsync(context.device.projection_metrics, 0, sizeof(stable_fluids::ProjectionMetricsState), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
         stable_fluids::clear_velocity_fields_kernel<<<faces, block, 0, context.stream>>>(context.device.velocity_x, context.device.velocity_y, context.device.velocity_z, context.config.nx, context.config.ny, context.config.nz);
         if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
         if (const StableFluidsResult code = rebuild_atlas_if_needed(context); code != stable_fluids::success) return code;
