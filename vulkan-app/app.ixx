@@ -1,5 +1,7 @@
 module;
 
+#include "stable-fluids-3d.h"
+
 #include <GLFW/glfw3.h>
 
 #include <vulkan/vulkan_raii.hpp>
@@ -144,6 +146,128 @@ export namespace app {
         float velocity_thickness        = 1.6f;
     };
 
+    enum class ScenePreset : uint32_t {
+        DualJetCollider = 0,
+        SmokePlume      = 1,
+        Custom          = 2,
+    };
+
+    enum class ColliderType : uint32_t {
+        Sphere = 0,
+        Box    = 1,
+    };
+
+    struct SolverStats {
+        double last_step_call_ms              = 0.0;
+        double average_step_call_ms           = 0.0;
+        uint64_t step_count                   = 0;
+        float projection_max_abs_divergence   = 0.0f;
+        float projection_rms_divergence       = 0.0f;
+    };
+
+    struct CaptureStats {
+        double last_snapshot_ms    = 0.0;
+        double average_snapshot_ms = 0.0;
+        uint64_t snapshot_count    = 0;
+    };
+
+    struct ColliderSettings {
+        bool enabled               = false;
+        ColliderType type          = ColliderType::Sphere;
+        float center_x             = 0.50f;
+        float center_y             = 0.50f;
+        float center_z             = 0.50f;
+        float radius               = 0.20f;
+        float half_extent_x        = 0.10f;
+        float half_extent_y        = 0.08f;
+        float half_extent_z        = 0.10f;
+        float velocity_x           = 0.0f;
+        float velocity_y           = 0.0f;
+        float velocity_z           = 0.0f;
+        uint32_t boundary          = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP);
+    };
+
+    struct SourceEmitterSettings {
+        bool enabled               = false;
+        float center_x             = 0.50f;
+        float center_y             = 0.10f;
+        float center_z             = 0.50f;
+        float direction_x          = 0.0f;
+        float direction_y          = 1.0f;
+        float direction_z          = 0.0f;
+        float speed                = 0.0f;
+        float radius               = 0.03f;
+        float density_amount       = 0.0f;
+        float dye_amount           = 0.0f;
+        float color_r              = 1.00f;
+        float color_g              = 1.00f;
+        float color_b              = 1.00f;
+    };
+
+    struct PlaybackSettings {
+        bool paused                = false;
+        bool step_once             = false;
+        int sim_steps_per_frame    = 1;
+        int snapshot_interval      = 2;
+    };
+
+    struct AppState {
+        struct {
+            ScenePreset preset      = ScenePreset::DualJetCollider;
+            int selected_field      = 0;
+            bool emit_source        = true;
+
+            struct {
+                StableFluidsSimulationConfig backend{
+                    .nx = 100,
+                    .ny = 100,
+                    .nz = 100,
+                    .cell_size = 0.01f,
+                    .dt = 1.0f / 120.0f,
+                    .viscosity = 0.0f,
+                    .diffuse_iterations = 24,
+                    .pressure_iterations = 96,
+                    .uniform_force_x = 0.0f,
+                    .uniform_force_y = 0.0f,
+                    .uniform_force_z = 0.0f,
+                    .domain_boundary = {
+                        .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+                        .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+                        .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP), .velocity = 0.0f, },
+                        .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+                        .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+                        .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
+                    },
+                    .block_x = 8,
+                    .block_y = 8,
+                    .block_z = 4,
+                };
+                float density_diffusion = 0.00005f;
+                float dye_diffusion     = 0.00003f;
+                float gravity_y         = -9.81f;
+                float buoyancy_beta     = 0.10f;
+                float ambient_density   = 0.0f;
+            } solver{};
+
+            struct {
+                SourceEmitterSettings a{};
+                SourceEmitterSettings b{};
+            } emitters{};
+
+            struct {
+                ColliderSettings collider{};
+            } scene{};
+
+            SolverStats stats{};
+        } physics{};
+
+        struct {
+            VisualizationSettings render{};
+            PlaybackSettings playback{};
+            CaptureStats capture{};
+        } ui{};
+    };
+
     class VisualizationApp {
     public:
         VisualizationApp();
@@ -156,12 +280,10 @@ export namespace app {
 
         [[nodiscard]] bool should_close() const;
         void begin_frame();
-        void draw_visualization_ui(const std::optional<VisualizationSnapshotView>& snapshot);
-        bool render_frame(const std::optional<VisualizationSnapshotView>& snapshot);
-        void frame_content(const VisualizationSnapshotView& snapshot);
+        void draw_visualization_ui(VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot);
+        bool render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot);
+        void frame_content(const VisualizationSettings& settings, const VisualizationSnapshotView& snapshot);
 
-        [[nodiscard]] VisualizationSettings& settings();
-        [[nodiscard]] const VisualizationSettings& settings() const;
         [[nodiscard]] const vk::context::VulkanContext& vk_context() const;
         [[nodiscard]] uint32_t frames_in_flight() const;
         [[nodiscard]] std::vector<vk::raii::DescriptorSet> allocate_field_descriptor_sets(uint32_t count);
@@ -194,10 +316,28 @@ export namespace app {
         vk::raii::ShaderModule volume_shader_module_{nullptr};
         vk::pipeline::GraphicsPipeline plane_pipeline_{};
         vk::pipeline::GraphicsPipeline volume_pipeline_{};
-        VisualizationSettings settings_{};
         float render_fps_                                      = 0.0f;
         uint32_t frame_index_                                  = 0;
         std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
+    };
+
+    class SmokeApp {
+    public:
+        SmokeApp();
+        ~SmokeApp();
+
+        SmokeApp(const SmokeApp&)                = delete;
+        SmokeApp& operator=(const SmokeApp&)     = delete;
+        SmokeApp(SmokeApp&&) noexcept            = delete;
+        SmokeApp& operator=(SmokeApp&&) noexcept = delete;
+
+        [[nodiscard]] AppState& state();
+        [[nodiscard]] const AppState& state() const;
+        int run();
+
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> impl_{};
     };
 
 } // namespace app
