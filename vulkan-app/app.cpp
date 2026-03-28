@@ -33,10 +33,9 @@ namespace app {
 
         constexpr std::array field_catalog_storage{
             FieldInfo{
-                .id          = FieldId::Density,
                 .label       = "Density",
-                .semantic    = FieldSemantic::Density,
                 .export_kind = STABLE_FLUIDS_EXPORT_FIELD,
+                .export_density_field = true,
                 .preset =
                     {
                         .density_scale  = 1.35f,
@@ -52,9 +51,7 @@ namespace app {
                     },
             },
             FieldInfo{
-                .id          = FieldId::VelocityMagnitude,
                 .label       = "Velocity Magnitude",
-                .semantic    = FieldSemantic::VelocityMagnitude,
                 .export_kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
                 .preset =
                     {
@@ -71,9 +68,7 @@ namespace app {
                     },
             },
             FieldInfo{
-                .id          = FieldId::Pressure,
                 .label       = "Pressure",
-                .semantic    = FieldSemantic::Pressure,
                 .export_kind = STABLE_FLUIDS_EXPORT_PRESSURE,
                 .preset =
                     {
@@ -90,9 +85,7 @@ namespace app {
                     },
             },
             FieldInfo{
-                .id          = FieldId::Divergence,
                 .label       = "Divergence",
-                .semantic    = FieldSemantic::Divergence,
                 .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
                 .preset =
                     {
@@ -210,10 +203,6 @@ namespace app {
         const auto now         = std::chrono::steady_clock::now();
         const float dt_seconds = std::chrono::duration<float>(now - last_frame_time_).count();
         last_frame_time_       = now;
-        if (dt_seconds > 0.0f) {
-            const float instantaneous_fps = 1.0f / dt_seconds;
-            render_fps_                   = render_fps_ > 0.0f ? std::lerp(render_fps_, instantaneous_fps, 0.1f) : instantaneous_fps;
-        }
 
         if (sctx_.resize_requested) recreate_swapchain();
 
@@ -324,21 +313,9 @@ namespace app {
         ImGui::Text("Field: %.*s", static_cast<int>(field.label.size()), field.label.data());
         ImGui::Text("Steps: %llu", static_cast<unsigned long long>(data.physics.stats.step_count));
         ImGui::Text("Step Call: %.3f ms", data.physics.stats.last_step_call_ms);
-        ImGui::Text("Max |div|: %.6g", data.physics.stats.projection_max_abs_divergence);
-        ImGui::Text("RMS div: %.6g", data.physics.stats.projection_rms_divergence);
-        if (snapshot) ImGui::Text("Generation: %llu", static_cast<unsigned long long>(snapshot->field.ready_generation));
         ImGui::End();
 
         if (reframe_requested && snapshot) frame_content(settings, *snapshot);
-
-        if (const ImGuiViewport* viewport = ImGui::GetMainViewport()) {
-            ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + 12.0f, viewport->Pos.y + 12.0f), ImGuiCond_Always);
-            ImGui::SetNextWindowBgAlpha(0.35f);
-            ImGuiWindowFlags overlay_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
-            ImGui::Begin("Render Stats Overlay", nullptr, overlay_flags);
-            ImGui::Text("Render: %.1f FPS", render_fps_);
-            ImGui::End();
-        }
     }
 
     bool VisualizationApp::render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot) {
@@ -427,10 +404,10 @@ namespace app {
                 static_cast<uint32_t>(settings.march_steps),
             };
             push.params2 = {
-                1u,
-                snapshot->field.component_count,
-                static_cast<uint32_t>(settings.plane_axis),
                 static_cast<uint32_t>(camera_config.projection),
+                static_cast<uint32_t>(settings.plane_axis),
+                0u,
+                0u,
             };
             push.params3 = {
                 settings.scalar_min,
@@ -779,12 +756,8 @@ namespace app {
             const auto elapsed_ms                = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
             data.physics.stats.last_step_call_ms = elapsed_ms;
             ++data.physics.stats.step_count;
-            data.physics.stats.average_step_call_ms += (elapsed_ms - data.physics.stats.average_step_call_ms) / static_cast<double>(data.physics.stats.step_count);
             ++data.physics.animation_step;
         }
-
-        data.physics.stats.projection_max_abs_divergence = 0.0f;
-        data.physics.stats.projection_rms_divergence     = 0.0f;
     }
 
     bool sync_capture_storage(AppData& data, VisualizationApp& renderer) {
@@ -979,10 +952,9 @@ namespace app {
         const auto& field            = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
         const StableFluidsExportDesc export_desc{
             .kind  = field.export_kind,
-            .field = field.id == FieldId::Density ? data.physics.density_field : 0u,
+            .field = field.export_density_field ? data.physics.density_field : 0u,
         };
 
-        const auto begin = std::chrono::steady_clock::now();
         check_stable(stable_fluids_export_cuda(data.physics.context, &export_desc, slot.field_cuda_ptr), "stable_fluids_export_cuda");
         cudaExternalSemaphoreSignalParams signal_params{};
         signal_params.params.fence.value = data.capture.generation + 1;
@@ -991,14 +963,8 @@ namespace app {
 
         slot.ready_generation               = data.capture.generation + 1;
         slot.grid                           = data.capture.request_grid;
-        slot.field_component_count          = 1;
-        slot.semantic                       = field.semantic;
-        slot.label                          = field.label;
         data.capture.generation             = slot.ready_generation;
         data.capture.active_slot            = slot_index;
-        data.capture.stats.last_snapshot_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
-        ++data.capture.stats.snapshot_count;
-        data.capture.stats.average_snapshot_ms += (data.capture.stats.last_snapshot_ms - data.capture.stats.average_snapshot_ms) / static_cast<double>(data.capture.stats.snapshot_count);
         return true;
     }
 
@@ -1012,9 +978,6 @@ namespace app {
                     .descriptor_set     = *slot.descriptor_set,
                     .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
                     .ready_generation   = slot.ready_generation,
-                    .component_count    = slot.field_component_count,
-                    .semantic           = slot.semantic,
-                    .label              = slot.label,
                 },
         };
     }

@@ -19,13 +19,6 @@ import vk.swapchain;
 
 export namespace app {
 
-    enum class FieldSemantic : uint32_t {
-        Density           = 0,
-        VelocityMagnitude = 1,
-        Pressure          = 2,
-        Divergence        = 3,
-    };
-
     enum class ViewMode : uint32_t {
         Plane  = 0,
         Volume = 1,
@@ -71,9 +64,6 @@ export namespace app {
         vk::DescriptorSet descriptor_set{nullptr};
         vk::Semaphore timeline_semaphore{nullptr};
         uint64_t ready_generation = 0;
-        uint32_t component_count  = 1;
-        FieldSemantic semantic    = FieldSemantic::Density;
-        std::string_view label{};
     };
 
     struct VisualizationSnapshotView {
@@ -113,13 +103,6 @@ export namespace app {
         float scalar_high_b  = 0.84f;
     };
 
-    enum class FieldId : uint32_t {
-        Density           = 0,
-        VelocityMagnitude = 1,
-        Pressure          = 2,
-        Divergence        = 3,
-    };
-
     struct FieldVisualPreset {
         float density_scale  = 1.0f;
         float scalar_min     = 0.0f;
@@ -134,25 +117,15 @@ export namespace app {
     };
 
     struct FieldInfo {
-        FieldId id{};
         std::string_view label{};
-        FieldSemantic semantic = FieldSemantic::Density;
-        uint32_t export_kind   = STABLE_FLUIDS_EXPORT_FIELD;
+        uint32_t export_kind         = STABLE_FLUIDS_EXPORT_FIELD;
+        bool export_density_field    = false;
         FieldVisualPreset preset{};
     };
 
     struct SolverStats {
-        double last_step_call_ms            = 0.0;
-        double average_step_call_ms         = 0.0;
-        uint64_t step_count                 = 0;
-        float projection_max_abs_divergence = 0.0f;
-        float projection_rms_divergence     = 0.0f;
-    };
-
-    struct CaptureStats {
-        double last_snapshot_ms    = 0.0;
-        double average_snapshot_ms = 0.0;
-        uint64_t snapshot_count    = 0;
+        double last_step_call_ms = 0.0;
+        uint64_t step_count      = 0;
     };
 
     struct PlaybackSettings {
@@ -200,9 +173,6 @@ export namespace app {
         uint64_t ready_generation                  = 0;
         uint64_t last_used_submit_serial           = 0;
         GridShape grid{};
-        uint32_t field_component_count = 1;
-        FieldSemantic semantic         = FieldSemantic::Density;
-        std::string_view label{};
     };
 
     struct AppData {
@@ -226,7 +196,6 @@ export namespace app {
         } physics{};
 
         struct {
-            CaptureStats stats{};
             uint64_t field_bytes   = 0;
             uint64_t generation    = 0;
             uint64_t submit_serial = 0;
@@ -283,7 +252,6 @@ export namespace app {
         vk::raii::ShaderModule volume_shader_module_{nullptr};
         vk::pipeline::GraphicsPipeline plane_pipeline_{};
         vk::pipeline::GraphicsPipeline volume_pipeline_{};
-        float render_fps_                                      = 0.0f;
         uint32_t frame_index_                                  = 0;
         std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
     };
