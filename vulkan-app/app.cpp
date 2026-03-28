@@ -250,6 +250,7 @@ namespace app {
         }
 
         ImGui::Separator();
+        ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Grid: %u x %u x %u", scene.grid.nx, scene.grid.ny, scene.grid.nz);
         ImGui::Text("dt: %.5f  h: %.4f", scene.dt, scene.grid.cell_size);
         ImGui::Text("Field: %.*s", static_cast<int>(field.label.size()), field.label.data());
