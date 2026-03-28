@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 4.3.0)
 set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
 project(stable-fluids VERSION 1.0.0 LANGUAGES CXX CUDA)
 
-option(STABLE_FLUIDS_BUILD_SAMPLES "Build sample applications" ON)
-option(STABLE_FLUIDS_BUILD_VULKAN_APP "Build Vulkan sample application" ON)
+option(STABLE_FLUIDS_BUILD_BENCHMARK "Build benchmark applications" OFF)
+option(STABLE_FLUIDS_BUILD_VULKAN_APP "Build Vulkan sample application" OFF)
 
 # ============================================================================
 # C++ Configuration

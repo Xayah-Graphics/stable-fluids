@@ -96,8 +96,8 @@ export namespace app {
         bool show_velocity_plane         = false;
         int velocity_plane_seed_count    = 40;
         float velocity_plane_arrow_cells = 2.0f;
-        float velocity_plane_min_speed   = 0.01f;
-        float velocity_plane_thickness   = 1.4f;
+        float velocity_plane_min_speed   = 0.003f;
+        float velocity_plane_thickness   = 0.8f;
         float density_scale              = 1.35f;
         float scalar_min                 = 0.0f;
         float scalar_max                 = 3.5f;
