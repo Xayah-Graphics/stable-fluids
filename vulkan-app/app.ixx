@@ -1,6 +1,5 @@
 module;
 
-#include "stable-fluids-3d.h"
 #include <GLFW/glfw3.h>
 #include <cuda_runtime.h>
 
@@ -96,8 +95,8 @@ export namespace app {
         float slice_position             = 0.42f;
         bool show_velocity_plane         = false;
         int velocity_plane_seed_count    = 40;
-        float velocity_plane_arrow_cells = 0.6f;
-        float velocity_plane_min_speed   = 0.015f;
+        float velocity_plane_arrow_cells = 2.0f;
+        float velocity_plane_min_speed   = 0.01f;
         float velocity_plane_thickness   = 1.4f;
         float density_scale              = 1.35f;
         float scalar_min                 = 0.0f;
@@ -109,7 +108,6 @@ export namespace app {
         float scalar_high_r              = 0.94f;
         float scalar_high_g              = 0.90f;
         float scalar_high_b              = 0.84f;
-        bool shaded_volume               = false;
         float background_bottom_r        = 0.035f;
         float background_bottom_g        = 0.04f;
         float background_bottom_b        = 0.05f;
@@ -129,12 +127,12 @@ export namespace app {
         float scalar_high_r  = 0.95f;
         float scalar_high_g  = 0.86f;
         float scalar_high_b  = 0.72f;
-        bool shaded_volume   = false;
     };
 
     struct FieldInfo {
         std::string_view label{};
         FieldVisualPreset preset{};
+        std::string_view volume_shader = "field_volume";
     };
 
     struct SceneInfo {
@@ -190,7 +188,7 @@ export namespace app {
         [[nodiscard]] bool should_close() const;
         void begin_frame();
         void draw_visualization_ui(AppState& state, const SceneInfo& scene, std::span<const FieldInfo> fields, std::span<const std::string_view> scene_labels, bool& reset_requested, bool& field_changed, bool& scene_changed, const std::optional<VisualizationSnapshotView>& snapshot);
-        bool render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot);
+        bool render_frame(const VisualizationSettings& settings, const FieldInfo& field, const std::optional<VisualizationSnapshotView>& snapshot);
         void frame_content(const VisualizationSettings& settings, const VisualizationSnapshotView& snapshot);
 
         [[nodiscard]] const vk::context::VulkanContext& vk_context() const;
@@ -220,12 +218,23 @@ export namespace app {
         vk::camera::Camera camera_{};
         vk::raii::DescriptorSetLayout field_set_layout_{nullptr};
         vk::raii::DescriptorPool field_descriptor_pool_{nullptr};
+        std::filesystem::path shader_dir_{};
+        vk::raii::ShaderModule background_shader_module_{nullptr};
         vk::raii::ShaderModule plane_shader_module_{nullptr};
         vk::raii::ShaderModule volume_shader_module_{nullptr};
+        vk::pipeline::GraphicsPipeline background_pipeline_{};
         vk::pipeline::GraphicsPipeline plane_pipeline_{};
         vk::pipeline::GraphicsPipeline volume_pipeline_{};
+        struct VolumeShaderPipeline {
+            std::string stem{};
+            vk::raii::ShaderModule module{nullptr};
+            vk::pipeline::GraphicsPipeline pipeline{};
+        };
+        std::vector<VolumeShaderPipeline> extra_volume_pipelines_{};
         uint32_t frame_index_                                  = 0;
         std::chrono::steady_clock::time_point last_frame_time_{};  // default-initialized
+
+        [[nodiscard]] const vk::pipeline::GraphicsPipeline& select_volume_pipeline(std::string_view shader_stem);
     };
 
     template<typename TScene>
@@ -388,13 +397,5 @@ export namespace app {
     void mark_snapshot_submitted(AppData& data);
 
     int run_scene_switcher(std::span<SceneEntry> scenes);
-
-    template<SceneSample TScene>
-    int run_scene() {
-        auto scenes = std::array{
-            make_scene_entry<TScene>("Scene"),
-        };
-        return run_scene_switcher(scenes);
-    }
 
 } // namespace app

@@ -1,7 +1,5 @@
 module;
 
-#include "stable-fluids-3d.h"
-
 #if defined(_WIN32)
 #define NOMINMAX
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -51,7 +49,7 @@ namespace app {
 
         sc_        = swapchain::setup_swapchain(vkctx_, sctx_);
         frames_    = frame::create_frame_system(vkctx_, sc_, frames_in_flight_value_);
-        imgui_sys_ = imgui::create(vkctx_, window_, sc_.format, frames_in_flight_value_, static_cast<uint32_t>(sc_.images.size()));
+        imgui_sys_ = imgui::create(vkctx_, window_, sc_.format, frames_in_flight_value_, static_cast<uint32_t>(sc_.images.size()), true, false);
 
         camera::CameraConfig camera_config{};
         camera_config.orbit_rotate_sens = 0.005f;
@@ -83,17 +81,28 @@ namespace app {
         };
         field_descriptor_pool_ = raii::DescriptorPool{vkctx_.device, field_pool_ci};
 
-        const std::filesystem::path shader_dir = std::filesystem::path(SMOKE_SIM_SHADER_DIR);
-        const auto plane_shader_spv            = pipeline::read_file_bytes((shader_dir / "field_plane.spv").string());
-        const auto volume_shader_spv           = pipeline::read_file_bytes((shader_dir / "field_volume.spv").string());
-        plane_shader_module_                   = pipeline::load_shader_module(vkctx_.device, plane_shader_spv);
-        volume_shader_module_                  = pipeline::load_shader_module(vkctx_.device, volume_shader_spv);
+        shader_dir_ = std::filesystem::path(SMOKE_SIM_SHADER_DIR);
+        const auto background_shader_spv = pipeline::read_file_bytes((shader_dir_ / "background.spv").string());
+        const auto plane_shader_spv      = pipeline::read_file_bytes((shader_dir_ / "field_plane.spv").string());
+        const auto volume_shader_spv     = pipeline::read_file_bytes((shader_dir_ / "field_volume.spv").string());
+        background_shader_module_        = pipeline::load_shader_module(vkctx_.device, background_shader_spv);
+        plane_shader_module_             = pipeline::load_shader_module(vkctx_.device, plane_shader_spv);
+        volume_shader_module_            = pipeline::load_shader_module(vkctx_.device, volume_shader_spv);
 
         std::array<DescriptorSetLayout, 1> pipeline_set_layouts{*field_set_layout_};
-        pipeline::GraphicsPipelineDesc pipeline_desc{
+        pipeline::GraphicsPipelineDesc background_pipeline_desc{
             .color_format         = sc_.format,
             .use_depth            = false,
             .use_blend            = false,
+            .topology             = PrimitiveTopology::eTriangleList,
+            .cull                 = CullModeFlagBits::eNone,
+            .push_constant_bytes  = sizeof(FieldPushConstants),
+            .push_constant_stages = ShaderStageFlagBits::eVertex | ShaderStageFlagBits::eFragment,
+        };
+        pipeline::GraphicsPipelineDesc pipeline_desc{
+            .color_format         = sc_.format,
+            .use_depth            = false,
+            .use_blend            = true,
             .topology             = PrimitiveTopology::eTriangleList,
             .cull                 = CullModeFlagBits::eNone,
             .push_constant_bytes  = sizeof(FieldPushConstants),
@@ -102,6 +111,7 @@ namespace app {
         };
 
         pipeline::VertexInput empty_vertex_input{};
+        background_pipeline_ = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, background_pipeline_desc, background_shader_module_, "vs_main", "fs_main");
         plane_pipeline_  = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, plane_shader_module_, "vs_main", "fs_main");
         volume_pipeline_ = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, volume_shader_module_, "vs_main", "fs_main");
         last_frame_time_ = std::chrono::steady_clock::now();
@@ -114,6 +124,17 @@ namespace app {
         }
 
         if (imgui_sys_.initialized) vk::imgui::shutdown(imgui_sys_);
+        extra_volume_pipelines_.clear();
+        volume_pipeline_ = {};
+        plane_pipeline_ = {};
+        background_pipeline_ = {};
+        volume_shader_module_ = nullptr;
+        plane_shader_module_ = nullptr;
+        background_shader_module_ = nullptr;
+        field_descriptor_pool_ = nullptr;
+        field_set_layout_ = nullptr;
+        frames_ = {};
+        sc_ = {};
     }
 
     bool VisualizationApp::should_close() const {
@@ -254,7 +275,7 @@ namespace app {
         if (reframe_requested && snapshot) frame_content(settings, *snapshot);
     }
 
-    bool VisualizationApp::render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot) {
+    bool VisualizationApp::render_frame(const VisualizationSettings& settings, const FieldInfo& field, const std::optional<VisualizationSnapshotView>& snapshot) {
         nvtx3::scoped_range range{"viz.render_frame"};
         using namespace vk;
 
@@ -287,7 +308,7 @@ namespace app {
         frames_.swapchain_image_layout[image_index] = ImageLayout::eColorAttachmentOptimal;
 
         ClearValue clear_value{};
-        clear_value.color = ClearColorValue{std::array<float, 4>{settings.background_bottom_r, settings.background_bottom_g, settings.background_bottom_b, 1.0f}};
+        clear_value.color = ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
         RenderingAttachmentInfo color_attachment{
             .imageView   = *sc_.image_views[image_index],
             .imageLayout = ImageLayout::eColorAttachmentOptimal,
@@ -313,20 +334,44 @@ namespace app {
                            });
         cmd.setScissor(0, Rect2D{{0, 0}, sc_.extent});
 
+        const auto& matrices      = camera_.matrices();
+        const auto& camera_config = camera_.config();
+        const float aspect        = static_cast<float>(sc_.extent.width) / static_cast<float>((std::max) (sc_.extent.height, 1u));
+        const float half_fov_tan  = std::tan(camera_config.fov_y_rad * 0.5f);
+        FieldPushConstants push{};
+        push.eye        = {matrices.eye.x, matrices.eye.y, matrices.eye.z, 1.0f};
+        push.right      = {matrices.right.x, matrices.right.y, matrices.right.z, 0.0f};
+        push.up         = {matrices.up.x, matrices.up.y, matrices.up.z, 0.0f};
+        push.forward    = {matrices.forward.x, matrices.forward.y, matrices.forward.z, 0.0f};
+        push.background_bottom = {settings.background_bottom_r, settings.background_bottom_g, settings.background_bottom_b, 1.0f};
+        push.background_top    = {settings.background_top_r, settings.background_top_g, settings.background_top_b, 1.0f};
+        push.params0 = {
+            aspect,
+            half_fov_tan,
+            0.0f,
+            0.0f,
+        };
+        push.params2 = {
+            static_cast<uint32_t>(camera_config.projection),
+            static_cast<uint32_t>(settings.plane_axis),
+            0u,
+            0u,
+        };
+        push.params3 = {
+            0.0f,
+            0.0f,
+            settings.slice_position,
+            camera_config.ortho_height,
+        };
+
+        const ArrayProxy<const FieldPushConstants> push_block(1, &push);
+        cmd.bindPipeline(PipelineBindPoint::eGraphics, *background_pipeline_.pipeline);
+        cmd.pushConstants(*background_pipeline_.layout, ShaderStageFlagBits::eVertex | ShaderStageFlagBits::eFragment, 0, push_block);
+        cmd.draw(3, 1, 0, 0);
+
         if (snapshot) {
-            const auto& matrices      = camera_.matrices();
-            const auto& camera_config = camera_.config();
-            const float aspect        = static_cast<float>(sc_.extent.width) / static_cast<float>((std::max) (sc_.extent.height, 1u));
-            const float half_fov_tan  = std::tan(camera_config.fov_y_rad * 0.5f);
-            FieldPushConstants push{};
-            push.eye        = {matrices.eye.x, matrices.eye.y, matrices.eye.z, 1.0f};
-            push.right      = {matrices.right.x, matrices.right.y, matrices.right.z, 0.0f};
-            push.up         = {matrices.up.x, matrices.up.y, matrices.up.z, 0.0f};
-            push.forward    = {matrices.forward.x, matrices.forward.y, matrices.forward.z, 0.0f};
             push.volume_min = {0.0f, 0.0f, 0.0f, 0.0f};
             push.volume_max = {snapshot->grid.extent_x(), snapshot->grid.extent_y(), snapshot->grid.extent_z(), 0.0f};
-            push.background_bottom = {settings.background_bottom_r, settings.background_bottom_g, settings.background_bottom_b, 1.0f};
-            push.background_top    = {settings.background_top_r, settings.background_top_g, settings.background_top_b, 1.0f};
             push.color_a    = {settings.scalar_low_r, settings.scalar_low_g, settings.scalar_low_b, 1.0f};
             push.color_b    = {settings.scalar_high_r, settings.scalar_high_g, settings.scalar_high_b, 1.0f};
             push.params0    = {
@@ -344,7 +389,7 @@ namespace app {
             push.params2 = {
                 static_cast<uint32_t>(camera_config.projection),
                 static_cast<uint32_t>(settings.plane_axis),
-                settings.shaded_volume ? 1u : 0u,
+                0u,
                 0u,
             };
             push.params3 = {
@@ -354,10 +399,9 @@ namespace app {
                 camera_config.ortho_height,
             };
 
-            const auto& pipeline = settings.view_mode == ViewMode::Volume ? volume_pipeline_ : plane_pipeline_;
+            const auto& pipeline = settings.view_mode == ViewMode::Volume ? select_volume_pipeline(field.volume_shader) : plane_pipeline_;
             cmd.bindPipeline(PipelineBindPoint::eGraphics, *pipeline.pipeline);
             cmd.bindDescriptorSets(PipelineBindPoint::eGraphics, *pipeline.layout, 0, {snapshot->field.descriptor_set}, {});
-            const ArrayProxy<const FieldPushConstants> push_block(1, &push);
             cmd.pushConstants(*pipeline.layout, ShaderStageFlagBits::eVertex | ShaderStageFlagBits::eFragment, 0, push_block);
             cmd.draw(3, 1, 0, 0);
         }
@@ -654,6 +698,32 @@ namespace app {
         sctx_.resize_requested = false;
     }
 
+    const vk::pipeline::GraphicsPipeline& VisualizationApp::select_volume_pipeline(const std::string_view shader_stem) {
+        if (shader_stem.empty() || shader_stem == "field_volume") return volume_pipeline_;
+        for (const auto& shader : extra_volume_pipelines_) {
+            if (shader.stem == shader_stem) return shader.pipeline;
+        }
+
+        std::array<vk::DescriptorSetLayout, 1> pipeline_set_layouts{*field_set_layout_};
+        vk::pipeline::GraphicsPipelineDesc pipeline_desc{
+            .color_format         = sc_.format,
+            .use_depth            = false,
+            .use_blend            = true,
+            .topology             = vk::PrimitiveTopology::eTriangleList,
+            .cull                 = vk::CullModeFlagBits::eNone,
+            .push_constant_bytes  = sizeof(FieldPushConstants),
+            .push_constant_stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+            .set_layouts          = pipeline_set_layouts,
+        };
+        vk::pipeline::VertexInput empty_vertex_input{};
+        auto& shader = extra_volume_pipelines_.emplace_back();
+        shader.stem  = shader_stem;
+        const auto shader_spv = vk::pipeline::read_file_bytes((shader_dir_ / (shader.stem + ".spv")).string());
+        shader.module         = vk::pipeline::load_shader_module(vkctx_.device, shader_spv);
+        shader.pipeline       = vk::pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, shader.module, "vs_main", "fs_main");
+        return shader.pipeline;
+    }
+
     namespace {
 
         constexpr uint32_t snapshot_slot_count = 4;
@@ -696,7 +766,6 @@ namespace app {
         settings.scalar_high_r  = preset.scalar_high_r;
         settings.scalar_high_g  = preset.scalar_high_g;
         settings.scalar_high_b  = preset.scalar_high_b;
-        settings.shaded_volume  = preset.shaded_volume;
     }
 
     bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid, const bool with_velocity_plane) {
@@ -944,7 +1013,9 @@ namespace app {
                 }
 
                 snapshot             = active_snapshot(data);
-                const bool submitted = renderer->render_frame(state.render, snapshot);
+                const auto fields     = scene.fields();
+                const auto field_index = static_cast<size_t>(std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1));
+                const bool submitted = renderer->render_frame(state.render, fields[field_index], snapshot);
                 if (submitted) mark_snapshot_submitted(data);
             }
 

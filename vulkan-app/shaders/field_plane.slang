@@ -147,13 +147,11 @@ float4 fs_main(VSOut input) : SV_Target
     float3 rayOrigin;
     float3 rayDir;
     make_ray(uv, rayOrigin, rayDir);
-    float skyT = saturate(0.5 + 0.5 * rayDir.y);
-    float3 background = lerp(pc.backgroundBottom.rgb, pc.backgroundTop.rgb, skyT);
 
     float3 worldPos;
     if (!intersect_plane(rayOrigin, rayDir, worldPos))
     {
-        return float4(background, 1.0);
+        return 0.0.xxxx;
     }
 
     float3 uvw = (worldPos - pc.volumeMin.xyz) / max(pc.volumeMax.xyz - pc.volumeMin.xyz, 1.0e-5.xxx);
@@ -166,16 +164,16 @@ float4 fs_main(VSOut input) : SV_Target
     {
         float valueAbsMax = max(abs(valueMin), abs(valueMax));
         float magnitude = valueAbsMax > 1.0e-5 ? saturate(abs(value) / valueAbsMax) : 0.0;
-        if (magnitude < 1.0e-4) return float4(background, 1.0);
+        if (magnitude < 1.0e-4) return 0.0.xxxx;
         alpha = 1.0 - exp(-magnitude * pc.params0.w);
         color = value < 0.0 ? pc.colorA.rgb : pc.colorB.rgb;
     }
     else
     {
         float normalized = saturate((value - valueMin) / (valueMax - valueMin));
-        if (normalized < 1.0e-4) return float4(background, 1.0);
+        if (normalized < 1.0e-4) return 0.0.xxxx;
         alpha = 1.0 - exp(-normalized * pc.params0.w);
         color = lerp(pc.colorA.rgb, pc.colorB.rgb, normalized);
     }
-    return float4(lerp(background, color, alpha), 1.0);
+    return float4(color, alpha);
 }

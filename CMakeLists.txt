@@ -89,8 +89,10 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders")
     set(SMOKE_SIM_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
     set(SMOKE_SIM_SHADER_SOURCES
+            vulkan-app/shaders/background.slang
             vulkan-app/shaders/field_plane.slang
             vulkan-app/shaders/field_volume.slang
+            vulkan-app/shaders/scene_cloud_volume.slang
     )
     set(SMOKE_SIM_SHADER_OUTPUTS "")
     foreach (shader IN LISTS SMOKE_SIM_SHADER_SOURCES)

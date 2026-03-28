@@ -138,6 +138,12 @@ namespace scene_plume {
             .march_steps         = 112,
             .slice_position      = 0.42f,
             .show_velocity_plane = false,
+            .background_bottom_r = 0.0f,
+            .background_bottom_g = 0.0f,
+            .background_bottom_b = 0.0f,
+            .background_top_r    = 0.0f,
+            .background_top_g    = 0.0f,
+            .background_top_b    = 0.0f,
         };
         app::apply_field_preset(settings, field_catalog_storage[0].view.preset);
         return settings;
