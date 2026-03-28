@@ -20,75 +20,30 @@ extern "C" {
 #endif
 
 typedef enum StableFluidsResult {
-    STABLE_FLUIDS_RESULT_OK               = 0,
-    STABLE_FLUIDS_RESULT_OUT_OF_MEMORY    = 1,
-    STABLE_FLUIDS_RESULT_BACKEND_FAILURE  = 2,
+    STABLE_FLUIDS_RESULT_OK              = 0,
+    STABLE_FLUIDS_RESULT_OUT_OF_MEMORY   = 1,
+    STABLE_FLUIDS_RESULT_BACKEND_FAILURE = 2,
 } StableFluidsResult;
 
-typedef enum StableFluidsVelocityBoundaryType {
-    STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP   = 0,
-    STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP = 1,
-    STABLE_FLUIDS_VELOCITY_BOUNDARY_INFLOW    = 2,
-    STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW   = 3,
-} StableFluidsVelocityBoundaryType;
-
-typedef enum StableFluidsColliderVelocityBoundaryType {
-    STABLE_FLUIDS_COLLIDER_VELOCITY_BOUNDARY_NO_SLIP   = 0,
-    STABLE_FLUIDS_COLLIDER_VELOCITY_BOUNDARY_FREE_SLIP = 1,
-} StableFluidsColliderVelocityBoundaryType;
-
-typedef enum StableFluidsColliderType {
-    STABLE_FLUIDS_COLLIDER_SPHERE = 0,
-    STABLE_FLUIDS_COLLIDER_BOX    = 1,
-} StableFluidsColliderType;
-
-typedef enum StableFluidsFieldExtensionMode {
-    STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT    = 0,
-    STABLE_FLUIDS_FIELD_EXTENSION_STREAK      = 1,
-    STABLE_FLUIDS_FIELD_EXTENSION_REPEAT      = 2,
-    STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE = 3,
-} StableFluidsFieldExtensionMode;
-
-typedef enum StableFluidsFieldFlags {
-    STABLE_FLUIDS_FIELD_ADVECT  = 1u << 0,
-    STABLE_FLUIDS_FIELD_DIFFUSE = 1u << 1,
-} StableFluidsFieldFlags;
+typedef enum StableFluidsBoundaryMode {
+    STABLE_FLUIDS_BOUNDARY_FIXED    = 0,
+    STABLE_FLUIDS_BOUNDARY_PERIODIC = 1,
+} StableFluidsBoundaryMode;
 
 typedef uint32_t StableFluidsFieldHandle;
 
-typedef struct StableFluidsBoundaryFaceDesc {
-    uint32_t type;
-    float velocity;
-} StableFluidsBoundaryFaceDesc;
+typedef struct StableFluidsBoundaryConfig {
+    uint32_t x;
+    uint32_t y;
+    uint32_t z;
+} StableFluidsBoundaryConfig;
 
 typedef struct StableFluidsFieldCreateDesc {
     const char* name;
-    uint32_t component_count;
-    uint32_t flags;
     float diffusion;
-    uint32_t extension_mode;
-    float default_value_0;
-    float default_value_1;
-    float default_value_2;
-    float default_value_3;
+    float dissipation;
+    float initial_value;
 } StableFluidsFieldCreateDesc;
-
-typedef struct StableFluidsBuoyancyDesc {
-    uint32_t field_index;
-    float weight;
-    float ambient;
-} StableFluidsBuoyancyDesc;
-
-typedef struct StableFluidsContext_t* StableFluidsContext;
-
-typedef struct StableFluidsDomainBoundaryDesc {
-    StableFluidsBoundaryFaceDesc x_min;
-    StableFluidsBoundaryFaceDesc x_max;
-    StableFluidsBoundaryFaceDesc y_min;
-    StableFluidsBoundaryFaceDesc y_max;
-    StableFluidsBoundaryFaceDesc z_min;
-    StableFluidsBoundaryFaceDesc z_max;
-} StableFluidsDomainBoundaryDesc;
 
 typedef struct StableFluidsSimulationConfig {
     int32_t nx;
@@ -99,69 +54,30 @@ typedef struct StableFluidsSimulationConfig {
     float viscosity;
     int32_t diffuse_iterations;
     int32_t pressure_iterations;
-    float uniform_force_x;
-    float uniform_force_y;
-    float uniform_force_z;
-    StableFluidsDomainBoundaryDesc domain_boundary;
+    StableFluidsBoundaryConfig boundary;
     int32_t block_x;
     int32_t block_y;
     int32_t block_z;
 } StableFluidsSimulationConfig;
+
+typedef struct StableFluidsContext_t* StableFluidsContext;
 
 typedef struct StableFluidsContextCreateDesc {
     StableFluidsSimulationConfig config;
     void* stream;
     const StableFluidsFieldCreateDesc* fields;
     uint32_t field_count;
-    const StableFluidsBuoyancyDesc* buoyancy_terms;
-    uint32_t buoyancy_term_count;
 } StableFluidsContextCreateDesc;
-
-typedef struct StableFluidsColliderDesc {
-    uint32_t collider_type;
-    uint32_t velocity_boundary_type;
-    float center_x;
-    float center_y;
-    float center_z;
-    float radius;
-    float half_extent_x;
-    float half_extent_y;
-    float half_extent_z;
-    float linear_velocity_x;
-    float linear_velocity_y;
-    float linear_velocity_z;
-} StableFluidsColliderDesc;
-
-typedef struct StableFluidsSceneDesc {
-    const StableFluidsColliderDesc* colliders;
-    uint32_t collider_count;
-} StableFluidsSceneDesc;
-
-typedef struct StableFluidsVelocitySourceDesc {
-    float center_x;
-    float center_y;
-    float center_z;
-    float radius;
-    float velocity_x;
-    float velocity_y;
-    float velocity_z;
-} StableFluidsVelocitySourceDesc;
 
 typedef struct StableFluidsFieldSourceDesc {
     StableFluidsFieldHandle field;
-    float center_x;
-    float center_y;
-    float center_z;
-    float radius;
-    float value_0;
-    float value_1;
-    float value_2;
-    float value_3;
+    const float* values;
 } StableFluidsFieldSourceDesc;
 
 typedef struct StableFluidsStepDesc {
-    const StableFluidsVelocitySourceDesc* velocity_sources;
-    uint32_t velocity_source_count;
+    const float* force_x;
+    const float* force_y;
+    const float* force_z;
     const StableFluidsFieldSourceDesc* field_sources;
     uint32_t field_source_count;
 } StableFluidsStepDesc;
@@ -179,27 +95,21 @@ typedef struct StableFluidsProjectionMetrics {
 } StableFluidsProjectionMetrics;
 
 typedef enum StableFluidsExportKind {
-    STABLE_FLUIDS_EXPORT_FIELD_COMPONENTS   = 0,
-    STABLE_FLUIDS_EXPORT_ALPHA_RGB_RGBA     = 1,
-    STABLE_FLUIDS_EXPORT_VELOCITY           = 2,
-    STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE = 3,
-    STABLE_FLUIDS_EXPORT_SOLID_MASK         = 4,
-    STABLE_FLUIDS_EXPORT_PRESSURE           = 5,
-    STABLE_FLUIDS_EXPORT_DIVERGENCE         = 6,
+    STABLE_FLUIDS_EXPORT_FIELD              = 0,
+    STABLE_FLUIDS_EXPORT_VELOCITY           = 1,
+    STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE = 2,
+    STABLE_FLUIDS_EXPORT_PRESSURE           = 3,
+    STABLE_FLUIDS_EXPORT_DIVERGENCE         = 4,
 } StableFluidsExportKind;
 
 typedef struct StableFluidsExportDesc {
     uint32_t kind;
-    StableFluidsFieldHandle field_a;
-    StableFluidsFieldHandle field_b;
-    uint32_t component_offset;
-    uint32_t component_count;
+    StableFluidsFieldHandle field;
 } StableFluidsExportDesc;
 
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_reset_context_cuda(StableFluidsContext context);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_scene_cuda(StableFluidsContext context, const StableFluidsSceneDesc* desc);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_cuda(StableFluidsContext context, const StableFluidsExportDesc* desc, void* destination);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_projection_metrics_cuda(StableFluidsContext context, StableFluidsProjectionMetrics* out_metrics);
