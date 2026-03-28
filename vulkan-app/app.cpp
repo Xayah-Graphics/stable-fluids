@@ -185,7 +185,7 @@ namespace app {
 
     void VisualizationApp::draw_visualization_ui(AppState& state, const SceneInfo& scene, const std::span<const FieldInfo> fields, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
         bool reframe_requested       = false;
-        auto& settings               = state.ui.render;
+        auto& settings               = state.render;
         if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
         state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
         const auto& field    = fields[static_cast<size_t>(state.selected_field)];
@@ -204,7 +204,7 @@ namespace app {
             ImGui::EndCombo();
         }
 
-        ImGui::Checkbox("Pause", &state.ui.playback.paused);
+        ImGui::Checkbox("Pause", &state.paused);
         ImGui::SameLine();
         if (ImGui::Button("Reset")) reset_requested = true;
 
@@ -218,30 +218,20 @@ namespace app {
             reframe_requested  = true;
         }
 
-        if (settings.view_mode == ViewMode::Plane) {
+        if (settings.view_mode == ViewMode::Plane || settings.show_velocity_plane) {
             int plane_axis = static_cast<int>(settings.plane_axis);
             constexpr std::array plane_labels{
                 "XY",
                 "XZ",
                 "YZ",
             };
-            if (ImGui::Combo("Slice Axis", &plane_axis, plane_labels.data(), static_cast<int>(plane_labels.size()))) {
+            if (ImGui::Combo("Axis", &plane_axis, plane_labels.data(), static_cast<int>(plane_labels.size()))) {
                 settings.plane_axis = static_cast<PlaneAxis>(plane_axis);
                 reframe_requested   = true;
             }
             ImGui::SliderFloat("Slice", &settings.slice_position, 0.0f, 1.0f, "%.3f");
         }
         if (ImGui::Checkbox("Velocity Plane", &settings.show_velocity_plane)) field_changed = true;
-        if (settings.show_velocity_plane && settings.view_mode != ViewMode::Plane) {
-            int plane_axis = static_cast<int>(settings.plane_axis);
-            constexpr std::array plane_labels{
-                "XY",
-                "XZ",
-                "YZ",
-            };
-            if (ImGui::Combo("Velocity Axis", &plane_axis, plane_labels.data(), static_cast<int>(plane_labels.size()))) settings.plane_axis = static_cast<PlaneAxis>(plane_axis);
-            ImGui::SliderFloat("Velocity Slice", &settings.slice_position, 0.0f, 1.0f, "%.3f");
-        }
 
         ImGui::Separator();
         ImGui::Text("Grid: %u x %u x %u", scene.grid.nx, scene.grid.ny, scene.grid.nz);
@@ -624,10 +614,6 @@ namespace app {
 
     } // namespace
 
-    void create_runtime_data(AppData& data) {
-        destroy_runtime_data(data);
-    }
-
     void destroy_runtime_data(AppData& data) {
         for (auto& slot : data.capture.slots) {
             if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
@@ -666,7 +652,7 @@ namespace app {
         settings.scalar_high_b  = preset.scalar_high_b;
     }
 
-    bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid) {
+    bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid, const bool with_velocity_plane) {
         auto check_cuda = [](const cudaError_t status, const std::string_view what) {
             if (status == cudaSuccess) return;
             throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
@@ -677,7 +663,7 @@ namespace app {
             .nz        = grid.nz,
             .cell_size = grid.cell_size,
         };
-        const bool matches = !data.capture.slots.empty() && data.capture.request_grid.nx == request_grid.nx && data.capture.request_grid.ny == request_grid.ny && data.capture.request_grid.nz == request_grid.nz && data.capture.request_grid.cell_size == request_grid.cell_size;
+        const bool matches = !data.capture.slots.empty() && data.capture.request_grid.nx == request_grid.nx && data.capture.request_grid.ny == request_grid.ny && data.capture.request_grid.nz == request_grid.nz && data.capture.request_grid.cell_size == request_grid.cell_size && data.capture.has_velocity_storage == with_velocity_plane;
         if (matches) return false;
 
         renderer.vk_context().device.waitIdle();
@@ -690,8 +676,9 @@ namespace app {
         }
         data.capture              = {};
         data.capture.request_grid = request_grid;
-        data.capture.field_bytes   = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max) (request_grid.nz, 1u)) * sizeof(float);
-        data.capture.velocity_bytes = data.capture.field_bytes * 3u;
+        data.capture.has_velocity_storage = with_velocity_plane;
+        const auto field_bytes = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max) (request_grid.nz, 1u)) * sizeof(float);
+        const auto velocity_bytes = field_bytes * 3u;
 
         auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
         data.capture.slots.reserve(descriptor_sets.size());
@@ -723,7 +710,7 @@ namespace app {
             };
             vk::BufferCreateInfo buffer_ci{
                 .pNext       = &external_buffer_ci,
-                .size        = data.capture.field_bytes,
+                .size        = field_bytes,
                 .usage       = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
                 .sharingMode = vk::SharingMode::eExclusive,
             };
@@ -810,16 +797,18 @@ namespace app {
 
             cudaExternalMemoryBufferDesc buffer_desc{
                 .offset = 0,
-                .size   = data.capture.field_bytes,
+                .size   = field_bytes,
             };
             check_cuda(cudaExternalMemoryGetMappedBuffer(&slot.field_cuda_ptr, slot.external_memory, &buffer_desc), "cudaExternalMemoryGetMappedBuffer");
-            check_cuda(cudaMalloc(&slot.velocity_cuda_ptr, data.capture.velocity_bytes), "cudaMalloc velocity snapshot");
-            slot.velocity_host.resize(static_cast<size_t>(data.capture.velocity_bytes / sizeof(float)));
+            if (with_velocity_plane) {
+                check_cuda(cudaMalloc(&slot.velocity_cuda_ptr, velocity_bytes), "cudaMalloc velocity snapshot");
+                slot.velocity_host.resize(static_cast<size_t>(velocity_bytes / sizeof(float)));
+            }
 
             vk::DescriptorBufferInfo field_info{
                 .buffer = *slot.buffer,
                 .offset = 0,
-                .range  = data.capture.field_bytes,
+                .range  = field_bytes,
             };
             vk::WriteDescriptorSet field_write{
                 .dstSet          = *slot.descriptor_set,
@@ -837,7 +826,7 @@ namespace app {
         if (data.capture.active_slot < 0) return std::nullopt;
         const auto& slot = data.capture.slots.at(static_cast<size_t>(data.capture.active_slot));
         return VisualizationSnapshotView{
-            .grid = slot.grid,
+            .grid = data.capture.request_grid,
             .field =
                 {
                     .descriptor_set     = *slot.descriptor_set,

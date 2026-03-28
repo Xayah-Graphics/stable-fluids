@@ -13,77 +13,100 @@ namespace scene_plume {
 
     namespace {
 
+        struct PlumeFieldInfo {
+            app::FieldInfo view{};
+            uint32_t export_kind   = STABLE_FLUIDS_EXPORT_FIELD;
+            bool use_density_field = false;
+        };
+
         constexpr std::array field_catalog_storage{
-            app::FieldInfo{
-                .label                = "Density",
-                .export_kind          = STABLE_FLUIDS_EXPORT_FIELD,
-                .export_density_field = true,
-                .preset =
+            PlumeFieldInfo{
+                .view =
                     {
-                        .density_scale  = 1.35f,
-                        .scalar_min     = 0.0f,
-                        .scalar_max     = 3.5f,
-                        .scalar_opacity = 5.4f,
-                        .scalar_low_r   = 0.03f,
-                        .scalar_low_g   = 0.04f,
-                        .scalar_low_b   = 0.07f,
-                        .scalar_high_r  = 0.94f,
-                        .scalar_high_g  = 0.90f,
-                        .scalar_high_b  = 0.84f,
+                        .label  = "Density",
+                        .preset =
+                            {
+                                .density_scale  = 1.35f,
+                                .scalar_min     = 0.0f,
+                                .scalar_max     = 3.5f,
+                                .scalar_opacity = 5.4f,
+                                .scalar_low_r   = 0.03f,
+                                .scalar_low_g   = 0.04f,
+                                .scalar_low_b   = 0.07f,
+                                .scalar_high_r  = 0.94f,
+                                .scalar_high_g  = 0.90f,
+                                .scalar_high_b  = 0.84f,
+                            },
                     },
+                .export_kind      = STABLE_FLUIDS_EXPORT_FIELD,
+                .use_density_field = true,
             },
-            app::FieldInfo{
-                .label       = "Velocity Magnitude",
+            PlumeFieldInfo{
+                .view =
+                    {
+                        .label  = "Velocity Magnitude",
+                        .preset =
+                            {
+                                .density_scale  = 1.0f,
+                                .scalar_min     = 0.0f,
+                                .scalar_max     = 1.3f,
+                                .scalar_opacity = 2.2f,
+                                .scalar_low_r   = 0.06f,
+                                .scalar_low_g   = 0.10f,
+                                .scalar_low_b   = 0.24f,
+                                .scalar_high_r  = 0.24f,
+                                .scalar_high_g  = 0.88f,
+                                .scalar_high_b  = 1.00f,
+                            },
+                    },
                 .export_kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
-                .preset =
-                    {
-                        .density_scale  = 1.0f,
-                        .scalar_min     = 0.0f,
-                        .scalar_max     = 1.3f,
-                        .scalar_opacity = 2.2f,
-                        .scalar_low_r   = 0.06f,
-                        .scalar_low_g   = 0.10f,
-                        .scalar_low_b   = 0.24f,
-                        .scalar_high_r  = 0.24f,
-                        .scalar_high_g  = 0.88f,
-                        .scalar_high_b  = 1.00f,
-                    },
             },
-            app::FieldInfo{
-                .label       = "Pressure",
+            PlumeFieldInfo{
+                .view =
+                    {
+                        .label  = "Pressure",
+                        .preset =
+                            {
+                                .density_scale  = 1.0f,
+                                .scalar_min     = -0.18f,
+                                .scalar_max     = 0.18f,
+                                .scalar_opacity = 2.3f,
+                                .scalar_low_r   = 0.08f,
+                                .scalar_low_g   = 0.22f,
+                                .scalar_low_b   = 0.62f,
+                                .scalar_high_r  = 0.96f,
+                                .scalar_high_g  = 0.58f,
+                                .scalar_high_b  = 0.18f,
+                            },
+                    },
                 .export_kind = STABLE_FLUIDS_EXPORT_PRESSURE,
-                .preset =
-                    {
-                        .density_scale  = 1.0f,
-                        .scalar_min     = -0.18f,
-                        .scalar_max     = 0.18f,
-                        .scalar_opacity = 2.3f,
-                        .scalar_low_r   = 0.08f,
-                        .scalar_low_g   = 0.22f,
-                        .scalar_low_b   = 0.62f,
-                        .scalar_high_r  = 0.96f,
-                        .scalar_high_g  = 0.58f,
-                        .scalar_high_b  = 0.18f,
-                    },
             },
-            app::FieldInfo{
-                .label       = "Divergence",
-                .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
-                .preset =
+            PlumeFieldInfo{
+                .view =
                     {
-                        .density_scale  = 1.0f,
-                        .scalar_min     = -24.0f,
-                        .scalar_max     = 24.0f,
-                        .scalar_opacity = 2.3f,
-                        .scalar_low_r   = 0.05f,
-                        .scalar_low_g   = 0.14f,
-                        .scalar_low_b   = 0.50f,
-                        .scalar_high_r  = 0.94f,
-                        .scalar_high_g  = 0.28f,
-                        .scalar_high_b  = 0.22f,
+                        .label  = "Divergence",
+                        .preset =
+                            {
+                                .density_scale  = 1.0f,
+                                .scalar_min     = -24.0f,
+                                .scalar_max     = 24.0f,
+                                .scalar_opacity = 2.3f,
+                                .scalar_low_r   = 0.05f,
+                                .scalar_low_g   = 0.14f,
+                                .scalar_low_b   = 0.50f,
+                                .scalar_high_r  = 0.94f,
+                                .scalar_high_g  = 0.28f,
+                                .scalar_high_b  = 0.22f,
+                            },
                     },
+                .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
             },
         };
+        constexpr auto field_views = [] {
+            std::array<app::FieldInfo, field_catalog_storage.size()> result{};
+            for (size_t i = 0; i < result.size(); ++i) result[i] = field_catalog_storage[i].view;
+            return result;
+        }();
 
     } // namespace
 
@@ -105,7 +128,7 @@ namespace scene_plume {
     }
 
     std::span<const app::FieldInfo> Scene::fields() const {
-        return std::span<const app::FieldInfo>{field_catalog_storage};
+        return std::span<const app::FieldInfo>{field_views};
     }
 
     app::VisualizationSettings Scene::default_visualization() const {
@@ -116,7 +139,7 @@ namespace scene_plume {
             .slice_position      = 0.42f,
             .show_velocity_plane = false,
         };
-        app::apply_field_preset(settings, field_catalog_storage[0].preset);
+        app::apply_field_preset(settings, field_catalog_storage[0].view.preset);
         return settings;
     }
 
@@ -306,7 +329,7 @@ namespace scene_plume {
         const auto& field = field_catalog_storage[(std::min) (static_cast<size_t>(field_index), field_catalog_storage.size() - 1)];
         const StableFluidsExportDesc export_desc{
             .kind  = field.export_kind,
-            .field = field.export_density_field ? density_field_ : 0u,
+            .field = field.use_density_field ? density_field_ : 0u,
         };
         check_stable(stable_fluids_export_cuda(context_, &export_desc, device_destination), "stable_fluids_export_cuda");
     }
