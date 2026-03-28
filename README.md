@@ -84,7 +84,7 @@ $$
 
 where $\kappa$ is the diffusion coefficient (similar to viscosity for density dissipation).
 
-# 2. Build Instruction
+## 2. Build Instruction
 
 #### Build C ABI library
 - CMake 4.3.0 or higher
