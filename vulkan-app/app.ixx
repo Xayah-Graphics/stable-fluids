@@ -88,21 +88,26 @@ export namespace app {
     };
 
     struct VisualizationSettings {
-        ViewMode view_mode   = ViewMode::Volume;
-        PlaneAxis plane_axis = PlaneAxis::XZ;
-        int march_steps      = 112;
-        float slice_position = 0.42f;
-        bool show_velocity_plane = false;
-        float density_scale  = 1.35f;
-        float scalar_min     = 0.0f;
-        float scalar_max     = 3.5f;
-        float scalar_opacity = 5.4f;
-        float scalar_low_r   = 0.03f;
-        float scalar_low_g   = 0.04f;
-        float scalar_low_b   = 0.07f;
-        float scalar_high_r  = 0.94f;
-        float scalar_high_g  = 0.90f;
-        float scalar_high_b  = 0.84f;
+        ViewMode view_mode              = ViewMode::Volume;
+        PlaneAxis plane_axis            = PlaneAxis::XY;
+        int march_steps                 = 112;
+        float slice_position            = 0.42f;
+        bool show_velocity_plane        = false;
+        int velocity_plane_seed_count   = 40;
+        int velocity_plane_step_count   = 25;
+        float velocity_plane_step_cells = 0.2f;
+        float velocity_plane_min_speed  = 0.015f;
+        float velocity_plane_thickness  = 1.4f;
+        float density_scale             = 1.35f;
+        float scalar_min                = 0.0f;
+        float scalar_max                = 3.5f;
+        float scalar_opacity            = 5.4f;
+        float scalar_low_r              = 0.03f;
+        float scalar_low_g              = 0.04f;
+        float scalar_low_b              = 0.07f;
+        float scalar_high_r             = 0.94f;
+        float scalar_high_g             = 0.90f;
+        float scalar_high_b             = 0.84f;
     };
 
     struct FieldVisualPreset {

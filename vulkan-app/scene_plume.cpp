@@ -134,7 +134,7 @@ namespace scene_plume {
     app::VisualizationSettings Scene::default_visualization() const {
         app::VisualizationSettings settings{
             .view_mode           = app::ViewMode::Volume,
-            .plane_axis          = app::PlaneAxis::XZ,
+            .plane_axis          = app::PlaneAxis::XY,
             .march_steps         = 112,
             .slice_position      = 0.42f,
             .show_velocity_plane = false,

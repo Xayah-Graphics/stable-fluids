@@ -29,16 +29,6 @@ import vk.swapchain;
 
 namespace app {
 
-    namespace {
-
-        constexpr int velocity_plane_seed_count = 20;
-        constexpr int velocity_plane_step_count = 48;
-        constexpr float velocity_plane_step_cells = 0.24f;
-        constexpr float velocity_plane_min_speed = 0.02f;
-        constexpr float velocity_plane_thickness = 1.4f;
-
-    } // namespace
-
     VisualizationApp::VisualizationApp() {
         using namespace vk;
 
@@ -232,6 +222,13 @@ namespace app {
             ImGui::SliderFloat("Slice", &settings.slice_position, 0.0f, 1.0f, "%.3f");
         }
         if (ImGui::Checkbox("Velocity Plane", &settings.show_velocity_plane)) field_changed = true;
+        if (settings.show_velocity_plane) {
+            ImGui::SliderInt("Velocity Seeds", &settings.velocity_plane_seed_count, 4, 48);
+            ImGui::SliderInt("Velocity Steps", &settings.velocity_plane_step_count, 4, 96);
+            ImGui::SliderFloat("Velocity Step", &settings.velocity_plane_step_cells, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Min Speed", &settings.velocity_plane_min_speed, 0.001f, 0.5f, "%.3f");
+            ImGui::SliderFloat("Line Width", &settings.velocity_plane_thickness, 0.5f, 4.0f, "%.2f");
+        }
 
         ImGui::Separator();
         ImGui::Text("Grid: %u x %u x %u", scene.grid.nx, scene.grid.ny, scene.grid.nz);
@@ -372,12 +369,13 @@ namespace app {
                     ImVec2 screen_b{};
                     if (!project_point(a, screen_a)) return;
                     if (!project_point(b, screen_b)) return;
-                    draw_list->AddLine(screen_a, screen_b, color, velocity_plane_thickness);
+                    draw_list->AddLine(screen_a, screen_b, color, settings.velocity_plane_thickness);
                 };
                 auto sample_velocity = [&](const float px, const float py, const float pz) {
                     const auto nx = static_cast<int>(snapshot->grid.nx);
                     const auto ny = static_cast<int>(snapshot->grid.ny);
                     const auto nz = static_cast<int>(snapshot->grid.nz);
+                    const auto cell_count = static_cast<size_t>(nx) * static_cast<size_t>(ny) * static_cast<size_t>(nz);
                     const float gx = std::clamp(px / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nx - 1));
                     const float gy = std::clamp(py / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(ny - 1));
                     const float gz = std::clamp(pz / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nz - 1));
@@ -393,9 +391,9 @@ namespace app {
                     auto load = [&](const int x, const int y, const int z) {
                         const auto index = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
                         return vk::math::vec3{
-                            snapshot->velocity[index * 3u + 0u],
-                            snapshot->velocity[index * 3u + 1u],
-                            snapshot->velocity[index * 3u + 2u],
+                            snapshot->velocity[index],
+                            snapshot->velocity[cell_count + index],
+                            snapshot->velocity[cell_count * 2u + index],
                             0.0f,
                         };
                     };
@@ -419,7 +417,10 @@ namespace app {
                 const float max_y = snapshot->grid.extent_y();
                 const float max_z = snapshot->grid.extent_z();
                 const float slice_position = std::clamp(settings.slice_position, 0.0f, 1.0f);
-                const float step_scale = velocity_plane_step_cells * snapshot->grid.cell_size;
+                const int seed_count = (std::max)(settings.velocity_plane_seed_count, 2);
+                const int step_count = (std::max)(settings.velocity_plane_step_count, 1);
+                const float min_speed = (std::max)(settings.velocity_plane_min_speed, 1.0e-5f);
+                const float step_scale = settings.velocity_plane_step_cells * snapshot->grid.cell_size;
                 std::array<vk::math::vec3, 4> plane_corners{};
                 if (plane_axis == PlaneAxis::XY) {
                     const float z = slice_position * max_z;
@@ -453,22 +454,22 @@ namespace app {
                 draw_segment(plane_corners[2], plane_corners[3], IM_COL32(112, 220, 255, 120));
                 draw_segment(plane_corners[3], plane_corners[0], IM_COL32(112, 220, 255, 120));
 
-                for (int j = 0; j < velocity_plane_seed_count; ++j) {
-                    for (int i = 0; i < velocity_plane_seed_count; ++i) {
-                        const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(velocity_plane_seed_count);
-                        const float v = (static_cast<float>(j) + 0.5f) / static_cast<float>(velocity_plane_seed_count);
+                for (int j = 0; j < seed_count; ++j) {
+                    for (int i = 0; i < seed_count; ++i) {
+                        const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(seed_count);
+                        const float v = (static_cast<float>(j) + 0.5f) / static_cast<float>(seed_count);
                         vk::math::vec3 pos{};
                         if (plane_axis == PlaneAxis::XY) pos = {u * max_x, v * max_y, slice_position * max_z, 0.0f};
                         if (plane_axis == PlaneAxis::XZ) pos = {u * max_x, slice_position * max_y, v * max_z, 0.0f};
                         if (plane_axis == PlaneAxis::YZ) pos = {slice_position * max_x, u * max_y, v * max_z, 0.0f};
-                        for (int step = 0; step < velocity_plane_step_count; ++step) {
+                        for (int step = 0; step < step_count; ++step) {
                             const auto velocity = sample_velocity(pos.x, pos.y, pos.z);
                             vk::math::vec3 plane_velocity{};
                             if (plane_axis == PlaneAxis::XY) plane_velocity = {velocity.x, velocity.y, 0.0f, 0.0f};
                             if (plane_axis == PlaneAxis::XZ) plane_velocity = {velocity.x, 0.0f, velocity.z, 0.0f};
                             if (plane_axis == PlaneAxis::YZ) plane_velocity = {0.0f, velocity.y, velocity.z, 0.0f};
                             const float speed = std::sqrt(plane_velocity.x * plane_velocity.x + plane_velocity.y * plane_velocity.y + plane_velocity.z * plane_velocity.z);
-                            if (speed < velocity_plane_min_speed) break;
+                            if (speed < min_speed) break;
                             const float inv_speed = 1.0f / speed;
                             vk::math::vec3 next{
                                 pos.x + plane_velocity.x * inv_speed * step_scale,
@@ -482,7 +483,7 @@ namespace app {
                             if (plane_axis == PlaneAxis::XY) next.z = pos.z;
                             if (plane_axis == PlaneAxis::XZ) next.y = pos.y;
                             if (plane_axis == PlaneAxis::YZ) next.x = pos.x;
-                            const float speed_t = std::clamp(speed / (velocity_plane_min_speed * 8.0f), 0.0f, 1.0f);
+                            const float speed_t = std::clamp(speed / (min_speed * 8.0f), 0.0f, 1.0f);
                             draw_segment(pos, next, IM_COL32(
                                 static_cast<int>(std::lerp(72.0f, 255.0f, speed_t)),
                                 static_cast<int>(std::lerp(196.0f, 212.0f, speed_t)),
