@@ -14,7 +14,6 @@ int main() {
 
         app::create_runtime_data(data);
         app::check_interop_support(*renderer);
-        app::apply_field_visual_preset(state);
 
         renderer->vk_context().device.waitIdle();
         app::rebuild_physics(state, data);

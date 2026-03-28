@@ -102,16 +102,16 @@ export namespace app {
         PlaneAxis plane_axis    = PlaneAxis::XZ;
         int march_steps         = 112;
         float slice_position    = 0.42f;
-        float density_scale     = 1.0f;
+        float density_scale     = 1.35f;
         float scalar_min        = 0.0f;
-        float scalar_max        = 1.0f;
-        float scalar_opacity    = 3.0f;
-        float scalar_low_r      = 0.06f;
-        float scalar_low_g      = 0.08f;
-        float scalar_low_b      = 0.12f;
-        float scalar_high_r     = 0.95f;
-        float scalar_high_g     = 0.86f;
-        float scalar_high_b     = 0.72f;
+        float scalar_max        = 3.5f;
+        float scalar_opacity    = 5.4f;
+        float scalar_low_r      = 0.03f;
+        float scalar_low_g      = 0.04f;
+        float scalar_low_b      = 0.07f;
+        float scalar_high_r     = 0.94f;
+        float scalar_high_g     = 0.90f;
+        float scalar_high_b     = 0.84f;
     };
 
     enum class FieldId : uint32_t {
@@ -257,7 +257,6 @@ export namespace app {
 
     private:
         void recreate_swapchain();
-        void collect_camera_input(float dt_seconds);
 
         static constexpr uint32_t frames_in_flight_value_ = 2;
 
@@ -288,9 +287,6 @@ export namespace app {
         std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
     };
 
-    [[nodiscard]] std::span<const FieldInfo> field_catalog();
-    [[nodiscard]] const FieldInfo& current_field_info(AppState& state);
-    void apply_field_visual_preset(AppState& state);
     void create_runtime_data(AppData& data);
     void destroy_runtime_data(AppData& data);
     void check_interop_support(const VisualizationApp& renderer);

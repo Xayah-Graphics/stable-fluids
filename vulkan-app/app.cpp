@@ -29,6 +29,85 @@ import vk.swapchain;
 
 namespace app {
 
+    namespace {
+
+        constexpr std::array field_catalog_storage{
+            FieldInfo{
+                .id = FieldId::Density,
+                .label = "Density",
+                .semantic = FieldSemantic::Density,
+                .export_kind = STABLE_FLUIDS_EXPORT_FIELD,
+                .preset = {
+                    .density_scale = 1.35f,
+                    .scalar_min = 0.0f,
+                    .scalar_max = 3.5f,
+                    .scalar_opacity = 5.4f,
+                    .scalar_low_r = 0.03f,
+                    .scalar_low_g = 0.04f,
+                    .scalar_low_b = 0.07f,
+                    .scalar_high_r = 0.94f,
+                    .scalar_high_g = 0.90f,
+                    .scalar_high_b = 0.84f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::VelocityMagnitude,
+                .label = "Velocity Magnitude",
+                .semantic = FieldSemantic::VelocityMagnitude,
+                .export_kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
+                .preset = {
+                    .density_scale = 1.0f,
+                    .scalar_min = 0.0f,
+                    .scalar_max = 1.3f,
+                    .scalar_opacity = 2.2f,
+                    .scalar_low_r = 0.06f,
+                    .scalar_low_g = 0.10f,
+                    .scalar_low_b = 0.24f,
+                    .scalar_high_r = 0.24f,
+                    .scalar_high_g = 0.88f,
+                    .scalar_high_b = 1.00f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::Pressure,
+                .label = "Pressure",
+                .semantic = FieldSemantic::Pressure,
+                .export_kind = STABLE_FLUIDS_EXPORT_PRESSURE,
+                .preset = {
+                    .density_scale = 1.0f,
+                    .scalar_min = -0.18f,
+                    .scalar_max = 0.18f,
+                    .scalar_opacity = 2.3f,
+                    .scalar_low_r = 0.08f,
+                    .scalar_low_g = 0.22f,
+                    .scalar_low_b = 0.62f,
+                    .scalar_high_r = 0.96f,
+                    .scalar_high_g = 0.58f,
+                    .scalar_high_b = 0.18f,
+                },
+            },
+            FieldInfo{
+                .id = FieldId::Divergence,
+                .label = "Divergence",
+                .semantic = FieldSemantic::Divergence,
+                .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
+                .preset = {
+                    .density_scale = 1.0f,
+                    .scalar_min = -24.0f,
+                    .scalar_max = 24.0f,
+                    .scalar_opacity = 2.3f,
+                    .scalar_low_r = 0.05f,
+                    .scalar_low_g = 0.14f,
+                    .scalar_low_b = 0.50f,
+                    .scalar_high_r = 0.94f,
+                    .scalar_high_g = 0.28f,
+                    .scalar_high_b = 0.22f,
+                },
+            },
+        };
+
+    } // namespace
+
     VisualizationApp::VisualizationApp() {
         using namespace vk;
 
@@ -135,21 +214,71 @@ namespace app {
         if (sctx_.resize_requested) recreate_swapchain();
 
         vk::imgui::begin_frame();
-        collect_camera_input(dt_seconds);
+
+        double mouse_x = 0.0;
+        double mouse_y = 0.0;
+        glfwGetCursorPos(window_, &mouse_x, &mouse_y);
+
+        float mouse_dx = 0.0f;
+        float mouse_dy = 0.0f;
+        if (window_state_.first_mouse) {
+            window_state_.first_mouse = false;
+        } else {
+            mouse_dx = static_cast<float>(mouse_x - window_state_.last_x);
+            mouse_dy = static_cast<float>(mouse_y - window_state_.last_y);
+        }
+        window_state_.last_x = mouse_x;
+        window_state_.last_y = mouse_y;
+
+        auto& io = ImGui::GetIO();
+        vk::camera::CameraInput camera_input{};
+        if (!io.WantCaptureMouse) {
+            camera_input.lmb      = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+            camera_input.mmb      = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS;
+            camera_input.rmb      = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+            camera_input.mouse_dx = mouse_dx;
+            camera_input.mouse_dy = mouse_dy;
+            camera_input.scroll   = window_state_.scroll;
+        }
+        if (!io.WantCaptureKeyboard) {
+            camera_input.forward  = glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS;
+            camera_input.backward = glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS;
+            camera_input.left     = glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS;
+            camera_input.right    = glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS;
+            camera_input.up       = glfwGetKey(window_, GLFW_KEY_E) == GLFW_PRESS;
+            camera_input.down     = glfwGetKey(window_, GLFW_KEY_Q) == GLFW_PRESS;
+            camera_input.shift    = glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+            camera_input.ctrl     = glfwGetKey(window_, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window_, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+            camera_input.alt      = glfwGetKey(window_, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window_, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
+            camera_input.space    = glfwGetKey(window_, GLFW_KEY_SPACE) == GLFW_PRESS;
+        }
+        window_state_.scroll = 0.0f;
+        camera_.update(dt_seconds, sc_.extent.width, sc_.extent.height, camera_input);
     }
 
     void VisualizationApp::draw_visualization_ui(AppState& state, const AppData& data, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
         bool reframe_requested = false;
-        auto& settings         = state.ui.render;
-        const auto& field      = current_field_info(state);
+        auto& settings = state.ui.render;
+        state.physics.selected_field = std::clamp(state.physics.selected_field, 0, static_cast<int>(field_catalog_storage.size()) - 1);
+        const auto& field = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
 
         ImGui::Begin("Smoke");
         if (ImGui::BeginCombo("Field", field.label.data())) {
-            for (int i = 0; i < static_cast<int>(field_catalog().size()); ++i) {
+            for (int i = 0; i < static_cast<int>(field_catalog_storage.size()); ++i) {
                 const bool is_selected = state.physics.selected_field == i;
-                if (ImGui::Selectable(field_catalog()[static_cast<size_t>(i)].label.data(), is_selected)) {
+                if (ImGui::Selectable(field_catalog_storage[static_cast<size_t>(i)].label.data(), is_selected)) {
                     state.physics.selected_field = i;
-                    apply_field_visual_preset(state);
+                    const auto& preset = field_catalog_storage[static_cast<size_t>(i)].preset;
+                    settings.density_scale  = preset.density_scale;
+                    settings.scalar_min     = preset.scalar_min;
+                    settings.scalar_max     = preset.scalar_max;
+                    settings.scalar_opacity = preset.scalar_opacity;
+                    settings.scalar_low_r   = preset.scalar_low_r;
+                    settings.scalar_low_g   = preset.scalar_low_g;
+                    settings.scalar_low_b   = preset.scalar_low_b;
+                    settings.scalar_high_r  = preset.scalar_high_r;
+                    settings.scalar_high_g  = preset.scalar_high_g;
+                    settings.scalar_high_b  = preset.scalar_high_b;
                     field_changed = true;
                 }
                 if (is_selected) ImGui::SetItemDefaultFocus();
@@ -427,232 +556,53 @@ namespace app {
         sctx_.resize_requested = false;
     }
 
-    void VisualizationApp::collect_camera_input(const float dt_seconds) {
-        double mouse_x = 0.0;
-        double mouse_y = 0.0;
-        glfwGetCursorPos(window_, &mouse_x, &mouse_y);
-
-        float mouse_dx = 0.0f;
-        float mouse_dy = 0.0f;
-        if (window_state_.first_mouse) {
-            window_state_.first_mouse = false;
-        } else {
-            mouse_dx = static_cast<float>(mouse_x - window_state_.last_x);
-            mouse_dy = static_cast<float>(mouse_y - window_state_.last_y);
-        }
-        window_state_.last_x = mouse_x;
-        window_state_.last_y = mouse_y;
-
-        auto& io = ImGui::GetIO();
-        vk::camera::CameraInput camera_input{};
-        if (!io.WantCaptureMouse) {
-            camera_input.lmb      = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-            camera_input.mmb      = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS;
-            camera_input.rmb      = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-            camera_input.mouse_dx = mouse_dx;
-            camera_input.mouse_dy = mouse_dy;
-            camera_input.scroll   = window_state_.scroll;
-        }
-        if (!io.WantCaptureKeyboard) {
-            camera_input.forward  = glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS;
-            camera_input.backward = glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS;
-            camera_input.left     = glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS;
-            camera_input.right    = glfwGetKey(window_, GLFW_KEY_D) == GLFW_PRESS;
-            camera_input.up       = glfwGetKey(window_, GLFW_KEY_E) == GLFW_PRESS;
-            camera_input.down     = glfwGetKey(window_, GLFW_KEY_Q) == GLFW_PRESS;
-            camera_input.shift    = glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
-            camera_input.ctrl     = glfwGetKey(window_, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window_, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
-            camera_input.alt      = glfwGetKey(window_, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window_, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
-            camera_input.space    = glfwGetKey(window_, GLFW_KEY_SPACE) == GLFW_PRESS;
-        }
-        window_state_.scroll = 0.0f;
-
-        camera_.update(dt_seconds, sc_.extent.width, sc_.extent.height, camera_input);
-    }
-
     namespace {
 
         constexpr uint32_t snapshot_slot_count = 4;
 
-        constexpr std::array field_catalog_storage{
-            FieldInfo{
-                .id = FieldId::Density,
-                .label = "Density",
-                .semantic = FieldSemantic::Density,
-                .export_kind = STABLE_FLUIDS_EXPORT_FIELD,
-                .preset = {
-                    .density_scale = 1.35f,
-                    .scalar_min = 0.0f,
-                    .scalar_max = 3.5f,
-                    .scalar_opacity = 5.4f,
-                    .scalar_low_r = 0.03f,
-                    .scalar_low_g = 0.04f,
-                    .scalar_low_b = 0.07f,
-                    .scalar_high_r = 0.94f,
-                    .scalar_high_g = 0.90f,
-                    .scalar_high_b = 0.84f,
-                },
-            },
-            FieldInfo{
-                .id = FieldId::VelocityMagnitude,
-                .label = "Velocity Magnitude",
-                .semantic = FieldSemantic::VelocityMagnitude,
-                .export_kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
-                .preset = {
-                    .density_scale = 1.0f,
-                    .scalar_min = 0.0f,
-                    .scalar_max = 1.3f,
-                    .scalar_opacity = 2.2f,
-                    .scalar_low_r = 0.06f,
-                    .scalar_low_g = 0.10f,
-                    .scalar_low_b = 0.24f,
-                    .scalar_high_r = 0.24f,
-                    .scalar_high_g = 0.88f,
-                    .scalar_high_b = 1.00f,
-                },
-            },
-            FieldInfo{
-                .id = FieldId::Pressure,
-                .label = "Pressure",
-                .semantic = FieldSemantic::Pressure,
-                .export_kind = STABLE_FLUIDS_EXPORT_PRESSURE,
-                .preset = {
-                    .density_scale = 1.0f,
-                    .scalar_min = -0.18f,
-                    .scalar_max = 0.18f,
-                    .scalar_opacity = 2.3f,
-                    .scalar_low_r = 0.08f,
-                    .scalar_low_g = 0.22f,
-                    .scalar_low_b = 0.62f,
-                    .scalar_high_r = 0.96f,
-                    .scalar_high_g = 0.58f,
-                    .scalar_high_b = 0.18f,
-                },
-            },
-            FieldInfo{
-                .id = FieldId::Divergence,
-                .label = "Divergence",
-                .semantic = FieldSemantic::Divergence,
-                .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
-                .preset = {
-                    .density_scale = 1.0f,
-                    .scalar_min = -24.0f,
-                    .scalar_max = 24.0f,
-                    .scalar_opacity = 2.3f,
-                    .scalar_low_r = 0.05f,
-                    .scalar_low_g = 0.14f,
-                    .scalar_low_b = 0.50f,
-                    .scalar_high_r = 0.94f,
-                    .scalar_high_g = 0.28f,
-                    .scalar_high_b = 0.22f,
-                },
-            },
-        };
-
-        void check_cuda(const cudaError_t status, const std::string_view what) {
-            if (status == cudaSuccess) return;
-            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
-        }
-
-        void check_stable(const StableFluidsResult code, const std::string_view what) {
-            if (code == STABLE_FLUIDS_RESULT_OK) return;
-            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
-        }
-
-        uint64_t field_bytes_for(const GridShape& grid) {
-            const uint64_t nx = grid.nx;
-            const uint64_t ny = grid.ny;
-            const uint64_t nz = static_cast<uint64_t>((std::max)(grid.nz, 1u));
-            return nx * ny * nz * sizeof(float);
-        }
-
-        void release_simulation_buffers(AppData& data) {
-            auto free_buffer = [](float*& ptr) {
-                if (ptr != nullptr) cudaFree(ptr);
-                ptr = nullptr;
-            };
-            free_buffer(data.physics.force_x_device);
-            free_buffer(data.physics.force_y_device);
-            free_buffer(data.physics.force_z_device);
-            free_buffer(data.physics.density_source_device);
-            data.physics.force_x_host.clear();
-            data.physics.force_z_host.clear();
-            data.physics.source_mask.clear();
-            data.physics.swirl_x_mask.clear();
-            data.physics.swirl_z_mask.clear();
-            data.physics.drift_mask.clear();
-        }
-
-        void destroy_capture_storage(AppData& data) {
-            for (auto& slot : data.capture.slots) {
-                if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
-                if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
-                if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
-                slot = {};
-            }
-            data.capture = {};
-        }
-
-        GridShape current_grid(const AppData& data) {
-            StableFluidsGridDesc desc{};
-            check_stable(stable_fluids_get_grid_desc_cuda(data.physics.context, &desc), "stable_fluids_get_grid_desc_cuda");
-            return GridShape{
-                .nx = static_cast<uint32_t>(desc.nx),
-                .ny = static_cast<uint32_t>(desc.ny),
-                .nz = static_cast<uint32_t>((std::max)(desc.nz, 1)),
-                .cell_size = desc.cell_size,
-            };
-        }
-
-        int find_available_capture_slot(const AppData& data, const uint32_t frames_in_flight) {
-            for (uint32_t slot_index = 0; slot_index < data.capture.slots.size(); ++slot_index) {
-                const auto& slot = data.capture.slots[slot_index];
-                if (static_cast<int>(slot_index) == data.capture.active_slot) continue;
-                if (slot.ready_generation != 0 && data.capture.submit_serial < slot.last_used_submit_serial + frames_in_flight + 1) continue;
-                return static_cast<int>(slot_index);
-            }
-            return -1;
-        }
-
     } // namespace
 
-    std::span<const FieldInfo> field_catalog() {
-        return field_catalog_storage;
-    }
-
-    const FieldInfo& current_field_info(AppState& state) {
-        state.physics.selected_field = std::clamp(state.physics.selected_field, 0, static_cast<int>(field_catalog_storage.size()) - 1);
-        return field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
-    }
-
-    void apply_field_visual_preset(AppState& state) {
-        const auto& preset = current_field_info(state).preset;
-        state.ui.render.density_scale = preset.density_scale;
-        state.ui.render.scalar_min    = preset.scalar_min;
-        state.ui.render.scalar_max    = preset.scalar_max;
-        state.ui.render.scalar_opacity = preset.scalar_opacity;
-        state.ui.render.scalar_low_r   = preset.scalar_low_r;
-        state.ui.render.scalar_low_g   = preset.scalar_low_g;
-        state.ui.render.scalar_low_b   = preset.scalar_low_b;
-        state.ui.render.scalar_high_r  = preset.scalar_high_r;
-        state.ui.render.scalar_high_g  = preset.scalar_high_g;
-        state.ui.render.scalar_high_b  = preset.scalar_high_b;
-    }
-
     void create_runtime_data(AppData& data) {
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
         destroy_runtime_data(data);
         check_cuda(cudaStreamCreateWithFlags(&data.physics.stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags");
     }
 
     void destroy_runtime_data(AppData& data) {
-        destroy_capture_storage(data);
+        for (auto& slot : data.capture.slots) {
+            if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
+            if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
+            if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
+            slot = {};
+        }
+        data.capture = {};
         if (data.physics.context != nullptr) stable_fluids_destroy_context_cuda(data.physics.context);
-        release_simulation_buffers(data);
+        if (data.physics.force_x_device != nullptr) cudaFree(data.physics.force_x_device);
+        if (data.physics.force_y_device != nullptr) cudaFree(data.physics.force_y_device);
+        if (data.physics.force_z_device != nullptr) cudaFree(data.physics.force_z_device);
+        if (data.physics.density_source_device != nullptr) cudaFree(data.physics.density_source_device);
+        data.physics.force_x_device = nullptr;
+        data.physics.force_y_device = nullptr;
+        data.physics.force_z_device = nullptr;
+        data.physics.density_source_device = nullptr;
+        data.physics.force_x_host.clear();
+        data.physics.force_z_host.clear();
+        data.physics.source_mask.clear();
+        data.physics.swirl_x_mask.clear();
+        data.physics.swirl_z_mask.clear();
+        data.physics.drift_mask.clear();
         if (data.physics.stream != nullptr) cudaStreamDestroy(data.physics.stream);
         data.physics = {};
     }
 
     void check_interop_support(const VisualizationApp& renderer) {
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
         const auto timeline_features = renderer.vk_context().physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan12Features>();
         if (!timeline_features.get<vk::PhysicalDeviceVulkan12Features>().timelineSemaphore) throw std::runtime_error("stable-fluids visualizer requires Vulkan timeline semaphore support");
         int cuda_device_index = 0;
@@ -663,11 +613,32 @@ namespace app {
     }
 
     void rebuild_physics(const AppState& state, AppData& data) {
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
+        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
+            if (code == STABLE_FLUIDS_RESULT_OK) return;
+            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
+        };
         if (data.physics.context != nullptr) {
             check_stable(stable_fluids_destroy_context_cuda(data.physics.context), "stable_fluids_destroy_context_cuda");
             data.physics.context = nullptr;
         }
-        release_simulation_buffers(data);
+        if (data.physics.force_x_device != nullptr) cudaFree(data.physics.force_x_device);
+        if (data.physics.force_y_device != nullptr) cudaFree(data.physics.force_y_device);
+        if (data.physics.force_z_device != nullptr) cudaFree(data.physics.force_z_device);
+        if (data.physics.density_source_device != nullptr) cudaFree(data.physics.density_source_device);
+        data.physics.force_x_device = nullptr;
+        data.physics.force_y_device = nullptr;
+        data.physics.force_z_device = nullptr;
+        data.physics.density_source_device = nullptr;
+        data.physics.force_x_host.clear();
+        data.physics.force_z_host.clear();
+        data.physics.source_mask.clear();
+        data.physics.swirl_x_mask.clear();
+        data.physics.swirl_z_mask.clear();
+        data.physics.drift_mask.clear();
 
         const std::array fields{
             StableFluidsFieldCreateDesc{
@@ -759,6 +730,14 @@ namespace app {
     }
 
     void step_physics(const AppState&, AppData& data, const int sim_steps) {
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
+        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
+            if (code == STABLE_FLUIDS_RESULT_OK) return;
+            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
+        };
         if (sim_steps <= 0) return;
         const auto scalar_bytes = data.physics.force_x_host.size() * sizeof(float);
         const StableFluidsFieldSourceDesc field_source{
@@ -801,7 +780,22 @@ namespace app {
     }
 
     bool sync_capture_storage(AppData& data, VisualizationApp& renderer) {
-        const auto request_grid = current_grid(data);
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
+        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
+            if (code == STABLE_FLUIDS_RESULT_OK) return;
+            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
+        };
+        StableFluidsGridDesc grid_desc{};
+        check_stable(stable_fluids_get_grid_desc_cuda(data.physics.context, &grid_desc), "stable_fluids_get_grid_desc_cuda");
+        const GridShape request_grid{
+            .nx = static_cast<uint32_t>(grid_desc.nx),
+            .ny = static_cast<uint32_t>(grid_desc.ny),
+            .nz = static_cast<uint32_t>((std::max)(grid_desc.nz, 1)),
+            .cell_size = grid_desc.cell_size,
+        };
         const bool matches = !data.capture.slots.empty()
             && data.capture.request_grid.nx == request_grid.nx
             && data.capture.request_grid.ny == request_grid.ny
@@ -810,9 +804,15 @@ namespace app {
         if (matches) return false;
 
         renderer.vk_context().device.waitIdle();
-        destroy_capture_storage(data);
+        for (auto& slot : data.capture.slots) {
+            if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
+            if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
+            if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
+            slot = {};
+        }
+        data.capture = {};
         data.capture.request_grid = request_grid;
-        data.capture.field_bytes  = field_bytes_for(request_grid);
+        data.capture.field_bytes  = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max)(request_grid.nz, 1u)) * sizeof(float);
 
         auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
         data.capture.slots.reserve(descriptor_sets.size());
@@ -935,12 +935,28 @@ namespace app {
     }
 
     bool capture_snapshot(AppState& state, AppData& data, VisualizationApp& renderer, const char* tag) {
-        const int slot_index = find_available_capture_slot(data, renderer.frames_in_flight());
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
+        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
+            if (code == STABLE_FLUIDS_RESULT_OK) return;
+            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
+        };
+        int slot_index = -1;
+        for (uint32_t i = 0; i < data.capture.slots.size(); ++i) {
+            const auto& slot = data.capture.slots[i];
+            if (static_cast<int>(i) == data.capture.active_slot) continue;
+            if (slot.ready_generation != 0 && data.capture.submit_serial < slot.last_used_submit_serial + renderer.frames_in_flight() + 1) continue;
+            slot_index = static_cast<int>(i);
+            break;
+        }
         if (slot_index < 0) return false;
         nvtx3::scoped_range range{tag};
 
         auto& slot = data.capture.slots.at(static_cast<size_t>(slot_index));
-        const auto& field = current_field_info(state);
+        state.physics.selected_field = std::clamp(state.physics.selected_field, 0, static_cast<int>(field_catalog_storage.size()) - 1);
+        const auto& field = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
         const StableFluidsExportDesc export_desc{
             .kind = field.export_kind,
             .field = field.id == FieldId::Density ? data.physics.density_field : 0u,
