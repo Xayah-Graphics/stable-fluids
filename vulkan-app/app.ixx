@@ -93,6 +93,7 @@ export namespace app {
         PlaneAxis plane_axis             = PlaneAxis::XY;
         int march_steps                  = 112;
         float slice_position             = 0.42f;
+        float camera_distance_scale      = 1.10f;
         bool show_velocity_plane         = false;
         int velocity_plane_seed_count    = 40;
         float velocity_plane_arrow_cells = 2.0f;

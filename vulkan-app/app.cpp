@@ -639,6 +639,7 @@ namespace app {
         const float center_x                 = snapshot.grid.extent_x() * 0.5f;
         const float center_y                 = snapshot.grid.extent_y() * 0.5f;
         const float center_z                 = snapshot.grid.extent_z() * 0.5f;
+        const float camera_distance_scale    = (std::max)(settings.camera_distance_scale, 0.25f);
         vk::camera::CameraState camera_state = camera_.state();
         camera_state.mode                    = vk::camera::Mode::Orbit;
         camera_state.orbit.target            = {center_x, center_y, center_z, 0.0f};
@@ -660,7 +661,7 @@ namespace app {
             }
         } else {
             update_camera_config(vk::camera::Projection::Perspective, snapshot.grid.max_extent());
-            camera_state.orbit.distance  = snapshot.grid.max_extent() * 1.10f;
+            camera_state.orbit.distance  = snapshot.grid.max_extent() * camera_distance_scale;
             camera_state.orbit.yaw_rad   = 0.0f;
             camera_state.orbit.pitch_rad = 0.0f;
         }

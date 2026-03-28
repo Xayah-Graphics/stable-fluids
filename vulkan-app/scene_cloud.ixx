@@ -32,9 +32,9 @@ export namespace scene_cloud {
 
     private:
         StableFluidsSimulationConfig config_{
-            .nx                  = 160,
-            .ny                  = 96,
-            .nz                  = 96,
+            .nx                  = 224,
+            .ny                  = 128,
+            .nz                  = 160,
             .cell_size           = 0.0125f,
             .dt                  = 1.0f / 72.0f,
             .viscosity           = 0.00008f,
@@ -58,13 +58,16 @@ export namespace scene_cloud {
         float* force_y_device_        = nullptr;
         float* force_z_device_        = nullptr;
         float* density_source_device_ = nullptr;
+        std::vector<float> density_source_host_{};
         std::vector<float> force_x_host_{};
+        std::vector<float> force_y_host_{};
         std::vector<float> force_z_host_{};
+        std::vector<float> cloud_mask_{};
         std::vector<float> wind_mask_{};
-        std::vector<float> shear_mask_{};
+        std::vector<float> drift_mask_{};
         std::vector<float> curl_x_mask_{};
         std::vector<float> curl_z_mask_{};
-        std::vector<float> pulse_mask_{};
+        std::vector<float> lift_mask_{};
         uint64_t animation_step_ = 0;
         app::SceneInfo info_{};
     };

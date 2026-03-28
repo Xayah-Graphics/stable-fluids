@@ -19,16 +19,6 @@ namespace scene_cloud {
             bool use_density_field = false;
         };
 
-        struct CloudSeed {
-            float x;
-            float y;
-            float z;
-            float rx;
-            float ry;
-            float rz;
-            float amplitude;
-        };
-
         constexpr std::array field_catalog_storage{
             CloudFieldInfo{
                 .view =
@@ -36,10 +26,10 @@ namespace scene_cloud {
                         .label  = "Cloud Density",
                         .preset =
                             {
-                                .density_scale  = 10.08f,
+                                .density_scale  = 1.0f,
                                 .scalar_min     = 0.0f,
                                 .scalar_max     = 0.66f,
-                                .scalar_opacity = 5.7f,
+                                .scalar_opacity = 1.7f,
                                 .scalar_low_r   = 0.82f,
                                 .scalar_low_g   = 0.87f,
                                 .scalar_low_b   = 0.93f,
@@ -148,6 +138,7 @@ namespace scene_cloud {
             .plane_axis          = app::PlaneAxis::XY,
             .march_steps         = 128,
             .slice_position      = 0.76f,
+            .camera_distance_scale = 0.44f,
             .show_velocity_plane = false,
             .background_bottom_r = 0.82f,
             .background_bottom_g = 0.91f,
@@ -188,19 +179,22 @@ namespace scene_cloud {
         force_y_device_        = nullptr;
         force_z_device_        = nullptr;
         density_source_device_ = nullptr;
+        density_source_host_.clear();
         force_x_host_.clear();
+        force_y_host_.clear();
         force_z_host_.clear();
+        cloud_mask_.clear();
         wind_mask_.clear();
-        shear_mask_.clear();
+        drift_mask_.clear();
         curl_x_mask_.clear();
         curl_z_mask_.clear();
-        pulse_mask_.clear();
+        lift_mask_.clear();
 
         const std::array fields{
             StableFluidsFieldCreateDesc{
                 .name          = "cloud_density",
                 .diffusion     = 0.00002f,
-                .dissipation   = 0.040f,
+                .dissipation   = 0.055f,
                 .initial_value = 0.0f,
             },
         };
@@ -231,26 +225,15 @@ namespace scene_cloud {
         };
 
         force_x_host_.assign(cell_count, 0.0f);
+        force_y_host_.assign(cell_count, 0.0f);
         force_z_host_.assign(cell_count, 0.0f);
+        density_source_host_.assign(cell_count, 0.0f);
+        cloud_mask_.assign(cell_count, 0.0f);
         wind_mask_.assign(cell_count, 0.0f);
-        shear_mask_.assign(cell_count, 0.0f);
+        drift_mask_.assign(cell_count, 0.0f);
         curl_x_mask_.assign(cell_count, 0.0f);
         curl_z_mask_.assign(cell_count, 0.0f);
-        pulse_mask_.assign(cell_count, 0.0f);
-
-        std::vector<float> force_y_host(cell_count, 0.0f);
-        std::vector<float> density_source_host(cell_count, 0.0f);
-        constexpr std::array cloud_seeds{
-            CloudSeed{0.09f, 0.77f, 0.18f, 0.10f, 0.045f, 0.10f, 0.82f},
-            CloudSeed{0.18f, 0.79f, 0.24f, 0.08f, 0.040f, 0.08f, 0.58f},
-            CloudSeed{0.31f, 0.75f, 0.58f, 0.12f, 0.050f, 0.12f, 0.88f},
-            CloudSeed{0.40f, 0.78f, 0.67f, 0.09f, 0.040f, 0.09f, 0.56f},
-            CloudSeed{0.53f, 0.72f, 0.34f, 0.13f, 0.055f, 0.11f, 0.84f},
-            CloudSeed{0.63f, 0.74f, 0.42f, 0.08f, 0.040f, 0.07f, 0.50f},
-            CloudSeed{0.74f, 0.80f, 0.76f, 0.12f, 0.050f, 0.11f, 0.90f},
-            CloudSeed{0.83f, 0.77f, 0.67f, 0.08f, 0.040f, 0.08f, 0.54f},
-            CloudSeed{0.91f, 0.75f, 0.27f, 0.10f, 0.045f, 0.09f, 0.76f},
-        };
+        lift_mask_.assign(cell_count, 0.0f);
 
         for (int z = 0; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
@@ -262,45 +245,85 @@ namespace scene_cloud {
                     const float fx   = px / extent_x;
                     const float fy   = py / extent_y;
                     const float fz   = pz / extent_z;
+                    float dx = fx - 0.50f;
+                    float dz = fz - 0.54f;
+                    if (dx > 0.5f) dx -= 1.0f;
+                    if (dx < -0.5f) dx += 1.0f;
+                    if (dz > 0.5f) dz -= 1.0f;
+                    if (dz < -0.5f) dz += 1.0f;
+                    const float dy = fy - 0.70f;
+                    const float main_rx = 0.26f;
+                    const float main_ry = 0.14f;
+                    const float main_rz = 0.22f;
+                    const float main_shape =
+                        (dx * dx) / (main_rx * main_rx) +
+                        (dy * dy) / (main_ry * main_ry) +
+                        (dz * dz) / (main_rz * main_rz);
 
-                    float layer = 0.0f;
-                    const float layer_center = 0.76f;
-                    const float layer_half = 0.11f;
-                    const float layer_y = std::abs(fy - layer_center);
-                    if (layer_y < layer_half) layer = 1.0f - layer_y / layer_half;
-
-                    float cover = 0.0f;
-                    for (const auto& seed : cloud_seeds) {
-                        float dx = fx - seed.x;
-                        float dz = fz - seed.z;
-                        if (dx > 0.5f) dx -= 1.0f;
-                        if (dx < -0.5f) dx += 1.0f;
-                        if (dz > 0.5f) dz -= 1.0f;
-                        if (dz < -0.5f) dz += 1.0f;
-                        const float dy = fy - seed.y;
-                        const float norm =
-                            (dx * dx) / (seed.rx * seed.rx) +
-                            (dy * dy) / (seed.ry * seed.ry) +
-                            (dz * dz) / (seed.rz * seed.rz);
-                        if (norm >= 1.0f) continue;
-                        cover += seed.amplitude * (1.0f - norm);
+                    float companion = 0.0f;
+                    {
+                        float sx = fx - 0.30f;
+                        float sz = fz - 0.46f;
+                        if (sx > 0.5f) sx -= 1.0f;
+                        if (sx < -0.5f) sx += 1.0f;
+                        if (sz > 0.5f) sz -= 1.0f;
+                        if (sz < -0.5f) sz += 1.0f;
+                        const float sy = fy - 0.69f;
+                        const float shape =
+                            (sx * sx) / (0.10f * 0.10f) +
+                            (sy * sy) / (0.055f * 0.055f) +
+                            (sz * sz) / (0.09f * 0.09f);
+                        if (shape < 1.0f) companion += 0.80f * (1.0f - shape);
                     }
-                    cover = std::clamp(cover, 0.0f, 1.35f);
-                    const float band = layer * cover;
-                    const float wave = 0.5f + 0.5f * std::sin(fx * 11.0f + fz * 7.5f);
-                    const float warp = 0.5f + 0.5f * std::cos(fx * 6.0f - fz * 9.0f);
-                    const float puff = std::clamp(band * band * (1.22f + 0.28f * wave + 0.20f * warp), 0.0f, 1.38f);
-                    const float dx_center = fx - 0.5f;
-                    const float dz_center = fz - 0.5f;
-                    const float radial = std::sqrt(dx_center * dx_center + dz_center * dz_center);
+                    {
+                        float sx = fx - 0.67f;
+                        float sz = fz - 0.64f;
+                        if (sx > 0.5f) sx -= 1.0f;
+                        if (sx < -0.5f) sx += 1.0f;
+                        if (sz > 0.5f) sz -= 1.0f;
+                        if (sz < -0.5f) sz += 1.0f;
+                        const float sy = fy - 0.73f;
+                        const float shape =
+                            (sx * sx) / (0.08f * 0.08f) +
+                            (sy * sy) / (0.048f * 0.048f) +
+                            (sz * sz) / (0.07f * 0.07f);
+                        if (shape < 1.0f) companion += 0.72f * (1.0f - shape);
+                    }
+                    {
+                        float sx = fx - 0.57f;
+                        float sz = fz - 0.34f;
+                        if (sx > 0.5f) sx -= 1.0f;
+                        if (sx < -0.5f) sx += 1.0f;
+                        if (sz > 0.5f) sz -= 1.0f;
+                        if (sz < -0.5f) sz += 1.0f;
+                        const float sy = fy - 0.66f;
+                        const float shape =
+                            (sx * sx) / (0.07f * 0.07f) +
+                            (sy * sy) / (0.040f * 0.040f) +
+                            (sz * sz) / (0.06f * 0.06f);
+                        if (shape < 1.0f) companion += 0.62f * (1.0f - shape);
+                    }
+
+                    const float main_shell = main_shape < 1.0f ? 1.0f - main_shape : 0.0f;
+                    const float shell = std::clamp(main_shell + companion, 0.0f, 1.35f);
+                    if (shell <= 1.0e-5f) continue;
+                    const float noise_a = 0.5f + 0.5f * std::sin(fx * 8.7f + fy * 5.1f + fz * 11.3f);
+                    const float noise_b = 0.5f + 0.5f * std::cos(fx * 14.9f - fy * 9.4f + fz * 6.8f);
+                    const float noise_c = 0.5f + 0.5f * std::sin(fx * 21.0f + fy * 17.0f - fz * 12.0f);
+                    const float detail = 0.50f * noise_a + 0.32f * noise_b + 0.18f * noise_c;
+                    const float cloud = std::clamp(shell * shell * (0.95f + 0.58f * detail), 0.0f, 1.62f);
+                    const float radial = std::sqrt(dx * dx + dz * dz);
                     const float inv_radial = radial > 1.0e-5f ? 1.0f / radial : 0.0f;
-                    wind_mask_[index] = puff * (0.72f + 0.28f * wave);
-                    shear_mask_[index] = puff * std::sin((fy - 0.68f) * 17.0f);
-                    curl_x_mask_[index] = -dz_center * inv_radial * puff * (0.35f + 0.65f * warp);
-                    curl_z_mask_[index] = dx_center * inv_radial * puff * (0.35f + 0.65f * wave);
-                    pulse_mask_[index] = puff * (0.65f + 0.35f * std::sin(fx * 13.0f + fz * 4.0f));
-                    density_source_host[index] = 1.95f * puff;
-                    force_y_host[index] = 0.055f * puff;
+                    const float lower_bias = std::clamp((0.78f - fy) / 0.20f, 0.0f, 1.0f);
+
+                    cloud_mask_[index] = cloud;
+                    wind_mask_[index] = cloud * (0.72f + 0.28f * noise_a);
+                    drift_mask_[index] = cloud * (noise_b * 2.0f - 1.0f);
+                    curl_x_mask_[index] = -dz * inv_radial * cloud * (0.45f + 0.55f * noise_c);
+                    curl_z_mask_[index] = dx * inv_radial * cloud * (0.45f + 0.55f * noise_a);
+                    lift_mask_[index] = cloud * (0.55f + 0.45f * lower_bias);
+                    density_source_host_[index] = 1.35f * cloud * (0.82f + 0.18f * detail);
+                    force_y_host_[index] = 0.030f * lift_mask_[index];
                 }
             }
         }
@@ -310,9 +333,10 @@ namespace scene_cloud {
         check_cuda(cudaMalloc(reinterpret_cast<void**>(&force_z_device_), scalar_bytes), "cudaMalloc force_z_device");
         check_cuda(cudaMalloc(reinterpret_cast<void**>(&density_source_device_), scalar_bytes), "cudaMalloc density_source_device");
         check_cuda(cudaMemsetAsync(force_x_device_, 0, scalar_bytes, stream_), "cudaMemsetAsync force_x_device");
+        check_cuda(cudaMemsetAsync(force_y_device_, 0, scalar_bytes, stream_), "cudaMemsetAsync force_y_device");
         check_cuda(cudaMemsetAsync(force_z_device_, 0, scalar_bytes, stream_), "cudaMemsetAsync force_z_device");
-        check_cuda(cudaMemcpyAsync(force_y_device_, force_y_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_y_device");
-        check_cuda(cudaMemcpyAsync(density_source_device_, density_source_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync density_source_device");
+        check_cuda(cudaMemcpyAsync(force_y_device_, force_y_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_y_device");
+        check_cuda(cudaMemcpyAsync(density_source_device_, density_source_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync density_source_device");
         animation_step_ = 0;
         info_ = {
             .grid              = grid_,
@@ -339,18 +363,29 @@ namespace scene_cloud {
         };
 
         for (int step_index = 0; step_index < sim_steps; ++step_index) {
-            const float phase = static_cast<float>(animation_step_) * 0.018f;
-            const float wind = 0.14f + 0.02f * std::sin(phase * 0.37f);
-            const float shear = 0.025f * std::sin(phase * 0.63f);
-            const float drift = 0.035f * std::cos(phase * 0.29f);
-            const float curl = 0.055f * std::sin(phase * 0.51f);
+            const float phase = static_cast<float>(animation_step_) * 0.014f;
+            const float lifecycle_phase = static_cast<float>(animation_step_) * 0.0065f - 1.1f;
+            const float cycle = 0.5f + 0.5f * std::sin(lifecycle_phase);
+            float source_gain = std::clamp((cycle - 0.18f) / 0.30f, 0.0f, 1.0f) * std::clamp((0.88f - cycle) / 0.24f, 0.0f, 1.0f);
+            source_gain = source_gain * source_gain * (3.0f - 2.0f * source_gain);
+            const float wind = 0.074f + 0.012f * std::sin(phase * 0.23f);
+            const float drift = 0.020f * std::sin(phase * 0.41f);
+            const float curl = 0.048f * std::sin(phase * 0.67f);
+            const float cross = 0.018f * std::cos(phase * 0.31f);
+            const float lift = 0.024f + 0.008f * std::sin(phase * 0.19f);
+            const float motion_gain = 0.30f + 0.70f * source_gain;
             for (size_t i = 0; i < force_x_host_.size(); ++i) {
-                force_x_host_[i] = wind * wind_mask_[i] + shear * shear_mask_[i] + curl * curl_x_mask_[i];
-                force_z_host_[i] = drift * pulse_mask_[i] + curl * curl_z_mask_[i];
+                const float texture = cloud_mask_[i] > 1.0e-5f ? wind_mask_[i] / cloud_mask_[i] : 0.0f;
+                density_source_host_[i] = source_gain * cloud_mask_[i] * (1.00f + 0.22f * texture);
+                force_x_host_[i] = motion_gain * (wind * wind_mask_[i] + curl * curl_x_mask_[i] + cross * drift_mask_[i] * cloud_mask_[i]);
+                force_y_host_[i] = motion_gain * lift * lift_mask_[i];
+                force_z_host_[i] = motion_gain * (drift * drift_mask_[i] + curl * curl_z_mask_[i]);
             }
 
             const auto begin = std::chrono::steady_clock::now();
+            check_cuda(cudaMemcpyAsync(density_source_device_, density_source_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync density_source_device");
             check_cuda(cudaMemcpyAsync(force_x_device_, force_x_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_x_device");
+            check_cuda(cudaMemcpyAsync(force_y_device_, force_y_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_y_device");
             check_cuda(cudaMemcpyAsync(force_z_device_, force_z_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_z_device");
             const StableFluidsStepDesc step_desc{
                 .force_x            = force_x_device_,
