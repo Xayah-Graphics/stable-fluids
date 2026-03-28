@@ -124,7 +124,6 @@ namespace app {
         }
 
         if (imgui_sys_.initialized) vk::imgui::shutdown(imgui_sys_);
-        extra_volume_pipelines_.clear();
         volume_pipeline_ = {};
         plane_pipeline_ = {};
         background_pipeline_ = {};
@@ -194,28 +193,14 @@ namespace app {
         camera_.update(dt_seconds, sc_.extent.width, sc_.extent.height, camera_input);
     }
 
-    void VisualizationApp::draw_visualization_ui(AppState& state, const SceneInfo& scene, const std::span<const FieldInfo> fields, const std::span<const std::string_view> scene_labels, bool& reset_requested, bool& field_changed, bool& scene_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
+    void VisualizationApp::draw_visualization_ui(AppState& state, const SceneInfo& scene, const std::span<const FieldInfo> fields, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
         bool reframe_requested       = false;
         auto& settings               = state.render;
-        state.selected_scene = std::clamp(state.selected_scene, 0, static_cast<int>(scene_labels.empty() ? 0 : scene_labels.size() - 1));
         if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
         state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
         const auto& field    = fields[static_cast<size_t>(state.selected_field)];
 
         ImGui::Begin("Stable Fluids");
-        if (scene_labels.size() > 1 && ImGui::BeginCombo("Scene", scene_labels[static_cast<size_t>(state.selected_scene)].data())) {
-            for (int i = 0; i < static_cast<int>(scene_labels.size()); ++i) {
-                const bool is_selected = state.selected_scene == i;
-                if (ImGui::Selectable(scene_labels[static_cast<size_t>(i)].data(), is_selected)) {
-                    state.selected_scene = i;
-                    state.selected_field = 0;
-                    scene_changed        = true;
-                    reframe_requested    = true;
-                }
-                if (is_selected) ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
-        }
         if (ImGui::BeginCombo("Field", field.label.data())) {
             for (int i = 0; i < static_cast<int>(fields.size()); ++i) {
                 const bool is_selected = state.selected_field == i;
@@ -275,7 +260,7 @@ namespace app {
         if (reframe_requested && snapshot) frame_content(settings, *snapshot);
     }
 
-    bool VisualizationApp::render_frame(const VisualizationSettings& settings, const FieldInfo& field, const std::optional<VisualizationSnapshotView>& snapshot) {
+    bool VisualizationApp::render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot) {
         nvtx3::scoped_range range{"viz.render_frame"};
         using namespace vk;
 
@@ -399,7 +384,7 @@ namespace app {
                 camera_config.ortho_height,
             };
 
-            const auto& pipeline = settings.view_mode == ViewMode::Volume ? select_volume_pipeline(field.volume_shader) : plane_pipeline_;
+            const auto& pipeline = settings.view_mode == ViewMode::Volume ? volume_pipeline_ : plane_pipeline_;
             cmd.bindPipeline(PipelineBindPoint::eGraphics, *pipeline.pipeline);
             cmd.bindDescriptorSets(PipelineBindPoint::eGraphics, *pipeline.layout, 0, {snapshot->field.descriptor_set}, {});
             cmd.pushConstants(*pipeline.layout, ShaderStageFlagBits::eVertex | ShaderStageFlagBits::eFragment, 0, push_block);
@@ -639,7 +624,6 @@ namespace app {
         const float center_x                 = snapshot.grid.extent_x() * 0.5f;
         const float center_y                 = snapshot.grid.extent_y() * 0.5f;
         const float center_z                 = snapshot.grid.extent_z() * 0.5f;
-        const float camera_distance_scale    = (std::max)(settings.camera_distance_scale, 0.25f);
         vk::camera::CameraState camera_state = camera_.state();
         camera_state.mode                    = vk::camera::Mode::Orbit;
         camera_state.orbit.target            = {center_x, center_y, center_z, 0.0f};
@@ -661,7 +645,7 @@ namespace app {
             }
         } else {
             update_camera_config(vk::camera::Projection::Perspective, snapshot.grid.max_extent());
-            camera_state.orbit.distance  = snapshot.grid.max_extent() * camera_distance_scale;
+            camera_state.orbit.distance  = snapshot.grid.max_extent() * 1.10f;
             camera_state.orbit.yaw_rad   = 0.0f;
             camera_state.orbit.pitch_rad = 0.0f;
         }
@@ -697,32 +681,6 @@ namespace app {
             imgui_sys_ = vk::imgui::create(vkctx_, window_, sc_.format, image_count, image_count, docking, viewports);
         }
         sctx_.resize_requested = false;
-    }
-
-    const vk::pipeline::GraphicsPipeline& VisualizationApp::select_volume_pipeline(const std::string_view shader_stem) {
-        if (shader_stem.empty() || shader_stem == "field_volume") return volume_pipeline_;
-        for (const auto& shader : extra_volume_pipelines_) {
-            if (shader.stem == shader_stem) return shader.pipeline;
-        }
-
-        std::array<vk::DescriptorSetLayout, 1> pipeline_set_layouts{*field_set_layout_};
-        vk::pipeline::GraphicsPipelineDesc pipeline_desc{
-            .color_format         = sc_.format,
-            .use_depth            = false,
-            .use_blend            = true,
-            .topology             = vk::PrimitiveTopology::eTriangleList,
-            .cull                 = vk::CullModeFlagBits::eNone,
-            .push_constant_bytes  = sizeof(FieldPushConstants),
-            .push_constant_stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
-            .set_layouts          = pipeline_set_layouts,
-        };
-        vk::pipeline::VertexInput empty_vertex_input{};
-        auto& shader = extra_volume_pipelines_.emplace_back();
-        shader.stem  = shader_stem;
-        const auto shader_spv = vk::pipeline::read_file_bytes((shader_dir_ / (shader.stem + ".spv")).string());
-        shader.module         = vk::pipeline::load_shader_module(vkctx_.device, shader_spv);
-        shader.pipeline       = vk::pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, shader.module, "vs_main", "fs_main");
-        return shader.pipeline;
     }
 
     namespace {
@@ -958,80 +916,6 @@ namespace app {
         const uint64_t next_submit_serial = data.capture.submit_serial + 1;
         if (data.capture.active_slot >= 0) data.capture.slots[static_cast<size_t>(data.capture.active_slot)].last_used_submit_serial = next_submit_serial;
         data.capture.submit_serial = next_submit_serial;
-    }
-
-    int run_scene_switcher(const std::span<SceneEntry> scenes) {
-        AppState state{};
-        AppData data{};
-        std::unique_ptr<VisualizationApp> renderer{};
-        try {
-            if (scenes.empty()) throw std::runtime_error("run_scene_switcher requires at least one scene");
-            renderer = std::make_unique<VisualizationApp>();
-            check_interop_support(*renderer);
-
-            std::vector<std::string_view> scene_labels{};
-            scene_labels.reserve(scenes.size());
-            for (const auto& scene : scenes) scene_labels.push_back(scene.label);
-
-            renderer->vk_context().device.waitIdle();
-            for (auto& scene : scenes) scene.rebuild();
-
-            auto activate_scene = [&](const bool reframe) {
-                auto& scene = scenes[static_cast<size_t>(state.selected_scene)];
-                state.selected_field = 0;
-                state.render = scene.default_visualization();
-                sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
-                capture_snapshot(state, data, scene, *renderer);
-                if (!reframe) return;
-                if (const auto snapshot = active_snapshot(data)) renderer->frame_content(state.render, *snapshot);
-            };
-
-            activate_scene(true);
-            while (!renderer->should_close()) {
-                renderer->begin_frame();
-
-                bool reset_requested = false;
-                bool field_changed   = false;
-                bool scene_changed   = false;
-                auto& scene          = scenes[static_cast<size_t>(state.selected_scene)];
-                auto snapshot        = active_snapshot(data);
-                renderer->draw_visualization_ui(state, scene.info(), scene.fields(), scene_labels, reset_requested, field_changed, scene_changed, snapshot);
-
-                if (scene_changed) {
-                    renderer->vk_context().device.waitIdle();
-                    activate_scene(true);
-                } else if (reset_requested) {
-                    renderer->vk_context().device.waitIdle();
-                    scene.rebuild();
-                    sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
-                    capture_snapshot(state, data, scene, *renderer);
-                    snapshot = active_snapshot(data);
-                    if (snapshot) renderer->frame_content(state.render, *snapshot);
-                } else {
-                    sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
-                    if (!state.paused) scene.step(1);
-                    if (!state.paused || field_changed || !snapshot) capture_snapshot(state, data, scene, *renderer);
-                }
-
-                snapshot             = active_snapshot(data);
-                const auto fields     = scene.fields();
-                const auto field_index = static_cast<size_t>(std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1));
-                const bool submitted = renderer->render_frame(state.render, fields[field_index], snapshot);
-                if (submitted) mark_snapshot_submitted(data);
-            }
-
-            renderer->vk_context().device.waitIdle();
-            destroy_runtime_data(data);
-            return 0;
-        } catch (const std::exception& e) {
-            try {
-                if (renderer) renderer->vk_context().device.waitIdle();
-            } catch (...) {
-            }
-            destroy_runtime_data(data);
-            std::fprintf(stderr, "%s\n", e.what());
-            return 1;
-        }
     }
 
 } // namespace app

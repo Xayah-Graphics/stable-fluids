@@ -92,7 +92,6 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
             vulkan-app/shaders/background.slang
             vulkan-app/shaders/field_plane.slang
             vulkan-app/shaders/field_volume.slang
-            vulkan-app/shaders/scene_cloud_volume.slang
     )
     set(SMOKE_SIM_SHADER_OUTPUTS "")
     foreach (shader IN LISTS SMOKE_SIM_SHADER_SOURCES)
@@ -134,7 +133,6 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
             vulkan-app/main.cpp
             vulkan-app/app.cpp
             vulkan-app/scene_plume.cpp
-            vulkan-app/scene_cloud.cpp
 
             PUBLIC FILE_SET cxx_modules TYPE CXX_MODULES FILES
             vulkan-app/modules/vk.camera.ixx
@@ -149,7 +147,6 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
             vulkan-app/modules/vk.texture.ixx
             vulkan-app/app.ixx
             vulkan-app/scene_plume.ixx
-            vulkan-app/scene_cloud.ixx
     )
     add_dependencies(stable-fluids-app stable-fluids-shaders)
     target_compile_definitions(stable-fluids-app PRIVATE SMOKE_SIM_SHADER_DIR="${SMOKE_SIM_SHADER_DIR}" VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1)

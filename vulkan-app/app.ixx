@@ -93,7 +93,6 @@ export namespace app {
         PlaneAxis plane_axis             = PlaneAxis::XY;
         int march_steps                  = 112;
         float slice_position             = 0.42f;
-        float camera_distance_scale      = 1.10f;
         bool show_velocity_plane         = false;
         int velocity_plane_seed_count    = 40;
         float velocity_plane_arrow_cells = 2.0f;
@@ -133,7 +132,6 @@ export namespace app {
     struct FieldInfo {
         std::string_view label{};
         FieldVisualPreset preset{};
-        std::string_view volume_shader = "field_volume";
     };
 
     struct SceneInfo {
@@ -144,7 +142,6 @@ export namespace app {
     };
 
     struct AppState {
-        int selected_scene = 0;
         int selected_field = 0;
         bool paused        = false;
         VisualizationSettings render{};
@@ -188,8 +185,8 @@ export namespace app {
 
         [[nodiscard]] bool should_close() const;
         void begin_frame();
-        void draw_visualization_ui(AppState& state, const SceneInfo& scene, std::span<const FieldInfo> fields, std::span<const std::string_view> scene_labels, bool& reset_requested, bool& field_changed, bool& scene_changed, const std::optional<VisualizationSnapshotView>& snapshot);
-        bool render_frame(const VisualizationSettings& settings, const FieldInfo& field, const std::optional<VisualizationSnapshotView>& snapshot);
+        void draw_visualization_ui(AppState& state, const SceneInfo& scene, std::span<const FieldInfo> fields, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot);
+        bool render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot);
         void frame_content(const VisualizationSettings& settings, const VisualizationSnapshotView& snapshot);
 
         [[nodiscard]] const vk::context::VulkanContext& vk_context() const;
@@ -226,16 +223,8 @@ export namespace app {
         vk::pipeline::GraphicsPipeline background_pipeline_{};
         vk::pipeline::GraphicsPipeline plane_pipeline_{};
         vk::pipeline::GraphicsPipeline volume_pipeline_{};
-        struct VolumeShaderPipeline {
-            std::string stem{};
-            vk::raii::ShaderModule module{nullptr};
-            vk::pipeline::GraphicsPipeline pipeline{};
-        };
-        std::vector<VolumeShaderPipeline> extra_volume_pipelines_{};
         uint32_t frame_index_                                  = 0;
         std::chrono::steady_clock::time_point last_frame_time_{};  // default-initialized
-
-        [[nodiscard]] const vk::pipeline::GraphicsPipeline& select_volume_pipeline(std::string_view shader_stem);
     };
 
     template<typename TScene>
@@ -249,109 +238,6 @@ export namespace app {
         { const_scene.export_velocity(device_destination, host_destination) } -> std::same_as<void>;
         { const_scene.stream() } -> std::same_as<cudaStream_t>;
     };
-
-    struct SceneEntry {
-        std::string_view label{};
-        void* storage = nullptr;
-        void (*destroy_fn)(void*) = nullptr;
-        std::span<const FieldInfo> (*fields_fn)(const void*) = nullptr;
-        VisualizationSettings (*default_visualization_fn)(const void*) = nullptr;
-        SceneInfo (*info_fn)(const void*) = nullptr;
-        void (*rebuild_fn)(void*) = nullptr;
-        void (*step_fn)(void*, int) = nullptr;
-        void (*export_field_fn)(const void*, uint32_t, void*) = nullptr;
-        void (*export_velocity_fn)(const void*, void*, float*) = nullptr;
-        cudaStream_t (*stream_fn)(const void*) = nullptr;
-
-        SceneEntry() = default;
-        ~SceneEntry() {
-            if (storage != nullptr && destroy_fn != nullptr) destroy_fn(storage);
-        }
-
-        SceneEntry(const SceneEntry&) = delete;
-        SceneEntry& operator=(const SceneEntry&) = delete;
-
-        SceneEntry(SceneEntry&& other) noexcept {
-            *this = std::move(other);
-        }
-
-        SceneEntry& operator=(SceneEntry&& other) noexcept {
-            if (this == &other) return *this;
-            if (storage != nullptr && destroy_fn != nullptr) destroy_fn(storage);
-            label                    = other.label;
-            storage                  = other.storage;
-            destroy_fn               = other.destroy_fn;
-            fields_fn                = other.fields_fn;
-            default_visualization_fn = other.default_visualization_fn;
-            info_fn                  = other.info_fn;
-            rebuild_fn               = other.rebuild_fn;
-            step_fn                  = other.step_fn;
-            export_field_fn          = other.export_field_fn;
-            export_velocity_fn       = other.export_velocity_fn;
-            stream_fn                = other.stream_fn;
-            other.label                    = {};
-            other.storage                  = nullptr;
-            other.destroy_fn               = nullptr;
-            other.fields_fn                = nullptr;
-            other.default_visualization_fn = nullptr;
-            other.info_fn                  = nullptr;
-            other.rebuild_fn               = nullptr;
-            other.step_fn                  = nullptr;
-            other.export_field_fn          = nullptr;
-            other.export_velocity_fn       = nullptr;
-            other.stream_fn                = nullptr;
-            return *this;
-        }
-
-        [[nodiscard]] std::span<const FieldInfo> fields() const {
-            return fields_fn(storage);
-        }
-
-        [[nodiscard]] VisualizationSettings default_visualization() const {
-            return default_visualization_fn(storage);
-        }
-
-        [[nodiscard]] SceneInfo info() const {
-            return info_fn(storage);
-        }
-
-        void rebuild() {
-            rebuild_fn(storage);
-        }
-
-        void step(const int sim_steps) {
-            step_fn(storage, sim_steps);
-        }
-
-        void export_field(const uint32_t field_index, void* const device_destination) const {
-            export_field_fn(storage, field_index, device_destination);
-        }
-
-        void export_velocity(void* const device_destination, float* const host_destination) const {
-            export_velocity_fn(storage, device_destination, host_destination);
-        }
-
-        [[nodiscard]] cudaStream_t stream() const {
-            return stream_fn(storage);
-        }
-    };
-
-    template<SceneSample TScene>
-    [[nodiscard]] SceneEntry make_scene_entry(const std::string_view label) {
-        SceneEntry entry{};
-        entry.label                    = label;
-        entry.storage                  = new TScene{};
-        entry.destroy_fn               = [](void* const storage) { delete static_cast<TScene*>(storage); };
-        entry.fields_fn                = [](const void* const storage) { return static_cast<const TScene*>(storage)->fields(); };
-        entry.default_visualization_fn = [](const void* const storage) { return static_cast<const TScene*>(storage)->default_visualization(); };
-        entry.info_fn                  = [](const void* const storage) { return static_cast<const TScene*>(storage)->info(); };
-        entry.rebuild_fn               = [](void* const storage) { static_cast<TScene*>(storage)->rebuild(); };
-        entry.step_fn                  = [](void* const storage, const int sim_steps) { static_cast<TScene*>(storage)->step(sim_steps); };
-        entry.export_field_fn          = [](const void* const storage, const uint32_t field_index, void* const device_destination) { static_cast<const TScene*>(storage)->export_field(field_index, device_destination); };
-        entry.export_velocity_fn       = [](const void* const storage, void* const device_destination, float* const host_destination) { static_cast<const TScene*>(storage)->export_velocity(device_destination, host_destination); };
-        entry.stream_fn                = [](const void* const storage) { return static_cast<const TScene*>(storage)->stream(); };
-        return entry;
-    }
 
     void destroy_runtime_data(AppData& data);
     void check_interop_support(const VisualizationApp& renderer);
@@ -397,6 +283,63 @@ export namespace app {
     [[nodiscard]] std::optional<VisualizationSnapshotView> active_snapshot(const AppData& data);
     void mark_snapshot_submitted(AppData& data);
 
-    int run_scene_switcher(std::span<SceneEntry> scenes);
+    template<SceneSample TScene>
+    int run_scene() {
+        AppState state{};
+        AppData data{};
+        std::unique_ptr<VisualizationApp> renderer{};
+        try {
+            renderer = std::make_unique<VisualizationApp>();
+            check_interop_support(*renderer);
+
+            TScene scene{};
+            renderer->vk_context().device.waitIdle();
+            scene.rebuild();
+
+            state.selected_field = 0;
+            state.render         = scene.default_visualization();
+            sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
+            capture_snapshot(state, data, scene, *renderer);
+            if (const auto snapshot = active_snapshot(data)) renderer->frame_content(state.render, *snapshot);
+
+            while (!renderer->should_close()) {
+                renderer->begin_frame();
+
+                bool reset_requested = false;
+                bool field_changed   = false;
+                auto snapshot        = active_snapshot(data);
+                renderer->draw_visualization_ui(state, scene.info(), scene.fields(), reset_requested, field_changed, snapshot);
+
+                if (reset_requested) {
+                    renderer->vk_context().device.waitIdle();
+                    scene.rebuild();
+                    sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
+                    capture_snapshot(state, data, scene, *renderer);
+                    snapshot = active_snapshot(data);
+                    if (snapshot) renderer->frame_content(state.render, *snapshot);
+                } else {
+                    sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
+                    if (!state.paused) scene.step(1);
+                    if (!state.paused || field_changed || !snapshot) capture_snapshot(state, data, scene, *renderer);
+                }
+
+                snapshot             = active_snapshot(data);
+                const bool submitted = renderer->render_frame(state.render, snapshot);
+                if (submitted) mark_snapshot_submitted(data);
+            }
+
+            renderer->vk_context().device.waitIdle();
+            destroy_runtime_data(data);
+            return 0;
+        } catch (const std::exception& e) {
+            try {
+                if (renderer) renderer->vk_context().device.waitIdle();
+            } catch (...) {
+            }
+            destroy_runtime_data(data);
+            std::fprintf(stderr, "%s\n", e.what());
+            return 1;
+        }
+    }
 
 } // namespace app
