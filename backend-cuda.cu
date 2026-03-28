@@ -923,8 +923,8 @@ namespace stable_fluids {
             const float dy        = py - center_y;
             const float dz        = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
-            if (distance2 <= radius2) {
-                const float weight = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
+            const float weight    = radius2 > 0.0f ? (distance2 <= radius2 ? cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f) : 0.0f) : (distance2 == 0.0f ? 1.0f : 0.0f);
+            if (weight > 0.0f) {
                 const auto index   = index_3d(x, y, z, nx + 1, ny);
                 u[index]           = u[index] * (1.0f - weight) + velocity_x * weight;
             }
@@ -938,8 +938,8 @@ namespace stable_fluids {
             const float dy        = py - center_y;
             const float dz        = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
-            if (distance2 <= radius2) {
-                const float weight = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
+            const float weight    = radius2 > 0.0f ? (distance2 <= radius2 ? cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f) : 0.0f) : (distance2 == 0.0f ? 1.0f : 0.0f);
+            if (weight > 0.0f) {
                 const auto index   = index_3d(x, y, z, nx, ny + 1);
                 v[index]           = v[index] * (1.0f - weight) + velocity_y * weight;
             }
@@ -953,8 +953,8 @@ namespace stable_fluids {
             const float dy        = py - center_y;
             const float dz        = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
-            if (distance2 <= radius2) {
-                const float weight = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
+            const float weight    = radius2 > 0.0f ? (distance2 <= radius2 ? cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f) : 0.0f) : (distance2 == 0.0f ? 1.0f : 0.0f);
+            if (weight > 0.0f) {
                 const auto index   = index_3d(x, y, z, nx, ny);
                 w[index]           = w[index] * (1.0f - weight) + velocity_z * weight;
             }
@@ -976,8 +976,8 @@ namespace stable_fluids {
         const float dz        = pz - center_z;
         const float distance2 = dx * dx + dy * dy + dz * dz;
         const float radius2   = radius * radius;
-        if (distance2 > radius2) return;
-        const float weight          = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
+        const float weight    = radius2 > 0.0f ? (distance2 <= radius2 ? cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f) : 0.0f) : (distance2 == 0.0f ? 1.0f : 0.0f);
+        if (weight <= 0.0f) return;
         const auto cell_count_value = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz);
         if (components > 0) field[index] = field[index] * (1.0f - weight) + value_0 * weight;
         if (components > 1) field[cell_count_value + index] = field[cell_count_value + index] * (1.0f - weight) + value_1 * weight;
