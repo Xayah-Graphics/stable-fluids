@@ -188,7 +188,14 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    if (!stable_ok(stable_fluids_export_field_components_cuda(context, field_handles[0], 0, 1, device_density), "stable_fluids_export_field_components_cuda")) {
+    const StableFluidsExportDesc export_desc{
+        .kind = STABLE_FLUIDS_EXPORT_FIELD_COMPONENTS,
+        .field_a = field_handles[0],
+        .field_b = 0,
+        .component_offset = 0,
+        .component_count = 1,
+    };
+    if (!stable_ok(stable_fluids_export_cuda(context, &export_desc, device_density), "stable_fluids_export_cuda")) {
         cudaFree(device_density);
         stable_fluids_destroy_context_cuda(context);
         return EXIT_FAILURE;

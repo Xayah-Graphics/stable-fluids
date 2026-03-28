@@ -913,30 +913,79 @@ namespace app {
 
         void export_field(const AppState& state, const AppData& data, const FieldId field, void* destination) {
             if (field == FieldId::SmokeColor) {
-                check_stable(stable_fluids_export_alpha_rgb_rgba_cuda(data.physics.context, data.physics.density_field, data.physics.dye_field, destination), "stable_fluids_export_alpha_rgb_rgba_cuda");
+                const StableFluidsExportDesc desc{
+                    .kind = STABLE_FLUIDS_EXPORT_ALPHA_RGB_RGBA,
+                    .field_a = data.physics.density_field,
+                    .field_b = data.physics.dye_field,
+                    .component_offset = 0,
+                    .component_count = 0,
+                };
+                check_stable(stable_fluids_export_cuda(data.physics.context, &desc, destination), "stable_fluids_export_cuda");
                 return;
             }
             if (field == FieldId::Density) {
-                check_stable(stable_fluids_export_field_components_cuda(data.physics.context, data.physics.density_field, 0, 1, destination), "stable_fluids_export_field_components_cuda");
+                const StableFluidsExportDesc desc{
+                    .kind = STABLE_FLUIDS_EXPORT_FIELD_COMPONENTS,
+                    .field_a = data.physics.density_field,
+                    .field_b = 0,
+                    .component_offset = 0,
+                    .component_count = 1,
+                };
+                check_stable(stable_fluids_export_cuda(data.physics.context, &desc, destination), "stable_fluids_export_cuda");
                 return;
             }
             if (field == FieldId::VelocityMagnitude) {
-                check_stable(stable_fluids_export_velocity_magnitude_cuda(data.physics.context, destination), "stable_fluids_export_velocity_magnitude_cuda");
+                const StableFluidsExportDesc desc{
+                    .kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
+                    .field_a = 0,
+                    .field_b = 0,
+                    .component_offset = 0,
+                    .component_count = 0,
+                };
+                check_stable(stable_fluids_export_cuda(data.physics.context, &desc, destination), "stable_fluids_export_cuda");
                 return;
             }
             if (field == FieldId::SolidMask) {
-                check_stable(stable_fluids_export_solid_mask_cuda(data.physics.context, destination), "stable_fluids_export_solid_mask_cuda");
+                const StableFluidsExportDesc desc{
+                    .kind = STABLE_FLUIDS_EXPORT_SOLID_MASK,
+                    .field_a = 0,
+                    .field_b = 0,
+                    .component_offset = 0,
+                    .component_count = 0,
+                };
+                check_stable(stable_fluids_export_cuda(data.physics.context, &desc, destination), "stable_fluids_export_cuda");
                 return;
             }
             if (field == FieldId::Pressure) {
-                check_stable(stable_fluids_export_pressure_cuda(data.physics.context, destination), "stable_fluids_export_pressure_cuda");
+                const StableFluidsExportDesc desc{
+                    .kind = STABLE_FLUIDS_EXPORT_PRESSURE,
+                    .field_a = 0,
+                    .field_b = 0,
+                    .component_offset = 0,
+                    .component_count = 0,
+                };
+                check_stable(stable_fluids_export_cuda(data.physics.context, &desc, destination), "stable_fluids_export_cuda");
                 return;
             }
-            check_stable(stable_fluids_export_divergence_cuda(data.physics.context, destination), "stable_fluids_export_divergence_cuda");
+            const StableFluidsExportDesc desc{
+                .kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
+                .field_a = 0,
+                .field_b = 0,
+                .component_offset = 0,
+                .component_count = 0,
+            };
+            check_stable(stable_fluids_export_cuda(data.physics.context, &desc, destination), "stable_fluids_export_cuda");
         }
 
         void export_velocity(const AppData& data, void* destination) {
-            check_stable(stable_fluids_export_velocity_cuda(data.physics.context, destination), "stable_fluids_export_velocity_cuda");
+            const StableFluidsExportDesc desc{
+                .kind = STABLE_FLUIDS_EXPORT_VELOCITY,
+                .field_a = 0,
+                .field_b = 0,
+                .component_offset = 0,
+                .component_count = 0,
+            };
+            check_stable(stable_fluids_export_cuda(data.physics.context, &desc, destination), "stable_fluids_export_cuda");
         }
 
         CaptureRequest make_capture_request(AppState& state, const AppData& data) {

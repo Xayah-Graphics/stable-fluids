@@ -179,34 +179,30 @@ typedef struct StableFluidsProjectionMetrics {
     float rms_divergence;
 } StableFluidsProjectionMetrics;
 
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(
-    const StableFluidsContextCreateDesc* desc,
-    StableFluidsContext* out_context,
-    StableFluidsFieldHandle* out_field_handles,
-    uint32_t out_field_handle_capacity
-);
+typedef enum StableFluidsExportKind {
+    STABLE_FLUIDS_EXPORT_FIELD_COMPONENTS   = 0,
+    STABLE_FLUIDS_EXPORT_ALPHA_RGB_RGBA     = 1,
+    STABLE_FLUIDS_EXPORT_VELOCITY           = 2,
+    STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE = 3,
+    STABLE_FLUIDS_EXPORT_SOLID_MASK         = 4,
+    STABLE_FLUIDS_EXPORT_PRESSURE           = 5,
+    STABLE_FLUIDS_EXPORT_DIVERGENCE         = 6,
+} StableFluidsExportKind;
+
+typedef struct StableFluidsExportDesc {
+    uint32_t kind;
+    StableFluidsFieldHandle field_a;
+    StableFluidsFieldHandle field_b;
+    uint32_t component_offset;
+    uint32_t component_count;
+} StableFluidsExportDesc;
+
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_reset_context_cuda(StableFluidsContext context);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_scene_cuda(StableFluidsContext context, const StableFluidsSceneDesc* desc);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_field_components_cuda(
-    StableFluidsContext context,
-    StableFluidsFieldHandle field_handle,
-    uint32_t component_offset,
-    uint32_t component_count,
-    void* destination
-);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_alpha_rgb_rgba_cuda(
-    StableFluidsContext context,
-    StableFluidsFieldHandle alpha_field,
-    StableFluidsFieldHandle rgb_field,
-    void* destination
-);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_velocity_cuda(StableFluidsContext context, void* destination);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_velocity_magnitude_cuda(StableFluidsContext context, void* destination);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_solid_mask_cuda(StableFluidsContext context, void* destination);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_pressure_cuda(StableFluidsContext context, void* destination);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_divergence_cuda(StableFluidsContext context, void* destination);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_cuda(StableFluidsContext context, const StableFluidsExportDesc* desc, void* destination);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_projection_metrics_cuda(StableFluidsContext context, StableFluidsProjectionMetrics* out_metrics);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_grid_desc_cuda(StableFluidsContext context, StableFluidsGridDesc* out_desc);
 
