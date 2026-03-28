@@ -1,9 +1,8 @@
 module;
 
 #include "stable-fluids-3d.h"
-
-#include <cuda_runtime.h>
 #include <GLFW/glfw3.h>
+#include <cuda_runtime.h>
 
 #include <vulkan/vulkan_raii.hpp>
 
@@ -20,21 +19,9 @@ import vk.swapchain;
 
 export namespace app {
 
-    enum class FieldSemantic : uint32_t {
-        Density           = 0,
-        VelocityMagnitude = 1,
-        DyeColor          = 2,
-        GenericScalar     = 3,
-    };
-
     enum class ViewMode : uint32_t {
         Plane  = 0,
         Volume = 1,
-    };
-
-    enum class RenderMode : uint32_t {
-        Smoke  = 0,
-        Scalar = 1,
     };
 
     enum class PlaneAxis : uint32_t {
@@ -51,9 +38,9 @@ export namespace app {
     };
 
     struct GridShape {
-        uint32_t nx = 0;
-        uint32_t ny = 0;
-        uint32_t nz = 1;
+        uint32_t nx     = 0;
+        uint32_t ny     = 0;
+        uint32_t nz     = 1;
         float cell_size = 1.0f;
 
         [[nodiscard]] float extent_x() const {
@@ -65,11 +52,11 @@ export namespace app {
         }
 
         [[nodiscard]] float extent_z() const {
-            return static_cast<float>((std::max)(nz, 1u)) * cell_size;
+            return static_cast<float>((std::max) (nz, 1u)) * cell_size;
         }
 
         [[nodiscard]] float max_extent() const {
-            return (std::max)({extent_x(), extent_y(), extent_z()});
+            return (std::max) ({extent_x(), extent_y(), extent_z()});
         }
     };
 
@@ -77,32 +64,12 @@ export namespace app {
         vk::DescriptorSet descriptor_set{nullptr};
         vk::Semaphore timeline_semaphore{nullptr};
         uint64_t ready_generation = 0;
-        uint32_t component_count  = 1;
-        FieldSemantic semantic    = FieldSemantic::GenericScalar;
-        std::string_view label{};
-    };
-
-    struct ColliderOverlay {
-        bool enabled       = false;
-        uint32_t type      = 0;
-        float center_x     = 0.0f;
-        float center_y     = 0.0f;
-        float center_z     = 0.0f;
-        float radius       = 0.0f;
-        float half_x       = 0.0f;
-        float half_y       = 0.0f;
-        float half_z       = 0.0f;
-    };
-
-    struct VectorFieldOverlay {
-        const float* data = nullptr;
     };
 
     struct VisualizationSnapshotView {
         GridShape grid{};
         FieldResourceView field{};
-        ColliderOverlay collider{};
-        VectorFieldOverlay velocity{};
+        const float* velocity = nullptr;
     };
 
     struct alignas(16) FieldPushConstants {
@@ -112,6 +79,8 @@ export namespace app {
         vk::math::vec4 forward{};
         vk::math::vec4 volume_min{};
         vk::math::vec4 volume_max{};
+        vk::math::vec4 background_bottom{};
+        vk::math::vec4 background_top{};
         vk::math::vec4 color_a{};
         vk::math::vec4 color_b{};
         vk::math::vec4 params0{};
@@ -121,186 +90,65 @@ export namespace app {
     };
 
     struct VisualizationSettings {
-        ViewMode view_mode              = ViewMode::Volume;
-        RenderMode render_mode          = RenderMode::Smoke;
-        PlaneAxis plane_axis            = PlaneAxis::XY;
-        int march_steps                 = 96;
-        float slice_position            = 0.5f;
-        float density_scale             = 0.95f;
-        float absorption                = 1.20f;
-        float scalar_min                = 0.0f;
-        float scalar_max                = 1.0f;
-        float scalar_opacity            = 2.0f;
-        float scalar_low_r              = 0.08f;
-        float scalar_low_g              = 0.18f;
-        float scalar_low_b              = 0.46f;
-        float scalar_high_r             = 0.98f;
-        float scalar_high_g             = 0.82f;
-        float scalar_high_b             = 0.24f;
-        bool show_bounds                = false;
-        bool show_collider              = true;
-        bool show_velocity_plane        = false;
-        int velocity_grid               = 24;
-        int velocity_steps              = 64;
-        float velocity_step             = 0.24f;
-        float velocity_min_speed        = 0.02f;
-        float velocity_thickness        = 1.6f;
-    };
-
-    enum class ScenePreset : uint32_t {
-        DualJetCollider = 0,
-        SmokePlume      = 1,
-        Custom          = 2,
-    };
-
-    enum class ColliderType : uint32_t {
-        Sphere = 0,
-        Box    = 1,
-    };
-
-    enum class FieldId : uint32_t {
-        SmokeColor        = 0,
-        Density           = 1,
-        VelocityMagnitude = 2,
-        SolidMask         = 3,
-        Pressure          = 4,
-        Divergence        = 5,
-    };
-
-    enum class FieldDisplayMode : uint32_t {
-        Scalar = 0,
-        Smoke  = 1,
+        ViewMode view_mode               = ViewMode::Volume;
+        PlaneAxis plane_axis             = PlaneAxis::XY;
+        int march_steps                  = 112;
+        float slice_position             = 0.42f;
+        bool show_velocity_plane         = false;
+        int velocity_plane_seed_count    = 40;
+        float velocity_plane_arrow_cells = 0.6f;
+        float velocity_plane_min_speed   = 0.015f;
+        float velocity_plane_thickness   = 1.4f;
+        float density_scale              = 1.35f;
+        float scalar_min                 = 0.0f;
+        float scalar_max                 = 3.5f;
+        float scalar_opacity             = 5.4f;
+        float scalar_low_r               = 0.03f;
+        float scalar_low_g               = 0.04f;
+        float scalar_low_b               = 0.07f;
+        float scalar_high_r              = 0.94f;
+        float scalar_high_g              = 0.90f;
+        float scalar_high_b              = 0.84f;
+        bool shaded_volume               = false;
+        float background_bottom_r        = 0.035f;
+        float background_bottom_g        = 0.04f;
+        float background_bottom_b        = 0.05f;
+        float background_top_r           = 0.05f;
+        float background_top_g           = 0.06f;
+        float background_top_b           = 0.08f;
     };
 
     struct FieldVisualPreset {
-        FieldDisplayMode display_mode = FieldDisplayMode::Scalar;
-        float density_scale           = 0.95f;
-        float absorption              = 1.20f;
-        float scalar_min              = 0.0f;
-        float scalar_max              = 1.0f;
-        float scalar_opacity          = 2.0f;
-        float scalar_low_r            = 0.08f;
-        float scalar_low_g            = 0.18f;
-        float scalar_low_b            = 0.46f;
-        float scalar_high_r           = 0.98f;
-        float scalar_high_g           = 0.82f;
-        float scalar_high_b           = 0.24f;
+        float density_scale  = 1.0f;
+        float scalar_min     = 0.0f;
+        float scalar_max     = 1.0f;
+        float scalar_opacity = 3.0f;
+        float scalar_low_r   = 0.06f;
+        float scalar_low_g   = 0.08f;
+        float scalar_low_b   = 0.12f;
+        float scalar_high_r  = 0.95f;
+        float scalar_high_g  = 0.86f;
+        float scalar_high_b  = 0.72f;
+        bool shaded_volume   = false;
     };
 
     struct FieldInfo {
-        FieldId id{};
         std::string_view label{};
-        uint32_t component_count = 1;
-        FieldSemantic semantic   = FieldSemantic::GenericScalar;
         FieldVisualPreset preset{};
     };
 
-    struct SolverStats {
-        double last_step_call_ms              = 0.0;
-        double average_step_call_ms           = 0.0;
-        uint64_t step_count                   = 0;
-        float projection_max_abs_divergence   = 0.0f;
-        float projection_rms_divergence       = 0.0f;
-    };
-
-    struct CaptureStats {
-        double last_snapshot_ms    = 0.0;
-        double average_snapshot_ms = 0.0;
-        uint64_t snapshot_count    = 0;
-    };
-
-    struct ColliderSettings {
-        bool enabled               = false;
-        ColliderType type          = ColliderType::Sphere;
-        float center_x             = 0.50f;
-        float center_y             = 0.50f;
-        float center_z             = 0.50f;
-        float radius               = 0.20f;
-        float half_extent_x        = 0.10f;
-        float half_extent_y        = 0.08f;
-        float half_extent_z        = 0.10f;
-        float velocity_x           = 0.0f;
-        float velocity_y           = 0.0f;
-        float velocity_z           = 0.0f;
-        uint32_t boundary          = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP);
-    };
-
-    struct SourceEmitterSettings {
-        bool enabled               = false;
-        float center_x             = 0.50f;
-        float center_y             = 0.10f;
-        float center_z             = 0.50f;
-        float direction_x          = 0.0f;
-        float direction_y          = 1.0f;
-        float direction_z          = 0.0f;
-        float speed                = 0.0f;
-        float radius               = 0.03f;
-        float density_amount       = 0.0f;
-        float dye_amount           = 0.0f;
-        float color_r              = 1.00f;
-        float color_g              = 1.00f;
-        float color_b              = 1.00f;
-    };
-
-    struct PlaybackSettings {
-        bool paused                = false;
-        bool step_once             = false;
-        int sim_steps_per_frame    = 1;
-        int snapshot_interval      = 2;
+    struct SceneInfo {
+        GridShape grid{};
+        float dt                 = 0.0f;
+        uint64_t step_count      = 0;
+        double last_step_call_ms = 0.0;
     };
 
     struct AppState {
-        struct {
-            ScenePreset preset      = ScenePreset::DualJetCollider;
-            int selected_field      = 0;
-            bool emit_source        = true;
-
-            struct {
-                StableFluidsSimulationConfig backend{
-                    .nx = 100,
-                    .ny = 100,
-                    .nz = 100,
-                    .cell_size = 0.01f,
-                    .dt = 1.0f / 120.0f,
-                    .viscosity = 0.0f,
-                    .diffuse_iterations = 24,
-                    .pressure_iterations = 96,
-                    .uniform_force_x = 0.0f,
-                    .uniform_force_y = 0.0f,
-                    .uniform_force_z = 0.0f,
-                    .domain_boundary = {
-                        .x_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                        .x_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                        .y_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP), .velocity = 0.0f, },
-                        .y_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                        .z_min = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                        .z_max = { .type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW), .velocity = 0.0f, },
-                    },
-                    .block_x = 8,
-                    .block_y = 8,
-                    .block_z = 4,
-                };
-                float density_diffusion = 0.00005f;
-                float dye_diffusion     = 0.00003f;
-                float gravity_y         = -9.81f;
-                float buoyancy_beta     = 0.10f;
-                float ambient_density   = 0.0f;
-            } solver{};
-
-            struct {
-                SourceEmitterSettings a{};
-                SourceEmitterSettings b{};
-            } emitters{};
-
-            struct {
-                ColliderSettings collider{};
-            } scene{};
-        } physics{};
-
-        struct {
-            VisualizationSettings render{};
-            PlaybackSettings playback{};
-        } ui{};
+        int selected_scene = 0;
+        int selected_field = 0;
+        bool paused        = false;
+        VisualizationSettings render{};
     };
 
     struct CaptureSlot {
@@ -315,33 +163,16 @@ export namespace app {
         std::vector<float> velocity_host{};
         uint64_t ready_generation                  = 0;
         uint64_t last_used_submit_serial           = 0;
-        GridShape grid{};
-        uint32_t field_component_count             = 1;
-        FieldSemantic semantic                     = FieldSemantic::GenericScalar;
-        std::string_view label{};
         bool has_velocity_host                     = false;
     };
 
     struct AppData {
         struct {
-            cudaStream_t stream                   = nullptr;
-            StableFluidsContext context           = nullptr;
-            StableFluidsFieldHandle density_field = 0;
-            StableFluidsFieldHandle dye_field     = 0;
-            SolverStats stats{};
-        } physics{};
-
-        struct {
-            CaptureStats stats{};
-            uint64_t field_bytes                  = 0;
-            uint64_t velocity_bytes               = 0;
-            uint64_t generation                   = 0;
-            uint64_t submit_serial                = 0;
-            uint32_t steps_since_snapshot         = 0;
-            int active_slot                       = -1;
+            uint64_t generation    = 0;
+            uint64_t submit_serial = 0;
+            int active_slot        = -1;
+            bool has_velocity_storage = false;
             GridShape request_grid{};
-            uint32_t request_field_component_count = 1;
-            bool request_export_velocity_host     = false;
             std::vector<CaptureSlot> slots{};
         } capture{};
     };
@@ -358,7 +189,7 @@ export namespace app {
 
         [[nodiscard]] bool should_close() const;
         void begin_frame();
-        void draw_visualization_ui(VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot);
+        void draw_visualization_ui(AppState& state, const SceneInfo& scene, std::span<const FieldInfo> fields, std::span<const std::string_view> scene_labels, bool& reset_requested, bool& field_changed, bool& scene_changed, const std::optional<VisualizationSnapshotView>& snapshot);
         bool render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot);
         void frame_content(const VisualizationSettings& settings, const VisualizationSnapshotView& snapshot);
 
@@ -368,7 +199,6 @@ export namespace app {
 
     private:
         void recreate_swapchain();
-        void collect_camera_input(float dt_seconds);
 
         static constexpr uint32_t frames_in_flight_value_ = 2;
 
@@ -394,24 +224,177 @@ export namespace app {
         vk::raii::ShaderModule volume_shader_module_{nullptr};
         vk::pipeline::GraphicsPipeline plane_pipeline_{};
         vk::pipeline::GraphicsPipeline volume_pipeline_{};
-        float render_fps_                                      = 0.0f;
         uint32_t frame_index_                                  = 0;
-        std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point last_frame_time_{};  // default-initialized
     };
 
-    [[nodiscard]] std::span<const FieldInfo> field_catalog();
-    [[nodiscard]] const FieldInfo& current_field_info(AppState& state);
-    void apply_scene_preset(AppState& state, ScenePreset preset);
-    void apply_field_visual_preset(AppState& state);
-    void create_runtime_data(AppData& data);
+    template<typename TScene>
+    concept SceneSample = requires(TScene scene, const TScene const_scene, const uint32_t field_index, const int sim_steps, void* device_destination, float* host_destination) {
+        { const_scene.fields() } -> std::convertible_to<std::span<const FieldInfo>>;
+        { const_scene.default_visualization() } -> std::same_as<VisualizationSettings>;
+        { const_scene.info() } -> std::same_as<SceneInfo>;
+        { scene.rebuild() } -> std::same_as<void>;
+        { scene.step(sim_steps) } -> std::same_as<void>;
+        { const_scene.export_field(field_index, device_destination) } -> std::same_as<void>;
+        { const_scene.export_velocity(device_destination, host_destination) } -> std::same_as<void>;
+        { const_scene.stream() } -> std::same_as<cudaStream_t>;
+    };
+
+    struct SceneEntry {
+        std::string_view label{};
+        void* storage = nullptr;
+        void (*destroy_fn)(void*) = nullptr;
+        std::span<const FieldInfo> (*fields_fn)(const void*) = nullptr;
+        VisualizationSettings (*default_visualization_fn)(const void*) = nullptr;
+        SceneInfo (*info_fn)(const void*) = nullptr;
+        void (*rebuild_fn)(void*) = nullptr;
+        void (*step_fn)(void*, int) = nullptr;
+        void (*export_field_fn)(const void*, uint32_t, void*) = nullptr;
+        void (*export_velocity_fn)(const void*, void*, float*) = nullptr;
+        cudaStream_t (*stream_fn)(const void*) = nullptr;
+
+        SceneEntry() = default;
+        ~SceneEntry() {
+            if (storage != nullptr && destroy_fn != nullptr) destroy_fn(storage);
+        }
+
+        SceneEntry(const SceneEntry&) = delete;
+        SceneEntry& operator=(const SceneEntry&) = delete;
+
+        SceneEntry(SceneEntry&& other) noexcept {
+            *this = std::move(other);
+        }
+
+        SceneEntry& operator=(SceneEntry&& other) noexcept {
+            if (this == &other) return *this;
+            if (storage != nullptr && destroy_fn != nullptr) destroy_fn(storage);
+            label                    = other.label;
+            storage                  = other.storage;
+            destroy_fn               = other.destroy_fn;
+            fields_fn                = other.fields_fn;
+            default_visualization_fn = other.default_visualization_fn;
+            info_fn                  = other.info_fn;
+            rebuild_fn               = other.rebuild_fn;
+            step_fn                  = other.step_fn;
+            export_field_fn          = other.export_field_fn;
+            export_velocity_fn       = other.export_velocity_fn;
+            stream_fn                = other.stream_fn;
+            other.label                    = {};
+            other.storage                  = nullptr;
+            other.destroy_fn               = nullptr;
+            other.fields_fn                = nullptr;
+            other.default_visualization_fn = nullptr;
+            other.info_fn                  = nullptr;
+            other.rebuild_fn               = nullptr;
+            other.step_fn                  = nullptr;
+            other.export_field_fn          = nullptr;
+            other.export_velocity_fn       = nullptr;
+            other.stream_fn                = nullptr;
+            return *this;
+        }
+
+        [[nodiscard]] std::span<const FieldInfo> fields() const {
+            return fields_fn(storage);
+        }
+
+        [[nodiscard]] VisualizationSettings default_visualization() const {
+            return default_visualization_fn(storage);
+        }
+
+        [[nodiscard]] SceneInfo info() const {
+            return info_fn(storage);
+        }
+
+        void rebuild() {
+            rebuild_fn(storage);
+        }
+
+        void step(const int sim_steps) {
+            step_fn(storage, sim_steps);
+        }
+
+        void export_field(const uint32_t field_index, void* const device_destination) const {
+            export_field_fn(storage, field_index, device_destination);
+        }
+
+        void export_velocity(void* const device_destination, float* const host_destination) const {
+            export_velocity_fn(storage, device_destination, host_destination);
+        }
+
+        [[nodiscard]] cudaStream_t stream() const {
+            return stream_fn(storage);
+        }
+    };
+
+    template<SceneSample TScene>
+    [[nodiscard]] SceneEntry make_scene_entry(const std::string_view label) {
+        SceneEntry entry{};
+        entry.label                    = label;
+        entry.storage                  = new TScene{};
+        entry.destroy_fn               = [](void* const storage) { delete static_cast<TScene*>(storage); };
+        entry.fields_fn                = [](const void* const storage) { return static_cast<const TScene*>(storage)->fields(); };
+        entry.default_visualization_fn = [](const void* const storage) { return static_cast<const TScene*>(storage)->default_visualization(); };
+        entry.info_fn                  = [](const void* const storage) { return static_cast<const TScene*>(storage)->info(); };
+        entry.rebuild_fn               = [](void* const storage) { static_cast<TScene*>(storage)->rebuild(); };
+        entry.step_fn                  = [](void* const storage, const int sim_steps) { static_cast<TScene*>(storage)->step(sim_steps); };
+        entry.export_field_fn          = [](const void* const storage, const uint32_t field_index, void* const device_destination) { static_cast<const TScene*>(storage)->export_field(field_index, device_destination); };
+        entry.export_velocity_fn       = [](const void* const storage, void* const device_destination, float* const host_destination) { static_cast<const TScene*>(storage)->export_velocity(device_destination, host_destination); };
+        entry.stream_fn                = [](const void* const storage) { return static_cast<const TScene*>(storage)->stream(); };
+        return entry;
+    }
+
     void destroy_runtime_data(AppData& data);
     void check_interop_support(const VisualizationApp& renderer);
-    void rebuild_physics(AppState& state, AppData& data);
-    void step_physics(const AppState& state, AppData& data, int sim_steps);
-    bool sync_capture_storage(AppState& state, AppData& data, VisualizationApp& renderer);
-    bool capture_snapshot(AppState& state, AppData& data, VisualizationApp& renderer, const char* tag);
-    [[nodiscard]] std::optional<VisualizationSnapshotView> active_snapshot(const AppState& state, const AppData& data);
+    void apply_field_preset(VisualizationSettings& settings, const FieldVisualPreset& preset);
+    bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid, bool with_velocity_plane);
+
+    template<SceneSample TScene>
+    bool capture_snapshot(AppState& state, AppData& data, TScene& scene, VisualizationApp& renderer) {
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
+        int slot_index = -1;
+        for (uint32_t i = 0; i < data.capture.slots.size(); ++i) {
+            const auto& slot = data.capture.slots[i];
+            if (static_cast<int>(i) == data.capture.active_slot) continue;
+            if (slot.ready_generation != 0 && data.capture.submit_serial < slot.last_used_submit_serial + renderer.frames_in_flight() + 1) continue;
+            slot_index = static_cast<int>(i);
+            break;
+        }
+        if (slot_index < 0) return false;
+
+        const auto& const_scene = scene;
+        const auto fields = const_scene.fields();
+        if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
+        state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
+
+        auto& slot = data.capture.slots.at(static_cast<size_t>(slot_index));
+        const auto field_index = static_cast<uint32_t>(state.selected_field);
+        scene.export_field(field_index, slot.field_cuda_ptr);
+        if (state.render.show_velocity_plane && slot.velocity_cuda_ptr != nullptr && !slot.velocity_host.empty()) scene.export_velocity(slot.velocity_cuda_ptr, slot.velocity_host.data());
+        cudaExternalSemaphoreSignalParams signal_params{};
+        signal_params.params.fence.value = data.capture.generation + 1;
+        check_cuda(cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, scene.stream()), "cudaSignalExternalSemaphoresAsync");
+        check_cuda(cudaStreamSynchronize(scene.stream()), "cudaStreamSynchronize");
+        slot.ready_generation   = data.capture.generation + 1;
+        slot.has_velocity_host  = state.render.show_velocity_plane && slot.velocity_cuda_ptr != nullptr && !slot.velocity_host.empty();
+        data.capture.generation = slot.ready_generation;
+        data.capture.active_slot = slot_index;
+        return true;
+    }
+
+    [[nodiscard]] std::optional<VisualizationSnapshotView> active_snapshot(const AppData& data);
     void mark_snapshot_submitted(AppData& data);
-    void draw_simulation_controls(AppState& state, const AppData& data, bool& reset_requested, bool& field_changed);
+
+    int run_scene_switcher(std::span<SceneEntry> scenes);
+
+    template<SceneSample TScene>
+    int run_scene() {
+        auto scenes = std::array{
+            make_scene_entry<TScene>("Scene"),
+        };
+        return run_scene_switcher(scenes);
+    }
 
 } // namespace app

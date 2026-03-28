@@ -43,7 +43,8 @@ target_include_directories(stable-fluids PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(stable-fluids PRIVATE STABLE_FLUIDS_BUILD_SHARED)
 target_compile_options(stable-fluids PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
 if (MSVC)
-    target_compile_options(stable-fluids PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
+    target_compile_options(stable-fluids PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /Zc:preprocessor>)
+    target_compile_options(stable-fluids PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>)
 else ()
     target_compile_options(stable-fluids PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic>)
 endif ()
@@ -57,7 +58,8 @@ if (STABLE_FLUIDS_BUILD_SAMPLES)
     target_link_libraries(stable-fluids-sample PRIVATE stable-fluids CUDA::cudart)
     target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
     if (MSVC)
-        target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
+        target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /Zc:preprocessor>)
+        target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>)
     else ()
         target_compile_options(stable-fluids-sample PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic>)
     endif ()
@@ -129,6 +131,8 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
             vulkan-app/main.cpp
             vulkan-app/app.cpp
+            vulkan-app/scene_plume.cpp
+            vulkan-app/scene_cloud.cpp
 
             PUBLIC FILE_SET cxx_modules TYPE CXX_MODULES FILES
             vulkan-app/modules/vk.camera.ixx
@@ -142,6 +146,8 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
             vulkan-app/modules/vk.swapchain.ixx
             vulkan-app/modules/vk.texture.ixx
             vulkan-app/app.ixx
+            vulkan-app/scene_plume.ixx
+            vulkan-app/scene_cloud.ixx
     )
     add_dependencies(stable-fluids-app stable-fluids-shaders)
     target_compile_definitions(stable-fluids-app PRIVATE SMOKE_SIM_SHADER_DIR="${SMOKE_SIM_SHADER_DIR}" VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1)
@@ -149,4 +155,7 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
     target_include_directories(stable-fluids-app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vulkan-app/vendor/imgui)
     set_property(TARGET stable-fluids-app PROPERTY CXX_MODULE_STD ON)
     set_target_properties(stable-fluids-app PROPERTIES CUDA_SEPARABLE_COMPILATION ON CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+    if (MSVC)
+        target_compile_options(stable-fluids-app PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /Zc:preprocessor>)
+    endif ()
 endif ()
