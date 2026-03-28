@@ -1,6 +1,7 @@
 ![banner](https://github.com/Xayah-Graphics/imagebed/blob/d975c69a760b3d5a27fdde9fd0e927dd21122e0b/stable-fluids.png)
 # [SIGGRAPH 1999] Stable fluids. Jos Stam.
 [![Arch Build](https://github.com/Xayah-Graphics/stable-fluids/actions/workflows/arch-build.yml/badge.svg)](https://github.com/Xayah-Graphics/stable-fluids/actions/workflows/arch-build.yml)
+[![Windows Build](https://github.com/Xayah-Graphics/stable-fluids/actions/workflows/windows-build.yml/badge.svg)](https://github.com/Xayah-Graphics/stable-fluids/actions/workflows/windows-build.yml)
 
 Modern C++ 23 / CUDA Implementation with C ABI of the paper [_Stable fluids_](https://dl.acm.org/doi/10.1145/311535.311548) by Jos Stam.
 
@@ -89,7 +90,7 @@ where $\kappa$ is the diffusion coefficient (similar to viscosity for density di
 - CMake 4.3.0 or higher
 - Ninja build system (for CXX std module support)
 - A C++23 compliant compiler (tested on Arch Linux with gcc/g++ 15.2.1, Windows with MSVC 17.14.29)
-- NVIDIA CUDA 13.0 or higher
+- NVIDIA CUDA 13.2 or higher
 
 ```
 cmake -B build -S . -G Ninja
