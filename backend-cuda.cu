@@ -15,12 +15,6 @@ namespace stable_fluids {
     using Stream = cudaStream_t;
 
     constexpr StableFluidsResult success              = STABLE_FLUIDS_RESULT_OK;
-    constexpr StableFluidsResult invalid_argument     = STABLE_FLUIDS_RESULT_INVALID_ARGUMENT;
-    constexpr StableFluidsResult invalid_context      = STABLE_FLUIDS_RESULT_INVALID_CONTEXT;
-    constexpr StableFluidsResult invalid_config       = STABLE_FLUIDS_RESULT_INVALID_CONFIG;
-    constexpr StableFluidsResult invalid_field        = STABLE_FLUIDS_RESULT_INVALID_FIELD;
-    constexpr StableFluidsResult invalid_scene        = STABLE_FLUIDS_RESULT_INVALID_SCENE;
-    constexpr StableFluidsResult invalid_export       = STABLE_FLUIDS_RESULT_INVALID_EXPORT;
     constexpr StableFluidsResult out_of_memory        = STABLE_FLUIDS_RESULT_OUT_OF_MEMORY;
     constexpr StableFluidsResult backend_failure      = STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     constexpr uint8_t cell_fluid           = 0;
@@ -123,40 +117,6 @@ namespace stable_fluids {
         };
     }
 
-    std::uint64_t scalar_count(const StableFluidsSimulationConfig& config) {
-        return static_cast<std::uint64_t>(config.nx) * static_cast<std::uint64_t>(config.ny) * static_cast<std::uint64_t>(config.nz);
-    }
-
-    std::uint64_t u_face_count(const StableFluidsSimulationConfig& config) {
-        return static_cast<std::uint64_t>(config.nx + 1) * static_cast<std::uint64_t>(config.ny) * static_cast<std::uint64_t>(config.nz);
-    }
-
-    std::uint64_t v_face_count(const StableFluidsSimulationConfig& config) {
-        return static_cast<std::uint64_t>(config.nx) * static_cast<std::uint64_t>(config.ny + 1) * static_cast<std::uint64_t>(config.nz);
-    }
-
-    std::uint64_t w_face_count(const StableFluidsSimulationConfig& config) {
-        return static_cast<std::uint64_t>(config.nx) * static_cast<std::uint64_t>(config.ny) * static_cast<std::uint64_t>(config.nz + 1);
-    }
-
-    std::uint64_t field_value_count(const StableFluidsSimulationConfig& config, const uint32_t components) {
-        return scalar_count(config) * static_cast<std::uint64_t>(components);
-    }
-
-    FieldStorage* find_field(ContextStorage& context, const StableFluidsFieldHandle handle) {
-        if (handle == 0) return nullptr;
-        const auto index = static_cast<std::size_t>(handle - 1u);
-        if (index >= context.fields.size()) return nullptr;
-        return &context.fields[index];
-    }
-
-    const FieldStorage* find_field(const ContextStorage& context, const StableFluidsFieldHandle handle) {
-        if (handle == 0) return nullptr;
-        const auto index = static_cast<std::size_t>(handle - 1u);
-        if (index >= context.fields.size()) return nullptr;
-        return &context.fields[index];
-    }
-
     bool point_inside_collider(const StableFluidsColliderDesc& collider, const float x, const float y, const float z) {
         const float dx = x - collider.center_x;
         const float dy = y - collider.center_y;
@@ -184,24 +144,32 @@ namespace stable_fluids {
     }
 
     void resize_host_atlas(ContextStorage& context) {
-        context.host_atlas.cell_flags.resize(static_cast<std::size_t>(scalar_count(context.config)), cell_fluid);
-        context.host_atlas.cell_owner.resize(static_cast<std::size_t>(scalar_count(context.config)), -1);
-        context.host_atlas.u_flags.resize(static_cast<std::size_t>(u_face_count(context.config)), face_open);
-        context.host_atlas.v_flags.resize(static_cast<std::size_t>(v_face_count(context.config)), face_open);
-        context.host_atlas.w_flags.resize(static_cast<std::size_t>(w_face_count(context.config)), face_open);
-        context.host_atlas.u_target.resize(static_cast<std::size_t>(u_face_count(context.config)), 0.0f);
-        context.host_atlas.v_target.resize(static_cast<std::size_t>(v_face_count(context.config)), 0.0f);
-        context.host_atlas.w_target.resize(static_cast<std::size_t>(w_face_count(context.config)), 0.0f);
+        const auto cell_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        const auto u_count = static_cast<std::uint64_t>(context.config.nx + 1) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        const auto v_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny + 1) * static_cast<std::uint64_t>(context.config.nz);
+        const auto w_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz + 1);
+        context.host_atlas.cell_flags.resize(static_cast<std::size_t>(cell_count), cell_fluid);
+        context.host_atlas.cell_owner.resize(static_cast<std::size_t>(cell_count), -1);
+        context.host_atlas.u_flags.resize(static_cast<std::size_t>(u_count), face_open);
+        context.host_atlas.v_flags.resize(static_cast<std::size_t>(v_count), face_open);
+        context.host_atlas.w_flags.resize(static_cast<std::size_t>(w_count), face_open);
+        context.host_atlas.u_target.resize(static_cast<std::size_t>(u_count), 0.0f);
+        context.host_atlas.v_target.resize(static_cast<std::size_t>(v_count), 0.0f);
+        context.host_atlas.w_target.resize(static_cast<std::size_t>(w_count), 0.0f);
     }
 
     StableFluidsResult upload_boundary_atlas(ContextStorage& context) {
-        const auto cell_bytes   = scalar_count(context.config) * sizeof(uint8_t);
-        const auto u_flag_bytes = u_face_count(context.config) * sizeof(uint8_t);
-        const auto v_flag_bytes = v_face_count(context.config) * sizeof(uint8_t);
-        const auto w_flag_bytes = w_face_count(context.config) * sizeof(uint8_t);
-        const auto u_val_bytes  = u_face_count(context.config) * sizeof(float);
-        const auto v_val_bytes  = v_face_count(context.config) * sizeof(float);
-        const auto w_val_bytes  = w_face_count(context.config) * sizeof(float);
+        const auto cell_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        const auto u_count = static_cast<std::uint64_t>(context.config.nx + 1) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        const auto v_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny + 1) * static_cast<std::uint64_t>(context.config.nz);
+        const auto w_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz + 1);
+        const auto cell_bytes   = cell_count * sizeof(uint8_t);
+        const auto u_flag_bytes = u_count * sizeof(uint8_t);
+        const auto v_flag_bytes = v_count * sizeof(uint8_t);
+        const auto w_flag_bytes = w_count * sizeof(uint8_t);
+        const auto u_val_bytes  = u_count * sizeof(float);
+        const auto v_val_bytes  = v_count * sizeof(float);
+        const auto w_val_bytes  = w_count * sizeof(float);
 
         if (cudaMemcpyAsync(context.device.cell_flags, context.host_atlas.cell_flags.data(), cell_bytes, cudaMemcpyHostToDevice, context.stream) != cudaSuccess) return backend_failure;
         if (cudaMemcpyAsync(context.device.u_flags, context.host_atlas.u_flags.data(), u_flag_bytes, cudaMemcpyHostToDevice, context.stream) != cudaSuccess) return backend_failure;
@@ -468,60 +436,73 @@ namespace stable_fluids {
         return success;
     }
 
-    template <class T>
-    StableFluidsResult allocate_device_array(T*& ptr, const std::uint64_t count) {
-        if (count == 0) return success;
-        if (cudaMalloc(reinterpret_cast<void**>(&ptr), count * sizeof(T)) != cudaSuccess) return out_of_memory;
-        return success;
-    }
-
-    template <class T>
-    void release_device_array(T*& ptr) {
-        if (ptr != nullptr) cudaFree(ptr);
-        ptr = nullptr;
-    }
-
     void destroy_buffers(ContextStorage& context) {
-        release_device_array(context.device.velocity_x);
-        release_device_array(context.device.velocity_y);
-        release_device_array(context.device.velocity_z);
-        release_device_array(context.device.temp_velocity_x);
-        release_device_array(context.device.temp_velocity_y);
-        release_device_array(context.device.temp_velocity_z);
-        release_device_array(context.device.pressure);
-        release_device_array(context.device.divergence);
-        release_device_array(context.device.projection_metrics);
-        release_device_array(context.device.scalar_scratch);
-        release_device_array(context.device.cell_flags);
-        release_device_array(context.device.u_flags);
-        release_device_array(context.device.v_flags);
-        release_device_array(context.device.w_flags);
-        release_device_array(context.device.u_target);
-        release_device_array(context.device.v_target);
-        release_device_array(context.device.w_target);
-        for (auto& field : context.fields) release_device_array(field.data);
+        if (context.device.velocity_x != nullptr) cudaFree(context.device.velocity_x);
+        if (context.device.velocity_y != nullptr) cudaFree(context.device.velocity_y);
+        if (context.device.velocity_z != nullptr) cudaFree(context.device.velocity_z);
+        if (context.device.temp_velocity_x != nullptr) cudaFree(context.device.temp_velocity_x);
+        if (context.device.temp_velocity_y != nullptr) cudaFree(context.device.temp_velocity_y);
+        if (context.device.temp_velocity_z != nullptr) cudaFree(context.device.temp_velocity_z);
+        if (context.device.pressure != nullptr) cudaFree(context.device.pressure);
+        if (context.device.divergence != nullptr) cudaFree(context.device.divergence);
+        if (context.device.projection_metrics != nullptr) cudaFree(context.device.projection_metrics);
+        if (context.device.scalar_scratch != nullptr) cudaFree(context.device.scalar_scratch);
+        if (context.device.cell_flags != nullptr) cudaFree(context.device.cell_flags);
+        if (context.device.u_flags != nullptr) cudaFree(context.device.u_flags);
+        if (context.device.v_flags != nullptr) cudaFree(context.device.v_flags);
+        if (context.device.w_flags != nullptr) cudaFree(context.device.w_flags);
+        if (context.device.u_target != nullptr) cudaFree(context.device.u_target);
+        if (context.device.v_target != nullptr) cudaFree(context.device.v_target);
+        if (context.device.w_target != nullptr) cudaFree(context.device.w_target);
+        context.device.velocity_x = nullptr;
+        context.device.velocity_y = nullptr;
+        context.device.velocity_z = nullptr;
+        context.device.temp_velocity_x = nullptr;
+        context.device.temp_velocity_y = nullptr;
+        context.device.temp_velocity_z = nullptr;
+        context.device.pressure = nullptr;
+        context.device.divergence = nullptr;
+        context.device.projection_metrics = nullptr;
+        context.device.scalar_scratch = nullptr;
+        context.device.cell_flags = nullptr;
+        context.device.u_flags = nullptr;
+        context.device.v_flags = nullptr;
+        context.device.w_flags = nullptr;
+        context.device.u_target = nullptr;
+        context.device.v_target = nullptr;
+        context.device.w_target = nullptr;
+        for (auto& field : context.fields) {
+            if (field.data != nullptr) cudaFree(field.data);
+            field.data = nullptr;
+        }
     }
 
     StableFluidsResult allocate_buffers(ContextStorage& context) {
-        if (allocate_device_array(context.device.velocity_x, u_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.velocity_y, v_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.velocity_z, w_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.temp_velocity_x, u_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.temp_velocity_y, v_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.temp_velocity_z, w_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.pressure, scalar_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.divergence, scalar_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.projection_metrics, 1) != success) return out_of_memory;
-        if (allocate_device_array(context.device.scalar_scratch, field_value_count(context.config, (std::max)(context.max_field_components, 1u))) != success) return out_of_memory;
-        if (allocate_device_array(context.device.cell_flags, scalar_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.u_flags, u_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.v_flags, v_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.w_flags, w_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.u_target, u_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.v_target, v_face_count(context.config)) != success) return out_of_memory;
-        if (allocate_device_array(context.device.w_target, w_face_count(context.config)) != success) return out_of_memory;
+        const auto cell_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        const auto u_count = static_cast<std::uint64_t>(context.config.nx + 1) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        const auto v_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny + 1) * static_cast<std::uint64_t>(context.config.nz);
+        const auto w_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz + 1);
+        const auto scratch_count = cell_count * static_cast<std::uint64_t>((std::max)(context.max_field_components, 1u));
+        if (u_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.velocity_x), u_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (v_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.velocity_y), v_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (w_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.velocity_z), w_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (u_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.temp_velocity_x), u_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (v_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.temp_velocity_y), v_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (w_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.temp_velocity_z), w_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (cell_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.pressure), cell_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (cell_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.divergence), cell_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (cudaMalloc(reinterpret_cast<void**>(&context.device.projection_metrics), sizeof(ProjectionMetricsState)) != cudaSuccess) return out_of_memory;
+        if (scratch_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.scalar_scratch), scratch_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (cell_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.cell_flags), cell_count * sizeof(uint8_t)) != cudaSuccess) return out_of_memory;
+        if (u_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.u_flags), u_count * sizeof(uint8_t)) != cudaSuccess) return out_of_memory;
+        if (v_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.v_flags), v_count * sizeof(uint8_t)) != cudaSuccess) return out_of_memory;
+        if (w_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.w_flags), w_count * sizeof(uint8_t)) != cudaSuccess) return out_of_memory;
+        if (u_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.u_target), u_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (v_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.v_target), v_count * sizeof(float)) != cudaSuccess) return out_of_memory;
+        if (w_count > 0 && cudaMalloc(reinterpret_cast<void**>(&context.device.w_target), w_count * sizeof(float)) != cudaSuccess) return out_of_memory;
         for (auto& field : context.fields) {
-            if (allocate_device_array(field.data, field_value_count(context.config, field.desc.component_count)) != success) return out_of_memory;
+            const auto field_count = cell_count * static_cast<std::uint64_t>(field.desc.component_count);
+            if (field_count > 0 && cudaMalloc(reinterpret_cast<void**>(&field.data), field_count * sizeof(float)) != cudaSuccess) return out_of_memory;
         }
         return success;
     }
@@ -1254,13 +1235,10 @@ struct StableFluidsContext_t : stable_fluids::ContextStorage {
 
 namespace {
 
-    stable_fluids::ContextStorage* as_storage(StableFluidsContext context) {
-        return static_cast<stable_fluids::ContextStorage*>(context);
-    }
-
     StableFluidsResult clear_projection_state(stable_fluids::ContextStorage& context) {
-        if (cudaMemsetAsync(context.device.pressure, 0, stable_fluids::scalar_count(context.config) * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
-        if (cudaMemsetAsync(context.device.divergence, 0, stable_fluids::scalar_count(context.config) * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
+        const auto cell_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        if (cudaMemsetAsync(context.device.pressure, 0, cell_count * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
+        if (cudaMemsetAsync(context.device.divergence, 0, cell_count * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
         if (cudaMemsetAsync(context.device.projection_metrics, 0, sizeof(stable_fluids::ProjectionMetricsState), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
         return stable_fluids::success;
     }
@@ -1292,9 +1270,9 @@ namespace {
         const float* src_y,
         const float* src_z
     ) {
-        const auto u_bytes = stable_fluids::u_face_count(context.config) * sizeof(float);
-        const auto v_bytes = stable_fluids::v_face_count(context.config) * sizeof(float);
-        const auto w_bytes = stable_fluids::w_face_count(context.config) * sizeof(float);
+        const auto u_bytes = static_cast<std::uint64_t>(context.config.nx + 1) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz) * sizeof(float);
+        const auto v_bytes = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny + 1) * static_cast<std::uint64_t>(context.config.nz) * sizeof(float);
+        const auto w_bytes = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz + 1) * sizeof(float);
         if (cudaMemcpyAsync(dst_x, src_x, u_bytes, cudaMemcpyDeviceToDevice, context.stream) != cudaSuccess) return stable_fluids::backend_failure;
         if (cudaMemcpyAsync(dst_y, src_y, v_bytes, cudaMemcpyDeviceToDevice, context.stream) != cudaSuccess) return stable_fluids::backend_failure;
         if (cudaMemcpyAsync(dst_z, src_z, w_bytes, cudaMemcpyDeviceToDevice, context.stream) != cudaSuccess) return stable_fluids::backend_failure;
@@ -1347,7 +1325,8 @@ namespace {
         if (const StableFluidsResult code = apply_velocity_constraints(context, launch); code != stable_fluids::success) return code;
         const float inv_h = 1.0f / context.config.cell_size;
         const float h2 = context.config.cell_size * context.config.cell_size;
-        if (cudaMemsetAsync(context.device.pressure, 0, stable_fluids::scalar_count(context.config) * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
+        const auto cell_count = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
+        if (cudaMemsetAsync(context.device.pressure, 0, cell_count * sizeof(float), context.stream) != cudaSuccess) return stable_fluids::backend_failure;
         stable_fluids::compute_divergence_kernel<<<launch.cells, launch.block, 0, context.stream>>>(context.device.divergence, context.device.velocity_x, context.device.velocity_y, context.device.velocity_z, context.device.cell_flags, context.config.nx, context.config.ny, context.config.nz, inv_h);
         if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
         for (int iteration = 0; iteration < context.config.pressure_iterations; ++iteration) {
@@ -1363,7 +1342,7 @@ namespace {
     }
 
     StableFluidsResult advect_and_diffuse_scalar(stable_fluids::ContextStorage& context, const stable_fluids::FieldStorage& field, const dim3& block, const dim3& cells) {
-        const auto cell_count_value = stable_fluids::scalar_count(context.config);
+        const auto cell_count_value = static_cast<std::uint64_t>(context.config.nx) * static_cast<std::uint64_t>(context.config.ny) * static_cast<std::uint64_t>(context.config.nz);
         const auto bytes = cell_count_value * sizeof(float);
         for (uint32_t component = 0; component < field.desc.component_count; ++component) {
             float* field_component = field.data + static_cast<std::uint64_t>(component) * cell_count_value;
@@ -1395,42 +1374,7 @@ namespace {
 extern "C" {
 
 StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context, StableFluidsFieldHandle* out_field_handles, const uint32_t out_field_handle_capacity) {
-    if (out_context == nullptr) return stable_fluids::invalid_argument;
     *out_context = nullptr;
-    if (desc == nullptr) return stable_fluids::invalid_argument;
-    if (desc->config.nx <= 0 || desc->config.ny <= 0 || desc->config.nz <= 0) return stable_fluids::invalid_config;
-    if (desc->config.cell_size <= 0.0f) return stable_fluids::invalid_config;
-    if (desc->config.dt <= 0.0f) return stable_fluids::invalid_config;
-    if (desc->config.diffuse_iterations <= 0 || desc->config.pressure_iterations <= 0) return stable_fluids::invalid_config;
-    const auto validate_boundary_face = [](const StableFluidsBoundaryFaceDesc& face) {
-        return face.type <= STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW;
-    };
-    const std::array boundary_faces{
-        desc->config.domain_boundary.x_min,
-        desc->config.domain_boundary.x_max,
-        desc->config.domain_boundary.y_min,
-        desc->config.domain_boundary.y_max,
-        desc->config.domain_boundary.z_min,
-        desc->config.domain_boundary.z_max,
-    };
-    for (const auto& boundary_face : boundary_faces) {
-        if (!validate_boundary_face(boundary_face)) return stable_fluids::invalid_config;
-    }
-    if (desc->field_count > 0 && desc->fields == nullptr) return stable_fluids::invalid_argument;
-    if (desc->field_count > 0 && (out_field_handles == nullptr || out_field_handle_capacity < desc->field_count)) return stable_fluids::invalid_argument;
-    if (desc->buoyancy_term_count > 0 && desc->buoyancy_terms == nullptr) return stable_fluids::invalid_argument;
-    for (uint32_t index = 0; index < desc->field_count; ++index) {
-        const auto& field = desc->fields[index];
-        if (field.component_count == 0 || field.component_count > 4) return stable_fluids::invalid_field;
-        if ((field.flags & ~(STABLE_FLUIDS_FIELD_ADVECT | STABLE_FLUIDS_FIELD_DIFFUSE)) != 0u) return stable_fluids::invalid_field;
-        if (field.extension_mode > STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) return stable_fluids::invalid_field;
-        if (field.diffusion < 0.0f) return stable_fluids::invalid_field;
-    }
-    for (uint32_t index = 0; index < desc->buoyancy_term_count; ++index) {
-        const auto& term = desc->buoyancy_terms[index];
-        if (term.field_index >= desc->field_count) return stable_fluids::invalid_field;
-    }
-
     std::unique_ptr<StableFluidsContext_t> context{new (std::nothrow) StableFluidsContext_t{}};
     if (!context) return stable_fluids::out_of_memory;
     context->config = desc->config;
@@ -1445,17 +1389,10 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
             .desc = desc->fields[index],
         });
         context->max_field_components = (std::max)(context->max_field_components, desc->fields[index].component_count);
-        if (out_field_handles != nullptr) out_field_handles[index] = index + 1u;
+        if (index < out_field_handle_capacity) out_field_handles[index] = index + 1u;
     }
     if (desc->buoyancy_term_count > 0) context->buoyancy_terms.assign(desc->buoyancy_terms, desc->buoyancy_terms + desc->buoyancy_term_count);
     else context->buoyancy_terms.clear();
-    for (const auto& term : context->buoyancy_terms) {
-        const auto* field = stable_fluids::find_field(*context, term.field_index + 1u);
-        if (field == nullptr || field->desc.component_count == 0) {
-            if (context->owns_stream) cudaStreamDestroy(context->stream);
-            return stable_fluids::invalid_field;
-        }
-    }
     if (const StableFluidsResult code = stable_fluids::allocate_buffers(*context); code != stable_fluids::success) {
         stable_fluids::destroy_buffers(*context);
         if (context->owns_stream) cudaStreamDestroy(context->stream);
@@ -1471,8 +1408,7 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
 }
 
 StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context) {
-    if (context == nullptr) return stable_fluids::success;
-    auto* storage = as_storage(context);
+    auto* storage = static_cast<stable_fluids::ContextStorage*>(context);
     cudaStreamSynchronize(storage->stream);
     stable_fluids::destroy_buffers(*storage);
     if (storage->owns_stream && storage->stream != nullptr) cudaStreamDestroy(storage->stream);
@@ -1481,22 +1417,11 @@ StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext contex
 }
 
 StableFluidsResult stable_fluids_reset_context_cuda(StableFluidsContext context) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    return reset_fields(*as_storage(context));
+    return reset_fields(*static_cast<stable_fluids::ContextStorage*>(context));
 }
 
 StableFluidsResult stable_fluids_update_scene_cuda(StableFluidsContext context, const StableFluidsSceneDesc* desc) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (desc == nullptr) return stable_fluids::invalid_argument;
-    if (desc->collider_count > 0 && desc->colliders == nullptr) return stable_fluids::invalid_scene;
-    for (uint32_t index = 0; index < desc->collider_count; ++index) {
-        const auto& collider = desc->colliders[index];
-        if (collider.collider_type > STABLE_FLUIDS_COLLIDER_BOX) return stable_fluids::invalid_scene;
-        if (collider.velocity_boundary_type > STABLE_FLUIDS_VELOCITY_BOUNDARY_FREE_SLIP) return stable_fluids::invalid_scene;
-        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_SPHERE && collider.radius <= 0.0f) return stable_fluids::invalid_scene;
-        if (collider.collider_type == STABLE_FLUIDS_COLLIDER_BOX && (collider.half_extent_x <= 0.0f || collider.half_extent_y <= 0.0f || collider.half_extent_z <= 0.0f)) return stable_fluids::invalid_scene;
-    }
-    auto* storage = as_storage(context);
+    auto* storage = static_cast<stable_fluids::ContextStorage*>(context);
     if (desc->collider_count > 0) storage->colliders.assign(desc->colliders, desc->colliders + desc->collider_count);
     else storage->colliders.clear();
     storage->atlas_dirty = true;
@@ -1504,19 +1429,7 @@ StableFluidsResult stable_fluids_update_scene_cuda(StableFluidsContext context, 
 }
 
 StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (desc == nullptr) return stable_fluids::invalid_argument;
-    auto& storage = *as_storage(context);
-    if (desc->velocity_source_count > 0 && desc->velocity_sources == nullptr) return stable_fluids::invalid_argument;
-    if (desc->field_source_count > 0 && desc->field_sources == nullptr) return stable_fluids::invalid_argument;
-    for (uint32_t index = 0; index < desc->velocity_source_count; ++index) {
-        if (desc->velocity_sources[index].radius <= 0.0f) return stable_fluids::invalid_argument;
-    }
-    for (uint32_t index = 0; index < desc->field_source_count; ++index) {
-        const auto& source = desc->field_sources[index];
-        if (source.radius <= 0.0f) return stable_fluids::invalid_argument;
-        if (stable_fluids::find_field(storage, source.field) == nullptr) return stable_fluids::invalid_field;
-    }
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     if (const StableFluidsResult code = rebuild_atlas_if_needed(storage); code != stable_fluids::success) return code;
 
     const stable_fluids::LaunchGeometry launch = stable_fluids::make_launch_geometry(storage.config);
@@ -1531,8 +1444,7 @@ StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const St
 
     for (uint32_t index = 0; index < desc->field_source_count; ++index) {
         const auto& source = desc->field_sources[index];
-        const auto* field = stable_fluids::find_field(storage, source.field);
-        if (field == nullptr) return stable_fluids::invalid_field;
+        const auto* field = &storage.fields[static_cast<std::size_t>(source.field - 1u)];
         stable_fluids::add_field_source_kernel<<<launch.cells, launch.block, 0, storage.stream>>>(field->data, static_cast<int>(field->desc.component_count), storage.device.cell_flags, source.center_x, source.center_y, source.center_z, source.radius, source.value_0, source.value_1, source.value_2, source.value_3, storage.config.nx, storage.config.ny, storage.config.nz, storage.config.cell_size);
         if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
     }
@@ -1542,8 +1454,7 @@ StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const St
     stable_fluids::add_uniform_forces_kernel<<<launch.faces, launch.block, 0, storage.stream>>>(storage.device.velocity_x, storage.device.velocity_y, storage.device.velocity_z, storage.device.u_flags, storage.device.v_flags, storage.device.w_flags, storage.config.nx, storage.config.ny, storage.config.nz, storage.config.dt, storage.config.uniform_force_x, storage.config.uniform_force_y, storage.config.uniform_force_z);
     if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
     for (const auto& term : storage.buoyancy_terms) {
-        const auto* field = stable_fluids::find_field(storage, term.field_index + 1u);
-        if (field == nullptr) return stable_fluids::invalid_field;
+        const auto* field = &storage.fields[static_cast<std::size_t>(term.field_index)];
         stable_fluids::add_buoyancy_kernel<<<launch.faces, launch.block, 0, storage.stream>>>(storage.device.velocity_y, field->data, storage.device.v_flags, storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz, storage.config.dt, term.weight, term.ambient);
         if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
     }
@@ -1565,75 +1476,59 @@ StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const St
 }
 
 StableFluidsResult stable_fluids_export_field_components_cuda(StableFluidsContext context, const StableFluidsFieldHandle field_handle, const uint32_t component_offset, const uint32_t component_count, void* destination) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (destination == nullptr) return stable_fluids::invalid_export;
-    auto& storage = *as_storage(context);
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     const stable_fluids::LaunchGeometry launch = stable_fluids::make_launch_geometry(storage.config);
-    const auto* field = stable_fluids::find_field(storage, field_handle);
-    if (field == nullptr || component_count == 0 || component_count > 4 || component_offset + component_count > field->desc.component_count) return stable_fluids::invalid_export;
+    const auto* field = &storage.fields[static_cast<std::size_t>(field_handle - 1u)];
     stable_fluids::export_field_components_kernel<<<launch.cells, launch.block, 0, storage.stream>>>(static_cast<float*>(destination), field->data, storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz, static_cast<int>(field->desc.component_count), static_cast<int>(component_offset), static_cast<int>(component_count));
     return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
 }
 
 StableFluidsResult stable_fluids_export_alpha_rgb_rgba_cuda(StableFluidsContext context, const StableFluidsFieldHandle alpha_field_handle, const StableFluidsFieldHandle rgb_field_handle, void* destination) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (destination == nullptr) return stable_fluids::invalid_export;
-    auto& storage = *as_storage(context);
-    const auto* alpha_field = stable_fluids::find_field(storage, alpha_field_handle);
-    const auto* rgb_field = stable_fluids::find_field(storage, rgb_field_handle);
-    if (alpha_field == nullptr || rgb_field == nullptr || alpha_field->desc.component_count < 1 || rgb_field->desc.component_count < 3) return stable_fluids::invalid_export;
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
+    const auto* alpha_field = &storage.fields[static_cast<std::size_t>(alpha_field_handle - 1u)];
+    const auto* rgb_field = &storage.fields[static_cast<std::size_t>(rgb_field_handle - 1u)];
     const stable_fluids::LaunchGeometry launch = stable_fluids::make_launch_geometry(storage.config);
     stable_fluids::pack_alpha_rgb_rgba_kernel<<<launch.cells, launch.block, 0, storage.stream>>>(static_cast<float*>(destination), alpha_field->data, rgb_field->data, storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz, static_cast<int>(rgb_field->desc.component_count));
     return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
 }
 
 StableFluidsResult stable_fluids_export_velocity_cuda(StableFluidsContext context, void* destination) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (destination == nullptr) return stable_fluids::invalid_export;
-    auto& storage = *as_storage(context);
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     const stable_fluids::LaunchGeometry launch = stable_fluids::make_launch_geometry(storage.config);
     stable_fluids::export_velocity_kernel<<<launch.cells, launch.block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.velocity_x, storage.device.velocity_y, storage.device.velocity_z, storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz);
     return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
 }
 
 StableFluidsResult stable_fluids_export_velocity_magnitude_cuda(StableFluidsContext context, void* destination) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (destination == nullptr) return stable_fluids::invalid_export;
-    auto& storage = *as_storage(context);
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     const stable_fluids::LaunchGeometry launch = stable_fluids::make_launch_geometry(storage.config);
     stable_fluids::compute_velocity_magnitude_kernel<<<launch.cells, launch.block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.velocity_x, storage.device.velocity_y, storage.device.velocity_z, storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz);
     return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
 }
 
 StableFluidsResult stable_fluids_export_solid_mask_cuda(StableFluidsContext context, void* destination) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (destination == nullptr) return stable_fluids::invalid_export;
-    auto& storage = *as_storage(context);
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     const stable_fluids::LaunchGeometry launch = stable_fluids::make_launch_geometry(storage.config);
     stable_fluids::export_solid_mask_kernel<<<launch.cells, launch.block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.cell_flags, storage.config.nx, storage.config.ny, storage.config.nz);
     return cudaGetLastError() == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
 }
 
 StableFluidsResult stable_fluids_export_pressure_cuda(StableFluidsContext context, void* destination) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (destination == nullptr) return stable_fluids::invalid_export;
-    auto& storage = *as_storage(context);
-    if (cudaMemcpyAsync(destination, storage.device.pressure, stable_fluids::scalar_count(storage.config) * sizeof(float), cudaMemcpyDeviceToDevice, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
+    const auto cell_count = static_cast<std::uint64_t>(storage.config.nx) * static_cast<std::uint64_t>(storage.config.ny) * static_cast<std::uint64_t>(storage.config.nz);
+    if (cudaMemcpyAsync(destination, storage.device.pressure, cell_count * sizeof(float), cudaMemcpyDeviceToDevice, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
     return stable_fluids::success;
 }
 
 StableFluidsResult stable_fluids_export_divergence_cuda(StableFluidsContext context, void* destination) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (destination == nullptr) return stable_fluids::invalid_export;
-    auto& storage = *as_storage(context);
-    if (cudaMemcpyAsync(destination, storage.device.divergence, stable_fluids::scalar_count(storage.config) * sizeof(float), cudaMemcpyDeviceToDevice, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
+    const auto cell_count = static_cast<std::uint64_t>(storage.config.nx) * static_cast<std::uint64_t>(storage.config.ny) * static_cast<std::uint64_t>(storage.config.nz);
+    if (cudaMemcpyAsync(destination, storage.device.divergence, cell_count * sizeof(float), cudaMemcpyDeviceToDevice, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
     return stable_fluids::success;
 }
 
 StableFluidsResult stable_fluids_get_projection_metrics_cuda(StableFluidsContext context, StableFluidsProjectionMetrics* out_metrics) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (out_metrics == nullptr) return stable_fluids::invalid_argument;
-    auto& storage = *as_storage(context);
+    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     stable_fluids::ProjectionMetricsState state{};
     if (cudaStreamSynchronize(storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
     if (cudaMemcpy(&state, storage.device.projection_metrics, sizeof(state), cudaMemcpyDeviceToHost) != cudaSuccess) return stable_fluids::backend_failure;
@@ -1643,9 +1538,7 @@ StableFluidsResult stable_fluids_get_projection_metrics_cuda(StableFluidsContext
 }
 
 StableFluidsResult stable_fluids_get_grid_desc_cuda(StableFluidsContext context, StableFluidsGridDesc* out_desc) {
-    if (context == nullptr) return stable_fluids::invalid_context;
-    if (out_desc == nullptr) return stable_fluids::invalid_argument;
-    const auto& storage = *as_storage(context);
+    const auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     out_desc->nx = storage.config.nx;
     out_desc->ny = storage.config.ny;
     out_desc->nz = storage.config.nz;
