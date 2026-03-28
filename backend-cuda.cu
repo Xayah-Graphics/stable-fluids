@@ -125,7 +125,6 @@ namespace stable_fluids {
         const auto u_count = static_cast<std::uint64_t>(nx + 1) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz);
         const auto v_count = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny + 1) * static_cast<std::uint64_t>(nz);
         const auto w_count = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz + 1);
-        constexpr float collider_touch_radius = 0.75f;
         constexpr float huge_distance = 1.0e30f;
 
         context.host_atlas.cell_flags.resize(static_cast<std::size_t>(cell_count), cell_fluid);
@@ -582,151 +581,167 @@ namespace stable_fluids {
         return success;
     }
 
-    __device__ float clamp_world(const float value, const float max_value) {
-        return fminf(fmaxf(value, 0.0f), max_value);
-    }
-
-    __device__ bool point_is_solid(const uint8_t* cell_flags, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
-        const int ix = min(max(static_cast<int>(floorf(x / h)), 0), nx - 1);
-        const int iy = min(max(static_cast<int>(floorf(y / h)), 0), ny - 1);
-        const int iz = min(max(static_cast<int>(floorf(z / h)), 0), nz - 1);
-        return cell_flags[index_3d(ix, iy, iz, nx, ny)] == cell_solid;
-    }
-
-    __device__ bool point_inside_domain(const float3 point, const int nx, const int ny, const int nz, const float h) {
-        return point.x >= 0.0f && point.x <= static_cast<float>(nx) * h && point.y >= 0.0f && point.y <= static_cast<float>(ny) * h && point.z >= 0.0f && point.z <= static_cast<float>(nz) * h;
-    }
-
-    __device__ float3 clip_backtrace_to_fluid(const uint8_t* cell_flags, const float3 origin, const float3 target, const int nx, const int ny, const int nz, const float h) {
-        float3 lo = origin;
-        float3 hi = target;
-        if (!point_is_solid(cell_flags, hi.x, hi.y, hi.z, nx, ny, nz, h)) return hi;
-        for (int i = 0; i < 8; ++i) {
-            const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
-            if (point_is_solid(cell_flags, mid.x, mid.y, mid.z, nx, ny, nz, h)) hi = mid;
-            else lo = mid;
-        }
-        return lo;
-    }
-
-    __device__ int wrap_index(const int value, const int size) {
-        const int mod = value % size;
-        return mod < 0 ? mod + size : mod;
-    }
-
-    struct ScalarAxisSample {
-        int i0;
-        int i1;
-        float t;
-    };
-
-    __device__ ScalarAxisSample resolve_scalar_axis(const float g, const int size, const uint32_t extension_mode) {
-        if (size <= 1) return { .i0 = 0, .i1 = 0, .t = 0.0f, };
-        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
-            const int i0 = static_cast<int>(floorf(g));
-            const int i1 = i0 + 1;
-            return {
-                .i0 = wrap_index(i0, size),
-                .i1 = wrap_index(i1, size),
-                .t = g - static_cast<float>(i0),
-            };
-        }
-        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
-            const float clamped = fminf(fmaxf(g, 0.0f), static_cast<float>(size - 1));
-            const int i0 = static_cast<int>(floorf(clamped));
-            const int i1 = min(i0 + 1, size - 1);
-            return {
-                .i0 = i0,
-                .i1 = i1,
-                .t = clamped - static_cast<float>(i0),
-            };
-        }
-        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
-            if (g <= 0.0f) return { .i0 = 0, .i1 = 1, .t = g, };
-            if (g >= static_cast<float>(size - 1)) return { .i0 = size - 2, .i1 = size - 1, .t = g - static_cast<float>(size - 2), };
-            const int i0 = static_cast<int>(floorf(g));
-            return {
-                .i0 = i0,
-                .i1 = i0 + 1,
-                .t = g - static_cast<float>(i0),
-            };
-        }
-        const int i0 = static_cast<int>(floorf(g));
-        const int i1 = i0 + 1;
-        return {
-            .i0 = i0,
-            .i1 = i1,
-            .t = g - static_cast<float>(i0),
-        };
-    }
-
-    __device__ float load_scalar_sample(const float* field, const uint8_t* cell_flags, int ix, int iy, int iz, const int nx, const int ny, const int nz, const uint32_t extension_mode, const float constant_value) {
-        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
-            ix = wrap_index(ix, nx);
-            iy = wrap_index(iy, ny);
-            iz = wrap_index(iz, nz);
-        } else if (ix < 0 || ix >= nx || iy < 0 || iy >= ny || iz < 0 || iz >= nz) {
-            if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT) return constant_value;
-            ix = min(max(ix, 0), nx - 1);
-            iy = min(max(iy, 0), ny - 1);
-            iz = min(max(iz, 0), nz - 1);
-        }
-        if (cell_flags[index_3d(ix, iy, iz, nx, ny)] == cell_solid) return constant_value;
-        return field[index_3d(ix, iy, iz, nx, ny)];
-    }
-
     __device__ float sample_scalar_field(const float* field, const uint8_t* cell_flags, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h, const uint32_t extension_mode, const float constant_value) {
         const float gx = x / h - 0.5f;
         const float gy = y / h - 0.5f;
         const float gz = z / h - 0.5f;
-        const ScalarAxisSample xs = resolve_scalar_axis(gx, nx, extension_mode);
-        const ScalarAxisSample ys = resolve_scalar_axis(gy, ny, extension_mode);
-        const ScalarAxisSample zs = resolve_scalar_axis(gz, nz, extension_mode);
-        const float c000 = load_scalar_sample(field, cell_flags, xs.i0, ys.i0, zs.i0, nx, ny, nz, extension_mode, constant_value);
-        const float c100 = load_scalar_sample(field, cell_flags, xs.i1, ys.i0, zs.i0, nx, ny, nz, extension_mode, constant_value);
-        const float c010 = load_scalar_sample(field, cell_flags, xs.i0, ys.i1, zs.i0, nx, ny, nz, extension_mode, constant_value);
-        const float c110 = load_scalar_sample(field, cell_flags, xs.i1, ys.i1, zs.i0, nx, ny, nz, extension_mode, constant_value);
-        const float c001 = load_scalar_sample(field, cell_flags, xs.i0, ys.i0, zs.i1, nx, ny, nz, extension_mode, constant_value);
-        const float c101 = load_scalar_sample(field, cell_flags, xs.i1, ys.i0, zs.i1, nx, ny, nz, extension_mode, constant_value);
-        const float c011 = load_scalar_sample(field, cell_flags, xs.i0, ys.i1, zs.i1, nx, ny, nz, extension_mode, constant_value);
-        const float c111 = load_scalar_sample(field, cell_flags, xs.i1, ys.i1, zs.i1, nx, ny, nz, extension_mode, constant_value);
-        const float c00 = c000 + (c100 - c000) * xs.t;
-        const float c10 = c010 + (c110 - c010) * xs.t;
-        const float c01 = c001 + (c101 - c001) * xs.t;
-        const float c11 = c011 + (c111 - c011) * xs.t;
-        const float c0 = c00 + (c10 - c00) * ys.t;
-        const float c1 = c01 + (c11 - c01) * ys.t;
-        return c0 + (c1 - c0) * zs.t;
-    }
+        int xs[2]{};
+        int ys[2]{};
+        int zs[2]{};
+        float tx = 0.0f;
+        float ty = 0.0f;
+        float tz = 0.0f;
 
-    __device__ float load_u(const float* field, const uint8_t* flags, const float* target, const int x, const int y, const int z, const int nx, const int ny, const int nz) {
-        const int ix = min(max(x, 0), nx);
-        const int iy = min(max(y, 0), ny - 1);
-        const int iz = min(max(z, 0), nz - 1);
-        const auto index = index_3d(ix, iy, iz, nx + 1, ny);
-        return flags[index] == face_fixed ? target[index] : field[index];
-    }
+        if (nx <= 1) {
+            xs[0] = 0;
+            xs[1] = 0;
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
+            const int i0 = static_cast<int>(floorf(gx));
+            const int i1 = i0 + 1;
+            xs[0] = i0 % nx;
+            xs[1] = i1 % nx;
+            if (xs[0] < 0) xs[0] += nx;
+            if (xs[1] < 0) xs[1] += nx;
+            tx = gx - static_cast<float>(i0);
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
+            const float clamped = fminf(fmaxf(gx, 0.0f), static_cast<float>(nx - 1));
+            xs[0] = static_cast<int>(floorf(clamped));
+            xs[1] = min(xs[0] + 1, nx - 1);
+            tx = clamped - static_cast<float>(xs[0]);
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
+            if (gx <= 0.0f) {
+                xs[0] = 0;
+                xs[1] = 1;
+                tx = gx;
+            } else if (gx >= static_cast<float>(nx - 1)) {
+                xs[0] = nx - 2;
+                xs[1] = nx - 1;
+                tx = gx - static_cast<float>(nx - 2);
+            } else {
+                xs[0] = static_cast<int>(floorf(gx));
+                xs[1] = xs[0] + 1;
+                tx = gx - static_cast<float>(xs[0]);
+            }
+        } else {
+            xs[0] = static_cast<int>(floorf(gx));
+            xs[1] = xs[0] + 1;
+            tx = gx - static_cast<float>(xs[0]);
+        }
 
-    __device__ float load_v(const float* field, const uint8_t* flags, const float* target, const int x, const int y, const int z, const int nx, const int ny, const int nz) {
-        const int ix = min(max(x, 0), nx - 1);
-        const int iy = min(max(y, 0), ny);
-        const int iz = min(max(z, 0), nz - 1);
-        const auto index = index_3d(ix, iy, iz, nx, ny + 1);
-        return flags[index] == face_fixed ? target[index] : field[index];
-    }
+        if (ny <= 1) {
+            ys[0] = 0;
+            ys[1] = 0;
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
+            const int i0 = static_cast<int>(floorf(gy));
+            const int i1 = i0 + 1;
+            ys[0] = i0 % ny;
+            ys[1] = i1 % ny;
+            if (ys[0] < 0) ys[0] += ny;
+            if (ys[1] < 0) ys[1] += ny;
+            ty = gy - static_cast<float>(i0);
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
+            const float clamped = fminf(fmaxf(gy, 0.0f), static_cast<float>(ny - 1));
+            ys[0] = static_cast<int>(floorf(clamped));
+            ys[1] = min(ys[0] + 1, ny - 1);
+            ty = clamped - static_cast<float>(ys[0]);
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
+            if (gy <= 0.0f) {
+                ys[0] = 0;
+                ys[1] = 1;
+                ty = gy;
+            } else if (gy >= static_cast<float>(ny - 1)) {
+                ys[0] = ny - 2;
+                ys[1] = ny - 1;
+                ty = gy - static_cast<float>(ny - 2);
+            } else {
+                ys[0] = static_cast<int>(floorf(gy));
+                ys[1] = ys[0] + 1;
+                ty = gy - static_cast<float>(ys[0]);
+            }
+        } else {
+            ys[0] = static_cast<int>(floorf(gy));
+            ys[1] = ys[0] + 1;
+            ty = gy - static_cast<float>(ys[0]);
+        }
 
-    __device__ float load_w(const float* field, const uint8_t* flags, const float* target, const int x, const int y, const int z, const int nx, const int ny, const int nz) {
-        const int ix = min(max(x, 0), nx - 1);
-        const int iy = min(max(y, 0), ny - 1);
-        const int iz = min(max(z, 0), nz);
-        const auto index = index_3d(ix, iy, iz, nx, ny);
-        return flags[index] == face_fixed ? target[index] : field[index];
+        if (nz <= 1) {
+            zs[0] = 0;
+            zs[1] = 0;
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
+            const int i0 = static_cast<int>(floorf(gz));
+            const int i1 = i0 + 1;
+            zs[0] = i0 % nz;
+            zs[1] = i1 % nz;
+            if (zs[0] < 0) zs[0] += nz;
+            if (zs[1] < 0) zs[1] += nz;
+            tz = gz - static_cast<float>(i0);
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
+            const float clamped = fminf(fmaxf(gz, 0.0f), static_cast<float>(nz - 1));
+            zs[0] = static_cast<int>(floorf(clamped));
+            zs[1] = min(zs[0] + 1, nz - 1);
+            tz = clamped - static_cast<float>(zs[0]);
+        } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
+            if (gz <= 0.0f) {
+                zs[0] = 0;
+                zs[1] = 1;
+                tz = gz;
+            } else if (gz >= static_cast<float>(nz - 1)) {
+                zs[0] = nz - 2;
+                zs[1] = nz - 1;
+                tz = gz - static_cast<float>(nz - 2);
+            } else {
+                zs[0] = static_cast<int>(floorf(gz));
+                zs[1] = zs[0] + 1;
+                tz = gz - static_cast<float>(zs[0]);
+            }
+        } else {
+            zs[0] = static_cast<int>(floorf(gz));
+            zs[1] = zs[0] + 1;
+            tz = gz - static_cast<float>(zs[0]);
+        }
+
+        float c[2][2][2]{};
+        for (int ax = 0; ax < 2; ++ax) {
+            for (int ay = 0; ay < 2; ++ay) {
+                for (int az = 0; az < 2; ++az) {
+                    int ix = xs[ax];
+                    int iy = ys[ay];
+                    int iz = zs[az];
+                    if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
+                        ix %= nx;
+                        iy %= ny;
+                        iz %= nz;
+                        if (ix < 0) ix += nx;
+                        if (iy < 0) iy += ny;
+                        if (iz < 0) iz += nz;
+                    } else if (ix < 0 || ix >= nx || iy < 0 || iy >= ny || iz < 0 || iz >= nz) {
+                        if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT) {
+                            c[ax][ay][az] = constant_value;
+                            continue;
+                        }
+                        ix = min(max(ix, 0), nx - 1);
+                        iy = min(max(iy, 0), ny - 1);
+                        iz = min(max(iz, 0), nz - 1);
+                    }
+                    const auto sample_index = index_3d(ix, iy, iz, nx, ny);
+                    c[ax][ay][az] = cell_flags[sample_index] == cell_solid ? constant_value : field[sample_index];
+                }
+            }
+        }
+
+        const float c00 = c[0][0][0] + (c[1][0][0] - c[0][0][0]) * tx;
+        const float c10 = c[0][1][0] + (c[1][1][0] - c[0][1][0]) * tx;
+        const float c01 = c[0][0][1] + (c[1][0][1] - c[0][0][1]) * tx;
+        const float c11 = c[0][1][1] + (c[1][1][1] - c[0][1][1]) * tx;
+        const float c0 = c00 + (c10 - c00) * ty;
+        const float c1 = c01 + (c11 - c01) * ty;
+        return c0 + (c1 - c0) * tz;
     }
 
     __device__ float sample_u_field(const float* field, const uint8_t* flags, const float* target, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
-        const float gx = clamp_world(x / h, static_cast<float>(nx));
-        const float gy = clamp_world(y / h - 0.5f, static_cast<float>(ny - 1));
-        const float gz = clamp_world(z / h - 0.5f, static_cast<float>(nz - 1));
+        const float gx = fminf(fmaxf(x / h, 0.0f), static_cast<float>(nx));
+        const float gy = fminf(fmaxf(y / h - 0.5f, 0.0f), static_cast<float>(ny - 1));
+        const float gz = fminf(fmaxf(z / h - 0.5f, 0.0f), static_cast<float>(nz - 1));
         const int x0 = static_cast<int>(floorf(gx));
         const int y0 = static_cast<int>(floorf(gy));
         const int z0 = static_cast<int>(floorf(gz));
@@ -736,27 +751,31 @@ namespace stable_fluids {
         const float tx = gx - static_cast<float>(x0);
         const float ty = gy - static_cast<float>(y0);
         const float tz = gz - static_cast<float>(z0);
-        const float c000 = load_u(field, flags, target, x0, y0, z0, nx, ny, nz);
-        const float c100 = load_u(field, flags, target, x1, y0, z0, nx, ny, nz);
-        const float c010 = load_u(field, flags, target, x0, y1, z0, nx, ny, nz);
-        const float c110 = load_u(field, flags, target, x1, y1, z0, nx, ny, nz);
-        const float c001 = load_u(field, flags, target, x0, y0, z1, nx, ny, nz);
-        const float c101 = load_u(field, flags, target, x1, y0, z1, nx, ny, nz);
-        const float c011 = load_u(field, flags, target, x0, y1, z1, nx, ny, nz);
-        const float c111 = load_u(field, flags, target, x1, y1, z1, nx, ny, nz);
-        const float c00 = c000 + (c100 - c000) * tx;
-        const float c10 = c010 + (c110 - c010) * tx;
-        const float c01 = c001 + (c101 - c001) * tx;
-        const float c11 = c011 + (c111 - c011) * tx;
+        float c[2][2][2]{};
+        for (int ax = 0; ax < 2; ++ax) {
+            for (int ay = 0; ay < 2; ++ay) {
+                for (int az = 0; az < 2; ++az) {
+                    const int ix = ax == 0 ? x0 : x1;
+                    const int iy = ay == 0 ? y0 : y1;
+                    const int iz = az == 0 ? z0 : z1;
+                    const auto sample_index = index_3d(ix, iy, iz, nx + 1, ny);
+                    c[ax][ay][az] = flags[sample_index] == face_fixed ? target[sample_index] : field[sample_index];
+                }
+            }
+        }
+        const float c00 = c[0][0][0] + (c[1][0][0] - c[0][0][0]) * tx;
+        const float c10 = c[0][1][0] + (c[1][1][0] - c[0][1][0]) * tx;
+        const float c01 = c[0][0][1] + (c[1][0][1] - c[0][0][1]) * tx;
+        const float c11 = c[0][1][1] + (c[1][1][1] - c[0][1][1]) * tx;
         const float c0 = c00 + (c10 - c00) * ty;
         const float c1 = c01 + (c11 - c01) * ty;
         return c0 + (c1 - c0) * tz;
     }
 
     __device__ float sample_v_field(const float* field, const uint8_t* flags, const float* target, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
-        const float gx = clamp_world(x / h - 0.5f, static_cast<float>(nx - 1));
-        const float gy = clamp_world(y / h, static_cast<float>(ny));
-        const float gz = clamp_world(z / h - 0.5f, static_cast<float>(nz - 1));
+        const float gx = fminf(fmaxf(x / h - 0.5f, 0.0f), static_cast<float>(nx - 1));
+        const float gy = fminf(fmaxf(y / h, 0.0f), static_cast<float>(ny));
+        const float gz = fminf(fmaxf(z / h - 0.5f, 0.0f), static_cast<float>(nz - 1));
         const int x0 = static_cast<int>(floorf(gx));
         const int y0 = static_cast<int>(floorf(gy));
         const int z0 = static_cast<int>(floorf(gz));
@@ -766,27 +785,31 @@ namespace stable_fluids {
         const float tx = gx - static_cast<float>(x0);
         const float ty = gy - static_cast<float>(y0);
         const float tz = gz - static_cast<float>(z0);
-        const float c000 = load_v(field, flags, target, x0, y0, z0, nx, ny, nz);
-        const float c100 = load_v(field, flags, target, x1, y0, z0, nx, ny, nz);
-        const float c010 = load_v(field, flags, target, x0, y1, z0, nx, ny, nz);
-        const float c110 = load_v(field, flags, target, x1, y1, z0, nx, ny, nz);
-        const float c001 = load_v(field, flags, target, x0, y0, z1, nx, ny, nz);
-        const float c101 = load_v(field, flags, target, x1, y0, z1, nx, ny, nz);
-        const float c011 = load_v(field, flags, target, x0, y1, z1, nx, ny, nz);
-        const float c111 = load_v(field, flags, target, x1, y1, z1, nx, ny, nz);
-        const float c00 = c000 + (c100 - c000) * tx;
-        const float c10 = c010 + (c110 - c010) * tx;
-        const float c01 = c001 + (c101 - c001) * tx;
-        const float c11 = c011 + (c111 - c011) * tx;
+        float c[2][2][2]{};
+        for (int ax = 0; ax < 2; ++ax) {
+            for (int ay = 0; ay < 2; ++ay) {
+                for (int az = 0; az < 2; ++az) {
+                    const int ix = ax == 0 ? x0 : x1;
+                    const int iy = ay == 0 ? y0 : y1;
+                    const int iz = az == 0 ? z0 : z1;
+                    const auto sample_index = index_3d(ix, iy, iz, nx, ny + 1);
+                    c[ax][ay][az] = flags[sample_index] == face_fixed ? target[sample_index] : field[sample_index];
+                }
+            }
+        }
+        const float c00 = c[0][0][0] + (c[1][0][0] - c[0][0][0]) * tx;
+        const float c10 = c[0][1][0] + (c[1][1][0] - c[0][1][0]) * tx;
+        const float c01 = c[0][0][1] + (c[1][0][1] - c[0][0][1]) * tx;
+        const float c11 = c[0][1][1] + (c[1][1][1] - c[0][1][1]) * tx;
         const float c0 = c00 + (c10 - c00) * ty;
         const float c1 = c01 + (c11 - c01) * ty;
         return c0 + (c1 - c0) * tz;
     }
 
     __device__ float sample_w_field(const float* field, const uint8_t* flags, const float* target, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
-        const float gx = clamp_world(x / h - 0.5f, static_cast<float>(nx - 1));
-        const float gy = clamp_world(y / h - 0.5f, static_cast<float>(ny - 1));
-        const float gz = clamp_world(z / h, static_cast<float>(nz));
+        const float gx = fminf(fmaxf(x / h - 0.5f, 0.0f), static_cast<float>(nx - 1));
+        const float gy = fminf(fmaxf(y / h - 0.5f, 0.0f), static_cast<float>(ny - 1));
+        const float gz = fminf(fmaxf(z / h, 0.0f), static_cast<float>(nz));
         const int x0 = static_cast<int>(floorf(gx));
         const int y0 = static_cast<int>(floorf(gy));
         const int z0 = static_cast<int>(floorf(gz));
@@ -796,47 +819,25 @@ namespace stable_fluids {
         const float tx = gx - static_cast<float>(x0);
         const float ty = gy - static_cast<float>(y0);
         const float tz = gz - static_cast<float>(z0);
-        const float c000 = load_w(field, flags, target, x0, y0, z0, nx, ny, nz);
-        const float c100 = load_w(field, flags, target, x1, y0, z0, nx, ny, nz);
-        const float c010 = load_w(field, flags, target, x0, y1, z0, nx, ny, nz);
-        const float c110 = load_w(field, flags, target, x1, y1, z0, nx, ny, nz);
-        const float c001 = load_w(field, flags, target, x0, y0, z1, nx, ny, nz);
-        const float c101 = load_w(field, flags, target, x1, y0, z1, nx, ny, nz);
-        const float c011 = load_w(field, flags, target, x0, y1, z1, nx, ny, nz);
-        const float c111 = load_w(field, flags, target, x1, y1, z1, nx, ny, nz);
-        const float c00 = c000 + (c100 - c000) * tx;
-        const float c10 = c010 + (c110 - c010) * tx;
-        const float c01 = c001 + (c101 - c001) * tx;
-        const float c11 = c011 + (c111 - c011) * tx;
+        float c[2][2][2]{};
+        for (int ax = 0; ax < 2; ++ax) {
+            for (int ay = 0; ay < 2; ++ay) {
+                for (int az = 0; az < 2; ++az) {
+                    const int ix = ax == 0 ? x0 : x1;
+                    const int iy = ay == 0 ? y0 : y1;
+                    const int iz = az == 0 ? z0 : z1;
+                    const auto sample_index = index_3d(ix, iy, iz, nx, ny);
+                    c[ax][ay][az] = flags[sample_index] == face_fixed ? target[sample_index] : field[sample_index];
+                }
+            }
+        }
+        const float c00 = c[0][0][0] + (c[1][0][0] - c[0][0][0]) * tx;
+        const float c10 = c[0][1][0] + (c[1][1][0] - c[0][1][0]) * tx;
+        const float c01 = c[0][0][1] + (c[1][0][1] - c[0][0][1]) * tx;
+        const float c11 = c[0][1][1] + (c[1][1][1] - c[0][1][1]) * tx;
         const float c0 = c00 + (c10 - c00) * ty;
         const float c1 = c01 + (c11 - c01) * ty;
         return c0 + (c1 - c0) * tz;
-    }
-
-    __device__ float3 sample_velocity_field(const float* u, const float* v, const float* w, const uint8_t* u_flags, const uint8_t* v_flags, const uint8_t* w_flags, const float* u_target, const float* v_target, const float* w_target, const float3 pos, const int nx, const int ny, const int nz, const float h) {
-        return make_float3(
-            sample_u_field(u, u_flags, u_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
-            sample_v_field(v, v_flags, v_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
-            sample_w_field(w, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
-        );
-    }
-
-    __device__ float clamp_u_outflow(const float value, const int x, const int nx) {
-        if (x == 0) return fminf(value, 0.0f);
-        if (x == nx) return fmaxf(value, 0.0f);
-        return value;
-    }
-
-    __device__ float clamp_v_outflow(const float value, const int y, const int ny) {
-        if (y == 0) return fminf(value, 0.0f);
-        if (y == ny) return fmaxf(value, 0.0f);
-        return value;
-    }
-
-    __device__ float clamp_w_outflow(const float value, const int z, const int nz) {
-        if (z == 0) return fminf(value, 0.0f);
-        if (z == nz) return fmaxf(value, 0.0f);
-        return value;
     }
 
     __global__ void clear_field_kernel(float* field, const int components, const float value_0, const float value_1, const float value_2, const float value_3, const int nx, const int ny, const int nz) {
@@ -868,17 +869,26 @@ namespace stable_fluids {
         if (x <= nx && y < ny && z < nz) {
             const auto index = index_3d(x, y, z, nx + 1, ny);
             if (u_flags[index] == face_fixed) u[index] = u_target[index];
-            else if (u_flags[index] == face_outflow) u[index] = clamp_u_outflow(u[index], x, nx);
+            else if (u_flags[index] == face_outflow) {
+                if (x == 0) u[index] = fminf(u[index], 0.0f);
+                else if (x == nx) u[index] = fmaxf(u[index], 0.0f);
+            }
         }
         if (x < nx && y <= ny && z < nz) {
             const auto index = index_3d(x, y, z, nx, ny + 1);
             if (v_flags[index] == face_fixed) v[index] = v_target[index];
-            else if (v_flags[index] == face_outflow) v[index] = clamp_v_outflow(v[index], y, ny);
+            else if (v_flags[index] == face_outflow) {
+                if (y == 0) v[index] = fminf(v[index], 0.0f);
+                else if (y == ny) v[index] = fmaxf(v[index], 0.0f);
+            }
         }
         if (x < nx && y < ny && z <= nz) {
             const auto index = index_3d(x, y, z, nx, ny);
             if (w_flags[index] == face_fixed) w[index] = w_target[index];
-            else if (w_flags[index] == face_outflow) w[index] = clamp_w_outflow(w[index], z, nz);
+            else if (w_flags[index] == face_outflow) {
+                if (z == 0) w[index] = fminf(w[index], 0.0f);
+                else if (z == nz) w[index] = fmaxf(w[index], 0.0f);
+            }
         }
     }
 
@@ -1013,9 +1023,32 @@ namespace stable_fluids {
             if (u_flags[face_index] == face_fixed) u_dst[face_index] = u_target[face_index];
             else {
                 const float3 pos = make_float3(static_cast<float>(x) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
-                const float3 vel = sample_velocity_field(u_src, v_src, w_src, u_flags, v_flags, w_flags, u_target, v_target, w_target, pos, nx, ny, nz, h);
-                float3 back = make_float3(clamp_world(pos.x - dt * vel.x, static_cast<float>(nx) * h), clamp_world(pos.y - dt * vel.y, static_cast<float>(ny) * h), clamp_world(pos.z - dt * vel.z, static_cast<float>(nz) * h));
-                back = clip_backtrace_to_fluid(cell_flags, pos, back, nx, ny, nz, h);
+                const float3 vel = make_float3(
+                    sample_u_field(u_src, u_flags, u_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+                    sample_v_field(v_src, v_flags, v_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+                    sample_w_field(w_src, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
+                );
+                float3 back = make_float3(
+                    fminf(fmaxf(pos.x - dt * vel.x, 0.0f), static_cast<float>(nx) * h),
+                    fminf(fmaxf(pos.y - dt * vel.y, 0.0f), static_cast<float>(ny) * h),
+                    fminf(fmaxf(pos.z - dt * vel.z, 0.0f), static_cast<float>(nz) * h)
+                );
+                const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
+                const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
+                const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+                if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
+                    float3 lo = pos;
+                    float3 hi = back;
+                    for (int iteration = 0; iteration < 8; ++iteration) {
+                        const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
+                        const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
+                        const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
+                        const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                        if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
+                        else lo = mid;
+                    }
+                    back = lo;
+                }
                 u_dst[face_index] = sample_u_field(u_src, u_flags, u_target, back.x, back.y, back.z, nx, ny, nz, h);
             }
         }
@@ -1025,9 +1058,32 @@ namespace stable_fluids {
             if (v_flags[face_index] == face_fixed) v_dst[face_index] = v_target[face_index];
             else {
                 const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, static_cast<float>(y) * h, (static_cast<float>(z) + 0.5f) * h);
-                const float3 vel = sample_velocity_field(u_src, v_src, w_src, u_flags, v_flags, w_flags, u_target, v_target, w_target, pos, nx, ny, nz, h);
-                float3 back = make_float3(clamp_world(pos.x - dt * vel.x, static_cast<float>(nx) * h), clamp_world(pos.y - dt * vel.y, static_cast<float>(ny) * h), clamp_world(pos.z - dt * vel.z, static_cast<float>(nz) * h));
-                back = clip_backtrace_to_fluid(cell_flags, pos, back, nx, ny, nz, h);
+                const float3 vel = make_float3(
+                    sample_u_field(u_src, u_flags, u_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+                    sample_v_field(v_src, v_flags, v_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+                    sample_w_field(w_src, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
+                );
+                float3 back = make_float3(
+                    fminf(fmaxf(pos.x - dt * vel.x, 0.0f), static_cast<float>(nx) * h),
+                    fminf(fmaxf(pos.y - dt * vel.y, 0.0f), static_cast<float>(ny) * h),
+                    fminf(fmaxf(pos.z - dt * vel.z, 0.0f), static_cast<float>(nz) * h)
+                );
+                const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
+                const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
+                const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+                if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
+                    float3 lo = pos;
+                    float3 hi = back;
+                    for (int iteration = 0; iteration < 8; ++iteration) {
+                        const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
+                        const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
+                        const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
+                        const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                        if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
+                        else lo = mid;
+                    }
+                    back = lo;
+                }
                 v_dst[face_index] = sample_v_field(v_src, v_flags, v_target, back.x, back.y, back.z, nx, ny, nz, h);
             }
         }
@@ -1037,9 +1093,32 @@ namespace stable_fluids {
             if (w_flags[face_index] == face_fixed) w_dst[face_index] = w_target[face_index];
             else {
                 const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, static_cast<float>(z) * h);
-                const float3 vel = sample_velocity_field(u_src, v_src, w_src, u_flags, v_flags, w_flags, u_target, v_target, w_target, pos, nx, ny, nz, h);
-                float3 back = make_float3(clamp_world(pos.x - dt * vel.x, static_cast<float>(nx) * h), clamp_world(pos.y - dt * vel.y, static_cast<float>(ny) * h), clamp_world(pos.z - dt * vel.z, static_cast<float>(nz) * h));
-                back = clip_backtrace_to_fluid(cell_flags, pos, back, nx, ny, nz, h);
+                const float3 vel = make_float3(
+                    sample_u_field(u_src, u_flags, u_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+                    sample_v_field(v_src, v_flags, v_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+                    sample_w_field(w_src, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
+                );
+                float3 back = make_float3(
+                    fminf(fmaxf(pos.x - dt * vel.x, 0.0f), static_cast<float>(nx) * h),
+                    fminf(fmaxf(pos.y - dt * vel.y, 0.0f), static_cast<float>(ny) * h),
+                    fminf(fmaxf(pos.z - dt * vel.z, 0.0f), static_cast<float>(nz) * h)
+                );
+                const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
+                const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
+                const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+                if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
+                    float3 lo = pos;
+                    float3 hi = back;
+                    for (int iteration = 0; iteration < 8; ++iteration) {
+                        const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
+                        const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
+                        const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
+                        const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                        if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
+                        else lo = mid;
+                    }
+                    back = lo;
+                }
                 w_dst[face_index] = sample_w_field(w_src, w_flags, w_target, back.x, back.y, back.z, nx, ny, nz, h);
             }
         }
@@ -1056,13 +1135,38 @@ namespace stable_fluids {
             return;
         }
         const float3 pos = make_float3((static_cast<float>(x) + 0.5f) * h, (static_cast<float>(y) + 0.5f) * h, (static_cast<float>(z) + 0.5f) * h);
-        const float3 vel = sample_velocity_field(u, v, w, u_flags, v_flags, w_flags, u_target, v_target, w_target, pos, nx, ny, nz, h);
+        const float3 vel = make_float3(
+            sample_u_field(u, u_flags, u_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+            sample_v_field(v, v_flags, v_target, pos.x, pos.y, pos.z, nx, ny, nz, h),
+            sample_w_field(w, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
+        );
         const float3 raw_back = make_float3(pos.x - dt * vel.x, pos.y - dt * vel.y, pos.z - dt * vel.z);
         float3 back = raw_back;
         if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT || extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
-            back = make_float3(clamp_world(back.x, static_cast<float>(nx) * h), clamp_world(back.y, static_cast<float>(ny) * h), clamp_world(back.z, static_cast<float>(nz) * h));
+            back = make_float3(
+                fminf(fmaxf(back.x, 0.0f), static_cast<float>(nx) * h),
+                fminf(fmaxf(back.y, 0.0f), static_cast<float>(ny) * h),
+                fminf(fmaxf(back.z, 0.0f), static_cast<float>(nz) * h)
+            );
         }
-        if (point_inside_domain(back, nx, ny, nz, h)) back = clip_backtrace_to_fluid(cell_flags, pos, back, nx, ny, nz, h);
+        if (back.x >= 0.0f && back.x <= static_cast<float>(nx) * h && back.y >= 0.0f && back.y <= static_cast<float>(ny) * h && back.z >= 0.0f && back.z <= static_cast<float>(nz) * h) {
+            const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
+            const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
+            const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+            if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
+                float3 lo = pos;
+                float3 hi = back;
+                for (int iteration = 0; iteration < 8; ++iteration) {
+                    const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
+                    const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
+                    const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
+                    const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                    if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
+                    else lo = mid;
+                }
+                back = lo;
+            }
+        }
         dst[index] = sample_scalar_field(src, cell_flags, back.x, back.y, back.z, nx, ny, nz, h, extension_mode, constant_value);
     }
 
@@ -1076,13 +1180,35 @@ namespace stable_fluids {
             dst[index] = 0.0f;
             return;
         }
-        const float left = load_scalar_sample(dst, cell_flags, x - 1, y, z, nx, ny, nz, extension_mode, constant_value);
-        const float right = load_scalar_sample(dst, cell_flags, x + 1, y, z, nx, ny, nz, extension_mode, constant_value);
-        const float down = load_scalar_sample(dst, cell_flags, x, y - 1, z, nx, ny, nz, extension_mode, constant_value);
-        const float up = load_scalar_sample(dst, cell_flags, x, y + 1, z, nx, ny, nz, extension_mode, constant_value);
-        const float back = load_scalar_sample(dst, cell_flags, x, y, z - 1, nx, ny, nz, extension_mode, constant_value);
-        const float front = load_scalar_sample(dst, cell_flags, x, y, z + 1, nx, ny, nz, extension_mode, constant_value);
-        dst[index] = (src[index] + alpha * (left + right + down + up + back + front)) / (1.0f + 6.0f * alpha);
+        float sum = 0.0f;
+        const int sample_x[6] = { x - 1, x + 1, x, x, x, x, };
+        const int sample_y[6] = { y, y, y - 1, y + 1, y, y, };
+        const int sample_z[6] = { z, z, z, z, z - 1, z + 1, };
+        for (int neighbor = 0; neighbor < 6; ++neighbor) {
+            int ix = sample_x[neighbor];
+            int iy = sample_y[neighbor];
+            int iz = sample_z[neighbor];
+            if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_REPEAT) {
+                ix %= nx;
+                iy %= ny;
+                iz %= nz;
+                if (ix < 0) ix += nx;
+                if (iy < 0) iy += ny;
+                if (iz < 0) iz += nz;
+            } else if (ix < 0 || ix >= nx || iy < 0 || iy >= ny || iz < 0 || iz >= nz) {
+                if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT) {
+                    sum += constant_value;
+                    continue;
+                }
+                ix = min(max(ix, 0), nx - 1);
+                iy = min(max(iy, 0), ny - 1);
+                iz = min(max(iz, 0), nz - 1);
+            }
+            const auto sample_index = index_3d(ix, iy, iz, nx, ny);
+            if (cell_flags[sample_index] == cell_solid) sum += constant_value;
+            else sum += dst[sample_index];
+        }
+        dst[index] = (src[index] + alpha * sum) / (1.0f + 6.0f * alpha);
     }
 
     __global__ void diffuse_velocity_rbgs_kernel(float* dst, const float* src, const uint8_t* flags, const float* target, const int sx, const int sy, const int sz, const float alpha, const int parity) {
