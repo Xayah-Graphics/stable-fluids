@@ -173,14 +173,28 @@ namespace app {
         camera_.update(dt_seconds, sc_.extent.width, sc_.extent.height, camera_input);
     }
 
-    void VisualizationApp::draw_visualization_ui(AppState& state, const SceneInfo& scene, const std::span<const FieldInfo> fields, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
+    void VisualizationApp::draw_visualization_ui(AppState& state, const SceneInfo& scene, const std::span<const FieldInfo> fields, const std::span<const std::string_view> scene_labels, bool& reset_requested, bool& field_changed, bool& scene_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
         bool reframe_requested       = false;
         auto& settings               = state.render;
+        state.selected_scene = std::clamp(state.selected_scene, 0, static_cast<int>(scene_labels.empty() ? 0 : scene_labels.size() - 1));
         if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
         state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
         const auto& field    = fields[static_cast<size_t>(state.selected_field)];
 
         ImGui::Begin("Stable Fluids");
+        if (scene_labels.size() > 1 && ImGui::BeginCombo("Scene", scene_labels[static_cast<size_t>(state.selected_scene)].data())) {
+            for (int i = 0; i < static_cast<int>(scene_labels.size()); ++i) {
+                const bool is_selected = state.selected_scene == i;
+                if (ImGui::Selectable(scene_labels[static_cast<size_t>(i)].data(), is_selected)) {
+                    state.selected_scene = i;
+                    state.selected_field = 0;
+                    scene_changed        = true;
+                    reframe_requested    = true;
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
         if (ImGui::BeginCombo("Field", field.label.data())) {
             for (int i = 0; i < static_cast<int>(fields.size()); ++i) {
                 const bool is_selected = state.selected_field == i;
@@ -874,6 +888,78 @@ namespace app {
         const uint64_t next_submit_serial = data.capture.submit_serial + 1;
         if (data.capture.active_slot >= 0) data.capture.slots[static_cast<size_t>(data.capture.active_slot)].last_used_submit_serial = next_submit_serial;
         data.capture.submit_serial = next_submit_serial;
+    }
+
+    int run_scene_switcher(const std::span<SceneEntry> scenes) {
+        AppState state{};
+        AppData data{};
+        std::unique_ptr<VisualizationApp> renderer{};
+        try {
+            if (scenes.empty()) throw std::runtime_error("run_scene_switcher requires at least one scene");
+            renderer = std::make_unique<VisualizationApp>();
+            check_interop_support(*renderer);
+
+            std::vector<std::string_view> scene_labels{};
+            scene_labels.reserve(scenes.size());
+            for (const auto& scene : scenes) scene_labels.push_back(scene.label);
+
+            renderer->vk_context().device.waitIdle();
+            for (auto& scene : scenes) scene.rebuild();
+
+            auto activate_scene = [&](const bool reframe) {
+                auto& scene = scenes[static_cast<size_t>(state.selected_scene)];
+                state.selected_field = 0;
+                state.render = scene.default_visualization();
+                sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
+                capture_snapshot(state, data, scene, *renderer);
+                if (!reframe) return;
+                if (const auto snapshot = active_snapshot(data)) renderer->frame_content(state.render, *snapshot);
+            };
+
+            activate_scene(true);
+            while (!renderer->should_close()) {
+                renderer->begin_frame();
+
+                bool reset_requested = false;
+                bool field_changed   = false;
+                bool scene_changed   = false;
+                auto& scene          = scenes[static_cast<size_t>(state.selected_scene)];
+                auto snapshot        = active_snapshot(data);
+                renderer->draw_visualization_ui(state, scene.info(), scene.fields(), scene_labels, reset_requested, field_changed, scene_changed, snapshot);
+
+                if (scene_changed) {
+                    renderer->vk_context().device.waitIdle();
+                    activate_scene(true);
+                } else if (reset_requested) {
+                    renderer->vk_context().device.waitIdle();
+                    scene.rebuild();
+                    sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
+                    capture_snapshot(state, data, scene, *renderer);
+                    snapshot = active_snapshot(data);
+                    if (snapshot) renderer->frame_content(state.render, *snapshot);
+                } else {
+                    sync_capture_storage(data, *renderer, scene.info().grid, state.render.show_velocity_plane);
+                    if (!state.paused) scene.step(1);
+                    if (!state.paused || field_changed || !snapshot) capture_snapshot(state, data, scene, *renderer);
+                }
+
+                snapshot             = active_snapshot(data);
+                const bool submitted = renderer->render_frame(state.render, snapshot);
+                if (submitted) mark_snapshot_submitted(data);
+            }
+
+            renderer->vk_context().device.waitIdle();
+            destroy_runtime_data(data);
+            return 0;
+        } catch (const std::exception& e) {
+            try {
+                if (renderer) renderer->vk_context().device.waitIdle();
+            } catch (...) {
+            }
+            destroy_runtime_data(data);
+            std::fprintf(stderr, "%s\n", e.what());
+            return 1;
+        }
     }
 
 } // namespace app
