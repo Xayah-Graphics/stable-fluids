@@ -223,11 +223,10 @@ namespace app {
         }
         if (ImGui::Checkbox("Velocity Plane", &settings.show_velocity_plane)) field_changed = true;
         if (settings.show_velocity_plane) {
-            ImGui::SliderInt("Velocity Seeds", &settings.velocity_plane_seed_count, 4, 48);
-            ImGui::SliderInt("Velocity Steps", &settings.velocity_plane_step_count, 4, 96);
-            ImGui::SliderFloat("Velocity Step", &settings.velocity_plane_step_cells, 0.05f, 1.0f, "%.2f");
+            ImGui::SliderInt("Arrow Seeds", &settings.velocity_plane_seed_count, 4, 48);
+            ImGui::SliderFloat("Arrow Scale", &settings.velocity_plane_arrow_cells, 0.1f, 2.0f, "%.2f");
             ImGui::SliderFloat("Min Speed", &settings.velocity_plane_min_speed, 0.001f, 0.5f, "%.3f");
-            ImGui::SliderFloat("Line Width", &settings.velocity_plane_thickness, 0.5f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Arrow Width", &settings.velocity_plane_thickness, 0.5f, 4.0f, "%.2f");
         }
 
         ImGui::Separator();
@@ -418,9 +417,8 @@ namespace app {
                 const float max_z = snapshot->grid.extent_z();
                 const float slice_position = std::clamp(settings.slice_position, 0.0f, 1.0f);
                 const int seed_count = (std::max)(settings.velocity_plane_seed_count, 2);
-                const int step_count = (std::max)(settings.velocity_plane_step_count, 1);
                 const float min_speed = (std::max)(settings.velocity_plane_min_speed, 1.0e-5f);
-                const float step_scale = settings.velocity_plane_step_cells * snapshot->grid.cell_size;
+                const float arrow_scale = settings.velocity_plane_arrow_cells * snapshot->grid.cell_size;
                 std::array<vk::math::vec3, 4> plane_corners{};
                 if (plane_axis == PlaneAxis::XY) {
                     const float z = slice_position * max_z;
@@ -462,36 +460,67 @@ namespace app {
                         if (plane_axis == PlaneAxis::XY) pos = {u * max_x, v * max_y, slice_position * max_z, 0.0f};
                         if (plane_axis == PlaneAxis::XZ) pos = {u * max_x, slice_position * max_y, v * max_z, 0.0f};
                         if (plane_axis == PlaneAxis::YZ) pos = {slice_position * max_x, u * max_y, v * max_z, 0.0f};
-                        for (int step = 0; step < step_count; ++step) {
-                            const auto velocity = sample_velocity(pos.x, pos.y, pos.z);
-                            vk::math::vec3 plane_velocity{};
-                            if (plane_axis == PlaneAxis::XY) plane_velocity = {velocity.x, velocity.y, 0.0f, 0.0f};
-                            if (plane_axis == PlaneAxis::XZ) plane_velocity = {velocity.x, 0.0f, velocity.z, 0.0f};
-                            if (plane_axis == PlaneAxis::YZ) plane_velocity = {0.0f, velocity.y, velocity.z, 0.0f};
-                            const float speed = std::sqrt(plane_velocity.x * plane_velocity.x + plane_velocity.y * plane_velocity.y + plane_velocity.z * plane_velocity.z);
-                            if (speed < min_speed) break;
-                            const float inv_speed = 1.0f / speed;
-                            vk::math::vec3 next{
-                                pos.x + plane_velocity.x * inv_speed * step_scale,
-                                pos.y + plane_velocity.y * inv_speed * step_scale,
-                                pos.z + plane_velocity.z * inv_speed * step_scale,
-                                0.0f,
-                            };
-                            next.x = std::clamp(next.x, 0.0f, max_x);
-                            next.y = std::clamp(next.y, 0.0f, max_y);
-                            next.z = std::clamp(next.z, 0.0f, max_z);
-                            if (plane_axis == PlaneAxis::XY) next.z = pos.z;
-                            if (plane_axis == PlaneAxis::XZ) next.y = pos.y;
-                            if (plane_axis == PlaneAxis::YZ) next.x = pos.x;
-                            const float speed_t = std::clamp(speed / (min_speed * 8.0f), 0.0f, 1.0f);
-                            draw_segment(pos, next, IM_COL32(
-                                static_cast<int>(std::lerp(72.0f, 255.0f, speed_t)),
-                                static_cast<int>(std::lerp(196.0f, 212.0f, speed_t)),
-                                static_cast<int>(std::lerp(255.0f, 96.0f, speed_t)),
-                                static_cast<int>(std::lerp(112.0f, 224.0f, speed_t))
-                            ));
-                            pos = next;
-                        }
+                        const auto velocity = sample_velocity(pos.x, pos.y, pos.z);
+                        vk::math::vec3 plane_velocity{};
+                        if (plane_axis == PlaneAxis::XY) plane_velocity = {velocity.x, velocity.y, 0.0f, 0.0f};
+                        if (plane_axis == PlaneAxis::XZ) plane_velocity = {velocity.x, 0.0f, velocity.z, 0.0f};
+                        if (plane_axis == PlaneAxis::YZ) plane_velocity = {0.0f, velocity.y, velocity.z, 0.0f};
+                        const float speed = std::sqrt(plane_velocity.x * plane_velocity.x + plane_velocity.y * plane_velocity.y + plane_velocity.z * plane_velocity.z);
+                        if (speed < min_speed) continue;
+                        const float inv_speed = 1.0f / speed;
+                        const vk::math::vec3 direction{
+                            plane_velocity.x * inv_speed,
+                            plane_velocity.y * inv_speed,
+                            plane_velocity.z * inv_speed,
+                            0.0f,
+                        };
+                        vk::math::vec3 side{};
+                        if (plane_axis == PlaneAxis::XY) side = {-direction.y, direction.x, 0.0f, 0.0f};
+                        if (plane_axis == PlaneAxis::XZ) side = {-direction.z, 0.0f, direction.x, 0.0f};
+                        if (plane_axis == PlaneAxis::YZ) side = {0.0f, -direction.z, direction.y, 0.0f};
+                        const float speed_t = std::clamp(speed / (min_speed * 8.0f), 0.0f, 1.0f);
+                        const float glyph_length = arrow_scale * std::lerp(0.35f, 1.0f, speed_t);
+                        const float head_length = glyph_length * 0.34f;
+                        const float wing_span = head_length * 0.55f;
+                        vk::math::vec3 tip{
+                            pos.x + direction.x * glyph_length,
+                            pos.y + direction.y * glyph_length,
+                            pos.z + direction.z * glyph_length,
+                            0.0f,
+                        };
+                        tip.x = std::clamp(tip.x, 0.0f, max_x);
+                        tip.y = std::clamp(tip.y, 0.0f, max_y);
+                        tip.z = std::clamp(tip.z, 0.0f, max_z);
+                        if (plane_axis == PlaneAxis::XY) tip.z = pos.z;
+                        if (plane_axis == PlaneAxis::XZ) tip.y = pos.y;
+                        if (plane_axis == PlaneAxis::YZ) tip.x = pos.x;
+                        const vk::math::vec3 head_base{
+                            tip.x - direction.x * head_length,
+                            tip.y - direction.y * head_length,
+                            tip.z - direction.z * head_length,
+                            0.0f,
+                        };
+                        const vk::math::vec3 head_left{
+                            head_base.x + side.x * wing_span,
+                            head_base.y + side.y * wing_span,
+                            head_base.z + side.z * wing_span,
+                            0.0f,
+                        };
+                        const vk::math::vec3 head_right{
+                            head_base.x - side.x * wing_span,
+                            head_base.y - side.y * wing_span,
+                            head_base.z - side.z * wing_span,
+                            0.0f,
+                        };
+                        const ImU32 color = IM_COL32(
+                            static_cast<int>(std::lerp(72.0f, 255.0f, speed_t)),
+                            static_cast<int>(std::lerp(196.0f, 212.0f, speed_t)),
+                            static_cast<int>(std::lerp(255.0f, 96.0f, speed_t)),
+                            static_cast<int>(std::lerp(112.0f, 224.0f, speed_t))
+                        );
+                        draw_segment(pos, tip, color);
+                        draw_segment(head_left, tip, color);
+                        draw_segment(head_right, tip, color);
                     }
                 }
             }
