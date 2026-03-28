@@ -6,6 +6,8 @@ struct PushConstants
     float4 forward;
     float4 volumeMin;
     float4 volumeMax;
+    float4 backgroundBottom;
+    float4 backgroundTop;
     float4 colorA;
     float4 colorB;
     float4 params0;
@@ -123,13 +125,15 @@ float4 fs_main(VSOut input) : SV_Target
     float3 rayOrigin;
     float3 rayDir;
     make_ray(uv, rayOrigin, rayDir);
+    float skyT = saturate(0.5 + 0.5 * rayDir.y);
+    float3 background = lerp(pc.backgroundBottom.rgb, pc.backgroundTop.rgb, skyT);
 
     float2 hit = intersect_aabb(rayOrigin, rayDir, pc.volumeMin.xyz, pc.volumeMax.xyz);
     float t0 = max(hit.x, 0.0);
     float t1 = hit.y;
     if (t1 <= t0)
     {
-        return float4(0.0.xxx, 1.0);
+        return float4(background, 1.0);
     }
 
     float distanceInside = t1 - t0;
@@ -139,6 +143,8 @@ float4 fs_main(VSOut input) : SV_Target
     float3 color = 0.0.xxx;
     float valueMin = pc.params3.x;
     float valueMax = max(pc.params3.y, valueMin + 1.0e-5);
+    float3 voxel = 1.0.xxx / max(float3(pc.params1.xyz - 1), 1.0.xxx);
+    const float3 lightDir = normalize(float3(-0.45, 0.82, -0.34));
 
     [loop]
     for (uint i = 0; i < steps; ++i)
@@ -163,6 +169,20 @@ float4 fs_main(VSOut input) : SV_Target
             if (normalized < 1.0e-4) continue;
             float alpha = 1.0 - exp(-normalized * pc.params0.w * stepLength);
             float3 sampleColor = lerp(pc.colorA.rgb, pc.colorB.rgb, normalized);
+            if (pc.params2.z != 0)
+            {
+                float dx = sample_field(clamp(uvw + float3(voxel.x, 0.0, 0.0), 0.0.xxx, 1.0.xxx)) * pc.params0.z - value;
+                float dy = sample_field(clamp(uvw + float3(0.0, voxel.y, 0.0), 0.0.xxx, 1.0.xxx)) * pc.params0.z - value;
+                float dz = sample_field(clamp(uvw + float3(0.0, 0.0, voxel.z), 0.0.xxx, 1.0.xxx)) * pc.params0.z - value;
+                float3 normal = normalize(float3(-dx, -dy, -dz) + 1.0e-5.xxx);
+                float diffuse = saturate(dot(normal, lightDir));
+                float probe = sample_field(clamp(uvw + lightDir * 0.035, 0.0.xxx, 1.0.xxx)) * pc.params0.z;
+                float shadow = exp(-probe * 1.4);
+                float lighting = 0.42 + 0.48 * diffuse + 0.22 * shadow;
+                float silver = pow(saturate(1.0 - dot(normal, -rayDir)), 3.0);
+                sampleColor *= lighting;
+                sampleColor += 0.18 * silver.xxx;
+            }
             color += transmittance * alpha * sampleColor;
             transmittance *= 1.0 - alpha;
         }
@@ -170,5 +190,5 @@ float4 fs_main(VSOut input) : SV_Target
         if (transmittance < 0.01) break;
     }
 
-    return float4(color, 1.0);
+    return float4(background * transmittance + color, 1.0);
 }

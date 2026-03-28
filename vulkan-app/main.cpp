@@ -1,6 +1,6 @@
 import app;
-import scene_plume;
+import scene_cloud;
 
 int main() {
-    return app::run_scene<scene_plume::Scene>();
+    return app::run_scene<scene_cloud::Scene>();
 }

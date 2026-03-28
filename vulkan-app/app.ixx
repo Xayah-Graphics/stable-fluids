@@ -79,6 +79,8 @@ export namespace app {
         vk::math::vec4 forward{};
         vk::math::vec4 volume_min{};
         vk::math::vec4 volume_max{};
+        vk::math::vec4 background_bottom{};
+        vk::math::vec4 background_top{};
         vk::math::vec4 color_a{};
         vk::math::vec4 color_b{};
         vk::math::vec4 params0{};
@@ -107,6 +109,13 @@ export namespace app {
         float scalar_high_r              = 0.94f;
         float scalar_high_g              = 0.90f;
         float scalar_high_b              = 0.84f;
+        bool shaded_volume               = false;
+        float background_bottom_r        = 0.035f;
+        float background_bottom_g        = 0.04f;
+        float background_bottom_b        = 0.05f;
+        float background_top_r           = 0.05f;
+        float background_top_g           = 0.06f;
+        float background_top_b           = 0.08f;
     };
 
     struct FieldVisualPreset {
@@ -120,6 +129,7 @@ export namespace app {
         float scalar_high_r  = 0.95f;
         float scalar_high_g  = 0.86f;
         float scalar_high_b  = 0.72f;
+        bool shaded_volume   = false;
     };
 
     struct FieldInfo {

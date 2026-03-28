@@ -180,7 +180,7 @@ namespace app {
         state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
         const auto& field    = fields[static_cast<size_t>(state.selected_field)];
 
-        ImGui::Begin("Smoke");
+        ImGui::Begin("Stable Fluids");
         if (ImGui::BeginCombo("Field", field.label.data())) {
             for (int i = 0; i < static_cast<int>(fields.size()); ++i) {
                 const bool is_selected = state.selected_field == i;
@@ -273,7 +273,7 @@ namespace app {
         frames_.swapchain_image_layout[image_index] = ImageLayout::eColorAttachmentOptimal;
 
         ClearValue clear_value{};
-        clear_value.color = ClearColorValue{std::array<float, 4>{0.035f, 0.04f, 0.05f, 1.0f}};
+        clear_value.color = ClearColorValue{std::array<float, 4>{settings.background_bottom_r, settings.background_bottom_g, settings.background_bottom_b, 1.0f}};
         RenderingAttachmentInfo color_attachment{
             .imageView   = *sc_.image_views[image_index],
             .imageLayout = ImageLayout::eColorAttachmentOptimal,
@@ -311,6 +311,8 @@ namespace app {
             push.forward    = {matrices.forward.x, matrices.forward.y, matrices.forward.z, 0.0f};
             push.volume_min = {0.0f, 0.0f, 0.0f, 0.0f};
             push.volume_max = {snapshot->grid.extent_x(), snapshot->grid.extent_y(), snapshot->grid.extent_z(), 0.0f};
+            push.background_bottom = {settings.background_bottom_r, settings.background_bottom_g, settings.background_bottom_b, 1.0f};
+            push.background_top    = {settings.background_top_r, settings.background_top_g, settings.background_top_b, 1.0f};
             push.color_a    = {settings.scalar_low_r, settings.scalar_low_g, settings.scalar_low_b, 1.0f};
             push.color_b    = {settings.scalar_high_r, settings.scalar_high_g, settings.scalar_high_b, 1.0f};
             push.params0    = {
@@ -328,7 +330,7 @@ namespace app {
             push.params2 = {
                 static_cast<uint32_t>(camera_config.projection),
                 static_cast<uint32_t>(settings.plane_axis),
-                0u,
+                settings.shaded_volume ? 1u : 0u,
                 0u,
             };
             push.params3 = {
@@ -680,6 +682,7 @@ namespace app {
         settings.scalar_high_r  = preset.scalar_high_r;
         settings.scalar_high_g  = preset.scalar_high_g;
         settings.scalar_high_b  = preset.scalar_high_b;
+        settings.shaded_volume  = preset.shaded_volume;
     }
 
     bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid, const bool with_velocity_plane) {
