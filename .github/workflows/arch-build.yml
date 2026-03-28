@@ -92,7 +92,9 @@ jobs:
         run: |
           set -euxo pipefail
           cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+            -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+            -DSTABLE_FLUIDS_BUILD_BENCHMARK=ON \
+            -DSTABLE_FLUIDS_BUILD_VULKAN_APP=ON
 
       - name: Build
         shell: bash
