@@ -69,6 +69,7 @@ export namespace app {
     struct VisualizationSnapshotView {
         GridShape grid{};
         FieldResourceView field{};
+        const float* velocity = nullptr;
     };
 
     struct alignas(16) FieldPushConstants {
@@ -91,6 +92,7 @@ export namespace app {
         PlaneAxis plane_axis = PlaneAxis::XZ;
         int march_steps      = 112;
         float slice_position = 0.42f;
+        bool show_velocity_plane = false;
         float density_scale  = 1.35f;
         float scalar_min     = 0.0f;
         float scalar_max     = 3.5f;
@@ -170,9 +172,12 @@ export namespace app {
         cudaExternalMemory_t external_memory       = nullptr;
         cudaExternalSemaphore_t external_semaphore = nullptr;
         void* field_cuda_ptr                       = nullptr;
+        void* velocity_cuda_ptr                    = nullptr;
+        std::vector<float> velocity_host{};
         uint64_t ready_generation                  = 0;
         uint64_t last_used_submit_serial           = 0;
         GridShape grid{};
+        bool has_velocity_host                     = false;
     };
 
     struct AppData {
@@ -197,6 +202,7 @@ export namespace app {
 
         struct {
             uint64_t field_bytes   = 0;
+            uint64_t velocity_bytes = 0;
             uint64_t generation    = 0;
             uint64_t submit_serial = 0;
             int active_slot        = -1;

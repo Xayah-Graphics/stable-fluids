@@ -102,6 +102,11 @@ namespace app {
                     },
             },
         };
+        constexpr int velocity_plane_seed_count = 20;
+        constexpr int velocity_plane_step_count = 48;
+        constexpr float velocity_plane_step_cells = 0.24f;
+        constexpr float velocity_plane_min_speed = 0.02f;
+        constexpr float velocity_plane_thickness = 1.4f;
 
     } // namespace
 
@@ -306,6 +311,17 @@ namespace app {
             }
             ImGui::SliderFloat("Slice", &settings.slice_position, 0.0f, 1.0f, "%.3f");
         }
+        if (ImGui::Checkbox("Velocity Plane", &settings.show_velocity_plane)) field_changed = true;
+        if (settings.show_velocity_plane && settings.view_mode != ViewMode::Plane) {
+            int plane_axis = static_cast<int>(settings.plane_axis);
+            constexpr std::array plane_labels{
+                "XY",
+                "XZ",
+                "YZ",
+            };
+            if (ImGui::Combo("Velocity Axis", &plane_axis, plane_labels.data(), static_cast<int>(plane_labels.size()))) settings.plane_axis = static_cast<PlaneAxis>(plane_axis);
+            ImGui::SliderFloat("Velocity Slice", &settings.slice_position, 0.0f, 1.0f, "%.3f");
+        }
 
         ImGui::Separator();
         ImGui::Text("Grid: %d x %d x %d", state.physics.config.nx, state.physics.config.ny, state.physics.config.nz);
@@ -424,6 +440,151 @@ namespace app {
             cmd.draw(3, 1, 0, 0);
         }
         cmd.endRendering();
+
+        if (snapshot && settings.show_velocity_plane && snapshot->velocity != nullptr) {
+            if (ImGuiViewport* viewport = ImGui::GetMainViewport()) {
+                ImDrawList* draw_list = ImGui::GetForegroundDrawList(viewport);
+                const auto& view_proj = camera_.matrices().view_proj;
+                auto project_point = [&](const vk::math::vec3& point, ImVec2& out) {
+                    const auto clip = vk::math::mul(view_proj, vk::math::vec4{point.x, point.y, point.z, 1.0f});
+                    if (clip.w <= 1.0e-4f) return false;
+                    const float inv_w = 1.0f / clip.w;
+                    const float ndc_x = clip.x * inv_w;
+                    const float ndc_y = clip.y * inv_w;
+                    const float ndc_z = clip.z * inv_w;
+                    if (ndc_z < -0.25f || ndc_z > 1.25f) return false;
+                    out.x = viewport->Pos.x + (ndc_x * 0.5f + 0.5f) * viewport->Size.x;
+                    out.y = viewport->Pos.y + (1.0f - (ndc_y * 0.5f + 0.5f)) * viewport->Size.y;
+                    return true;
+                };
+                auto draw_segment = [&](const vk::math::vec3& a, const vk::math::vec3& b, const ImU32 color) {
+                    ImVec2 screen_a{};
+                    ImVec2 screen_b{};
+                    if (!project_point(a, screen_a)) return;
+                    if (!project_point(b, screen_b)) return;
+                    draw_list->AddLine(screen_a, screen_b, color, velocity_plane_thickness);
+                };
+                auto sample_velocity = [&](const float px, const float py, const float pz) {
+                    const auto nx = static_cast<int>(snapshot->grid.nx);
+                    const auto ny = static_cast<int>(snapshot->grid.ny);
+                    const auto nz = static_cast<int>(snapshot->grid.nz);
+                    const float gx = std::clamp(px / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nx - 1));
+                    const float gy = std::clamp(py / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(ny - 1));
+                    const float gz = std::clamp(pz / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nz - 1));
+                    const int x0 = static_cast<int>(std::floor(gx));
+                    const int y0 = static_cast<int>(std::floor(gy));
+                    const int z0 = static_cast<int>(std::floor(gz));
+                    const int x1 = (std::min)(x0 + 1, nx - 1);
+                    const int y1 = (std::min)(y0 + 1, ny - 1);
+                    const int z1 = (std::min)(z0 + 1, nz - 1);
+                    const float tx = gx - static_cast<float>(x0);
+                    const float ty = gy - static_cast<float>(y0);
+                    const float tz = gz - static_cast<float>(z0);
+                    auto load = [&](const int x, const int y, const int z) {
+                        const auto index = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
+                        return vk::math::vec3{
+                            snapshot->velocity[index * 3u + 0u],
+                            snapshot->velocity[index * 3u + 1u],
+                            snapshot->velocity[index * 3u + 2u],
+                            0.0f,
+                        };
+                    };
+                    auto lerp3 = [&](const vk::math::vec3& a, const vk::math::vec3& b, const float t) {
+                        return vk::math::vec3{
+                            std::lerp(a.x, b.x, t),
+                            std::lerp(a.y, b.y, t),
+                            std::lerp(a.z, b.z, t),
+                            0.0f,
+                        };
+                    };
+                    const auto c00 = lerp3(load(x0, y0, z0), load(x1, y0, z0), tx);
+                    const auto c10 = lerp3(load(x0, y1, z0), load(x1, y1, z0), tx);
+                    const auto c01 = lerp3(load(x0, y0, z1), load(x1, y0, z1), tx);
+                    const auto c11 = lerp3(load(x0, y1, z1), load(x1, y1, z1), tx);
+                    return lerp3(lerp3(c00, c10, ty), lerp3(c01, c11, ty), tz);
+                };
+
+                const PlaneAxis plane_axis = settings.plane_axis;
+                const float max_x = snapshot->grid.extent_x();
+                const float max_y = snapshot->grid.extent_y();
+                const float max_z = snapshot->grid.extent_z();
+                const float slice_position = std::clamp(settings.slice_position, 0.0f, 1.0f);
+                const float step_scale = velocity_plane_step_cells * snapshot->grid.cell_size;
+                std::array<vk::math::vec3, 4> plane_corners{};
+                if (plane_axis == PlaneAxis::XY) {
+                    const float z = slice_position * max_z;
+                    plane_corners = {
+                        vk::math::vec3{0.0f, 0.0f, z, 0.0f},
+                        vk::math::vec3{max_x, 0.0f, z, 0.0f},
+                        vk::math::vec3{max_x, max_y, z, 0.0f},
+                        vk::math::vec3{0.0f, max_y, z, 0.0f},
+                    };
+                }
+                if (plane_axis == PlaneAxis::XZ) {
+                    const float y = slice_position * max_y;
+                    plane_corners = {
+                        vk::math::vec3{0.0f, y, 0.0f, 0.0f},
+                        vk::math::vec3{max_x, y, 0.0f, 0.0f},
+                        vk::math::vec3{max_x, y, max_z, 0.0f},
+                        vk::math::vec3{0.0f, y, max_z, 0.0f},
+                    };
+                }
+                if (plane_axis == PlaneAxis::YZ) {
+                    const float x = slice_position * max_x;
+                    plane_corners = {
+                        vk::math::vec3{x, 0.0f, 0.0f, 0.0f},
+                        vk::math::vec3{x, max_y, 0.0f, 0.0f},
+                        vk::math::vec3{x, max_y, max_z, 0.0f},
+                        vk::math::vec3{x, 0.0f, max_z, 0.0f},
+                    };
+                }
+                draw_segment(plane_corners[0], plane_corners[1], IM_COL32(112, 220, 255, 120));
+                draw_segment(plane_corners[1], plane_corners[2], IM_COL32(112, 220, 255, 120));
+                draw_segment(plane_corners[2], plane_corners[3], IM_COL32(112, 220, 255, 120));
+                draw_segment(plane_corners[3], plane_corners[0], IM_COL32(112, 220, 255, 120));
+
+                for (int j = 0; j < velocity_plane_seed_count; ++j) {
+                    for (int i = 0; i < velocity_plane_seed_count; ++i) {
+                        const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(velocity_plane_seed_count);
+                        const float v = (static_cast<float>(j) + 0.5f) / static_cast<float>(velocity_plane_seed_count);
+                        vk::math::vec3 pos{};
+                        if (plane_axis == PlaneAxis::XY) pos = {u * max_x, v * max_y, slice_position * max_z, 0.0f};
+                        if (plane_axis == PlaneAxis::XZ) pos = {u * max_x, slice_position * max_y, v * max_z, 0.0f};
+                        if (plane_axis == PlaneAxis::YZ) pos = {slice_position * max_x, u * max_y, v * max_z, 0.0f};
+                        for (int step = 0; step < velocity_plane_step_count; ++step) {
+                            const auto velocity = sample_velocity(pos.x, pos.y, pos.z);
+                            vk::math::vec3 plane_velocity{};
+                            if (plane_axis == PlaneAxis::XY) plane_velocity = {velocity.x, velocity.y, 0.0f, 0.0f};
+                            if (plane_axis == PlaneAxis::XZ) plane_velocity = {velocity.x, 0.0f, velocity.z, 0.0f};
+                            if (plane_axis == PlaneAxis::YZ) plane_velocity = {0.0f, velocity.y, velocity.z, 0.0f};
+                            const float speed = std::sqrt(plane_velocity.x * plane_velocity.x + plane_velocity.y * plane_velocity.y + plane_velocity.z * plane_velocity.z);
+                            if (speed < velocity_plane_min_speed) break;
+                            const float inv_speed = 1.0f / speed;
+                            vk::math::vec3 next{
+                                pos.x + plane_velocity.x * inv_speed * step_scale,
+                                pos.y + plane_velocity.y * inv_speed * step_scale,
+                                pos.z + plane_velocity.z * inv_speed * step_scale,
+                                0.0f,
+                            };
+                            next.x = std::clamp(next.x, 0.0f, max_x);
+                            next.y = std::clamp(next.y, 0.0f, max_y);
+                            next.z = std::clamp(next.z, 0.0f, max_z);
+                            if (plane_axis == PlaneAxis::XY) next.z = pos.z;
+                            if (plane_axis == PlaneAxis::XZ) next.y = pos.y;
+                            if (plane_axis == PlaneAxis::YZ) next.x = pos.x;
+                            const float speed_t = std::clamp(speed / (velocity_plane_min_speed * 8.0f), 0.0f, 1.0f);
+                            draw_segment(pos, next, IM_COL32(
+                                static_cast<int>(std::lerp(72.0f, 255.0f, speed_t)),
+                                static_cast<int>(std::lerp(196.0f, 212.0f, speed_t)),
+                                static_cast<int>(std::lerp(255.0f, 96.0f, speed_t)),
+                                static_cast<int>(std::lerp(112.0f, 224.0f, speed_t))
+                            ));
+                            pos = next;
+                        }
+                    }
+                }
+            }
+        }
 
         vk::math::mat4 gizmo_c2w{};
         gizmo_c2w.c0 = {camera_.matrices().right.x, camera_.matrices().right.y, camera_.matrices().right.z, 0.0f};
@@ -555,6 +716,7 @@ namespace app {
     void destroy_runtime_data(AppData& data) {
         for (auto& slot : data.capture.slots) {
             if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
+            if (slot.velocity_cuda_ptr != nullptr) cudaFree(slot.velocity_cuda_ptr);
             if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
             if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
             slot = {};
@@ -781,13 +943,15 @@ namespace app {
         renderer.vk_context().device.waitIdle();
         for (auto& slot : data.capture.slots) {
             if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
+            if (slot.velocity_cuda_ptr != nullptr) cudaFree(slot.velocity_cuda_ptr);
             if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
             if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
             slot = {};
         }
         data.capture              = {};
         data.capture.request_grid = request_grid;
-        data.capture.field_bytes  = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max) (request_grid.nz, 1u)) * sizeof(float);
+        data.capture.field_bytes   = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max) (request_grid.nz, 1u)) * sizeof(float);
+        data.capture.velocity_bytes = data.capture.field_bytes * 3u;
 
         auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
         data.capture.slots.reserve(descriptor_sets.size());
@@ -909,6 +1073,8 @@ namespace app {
                 .size   = data.capture.field_bytes,
             };
             check_cuda(cudaExternalMemoryGetMappedBuffer(&slot.field_cuda_ptr, slot.external_memory, &buffer_desc), "cudaExternalMemoryGetMappedBuffer");
+            check_cuda(cudaMalloc(&slot.velocity_cuda_ptr, data.capture.velocity_bytes), "cudaMalloc velocity snapshot");
+            slot.velocity_host.resize(static_cast<size_t>(data.capture.velocity_bytes / sizeof(float)));
 
             vk::DescriptorBufferInfo field_info{
                 .buffer = *slot.buffer,
@@ -956,6 +1122,13 @@ namespace app {
         };
 
         check_stable(stable_fluids_export_cuda(data.physics.context, &export_desc, slot.field_cuda_ptr), "stable_fluids_export_cuda");
+        if (state.ui.render.show_velocity_plane) {
+            const StableFluidsExportDesc velocity_export_desc{
+                .kind = STABLE_FLUIDS_EXPORT_VELOCITY,
+            };
+            check_stable(stable_fluids_export_cuda(data.physics.context, &velocity_export_desc, slot.velocity_cuda_ptr), "stable_fluids_export_cuda");
+            check_cuda(cudaMemcpyAsync(slot.velocity_host.data(), slot.velocity_cuda_ptr, data.capture.velocity_bytes, cudaMemcpyDeviceToHost, data.physics.stream), "cudaMemcpyAsync velocity snapshot");
+        }
         cudaExternalSemaphoreSignalParams signal_params{};
         signal_params.params.fence.value = data.capture.generation + 1;
         check_cuda(cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, data.physics.stream), "cudaSignalExternalSemaphoresAsync");
@@ -963,6 +1136,7 @@ namespace app {
 
         slot.ready_generation               = data.capture.generation + 1;
         slot.grid                           = data.capture.request_grid;
+        slot.has_velocity_host              = state.ui.render.show_velocity_plane;
         data.capture.generation             = slot.ready_generation;
         data.capture.active_slot            = slot_index;
         return true;
@@ -979,6 +1153,7 @@ namespace app {
                     .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
                     .ready_generation   = slot.ready_generation,
                 },
+            .velocity = slot.has_velocity_host && !slot.velocity_host.empty() ? slot.velocity_host.data() : nullptr,
         };
     }
 
