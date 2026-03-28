@@ -8,8 +8,8 @@ module;
 #include <windows.h>
 #endif
 
-#include <cuda_runtime.h>
 #include <GLFW/glfw3.h>
+#include <cuda_runtime.h>
 #include <imgui.h>
 
 #include <nvtx3/nvtx3.hpp>
@@ -33,76 +33,80 @@ namespace app {
 
         constexpr std::array field_catalog_storage{
             FieldInfo{
-                .id = FieldId::Density,
-                .label = "Density",
-                .semantic = FieldSemantic::Density,
+                .id          = FieldId::Density,
+                .label       = "Density",
+                .semantic    = FieldSemantic::Density,
                 .export_kind = STABLE_FLUIDS_EXPORT_FIELD,
-                .preset = {
-                    .density_scale = 1.35f,
-                    .scalar_min = 0.0f,
-                    .scalar_max = 3.5f,
-                    .scalar_opacity = 5.4f,
-                    .scalar_low_r = 0.03f,
-                    .scalar_low_g = 0.04f,
-                    .scalar_low_b = 0.07f,
-                    .scalar_high_r = 0.94f,
-                    .scalar_high_g = 0.90f,
-                    .scalar_high_b = 0.84f,
-                },
+                .preset =
+                    {
+                        .density_scale  = 1.35f,
+                        .scalar_min     = 0.0f,
+                        .scalar_max     = 3.5f,
+                        .scalar_opacity = 5.4f,
+                        .scalar_low_r   = 0.03f,
+                        .scalar_low_g   = 0.04f,
+                        .scalar_low_b   = 0.07f,
+                        .scalar_high_r  = 0.94f,
+                        .scalar_high_g  = 0.90f,
+                        .scalar_high_b  = 0.84f,
+                    },
             },
             FieldInfo{
-                .id = FieldId::VelocityMagnitude,
-                .label = "Velocity Magnitude",
-                .semantic = FieldSemantic::VelocityMagnitude,
+                .id          = FieldId::VelocityMagnitude,
+                .label       = "Velocity Magnitude",
+                .semantic    = FieldSemantic::VelocityMagnitude,
                 .export_kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
-                .preset = {
-                    .density_scale = 1.0f,
-                    .scalar_min = 0.0f,
-                    .scalar_max = 1.3f,
-                    .scalar_opacity = 2.2f,
-                    .scalar_low_r = 0.06f,
-                    .scalar_low_g = 0.10f,
-                    .scalar_low_b = 0.24f,
-                    .scalar_high_r = 0.24f,
-                    .scalar_high_g = 0.88f,
-                    .scalar_high_b = 1.00f,
-                },
+                .preset =
+                    {
+                        .density_scale  = 1.0f,
+                        .scalar_min     = 0.0f,
+                        .scalar_max     = 1.3f,
+                        .scalar_opacity = 2.2f,
+                        .scalar_low_r   = 0.06f,
+                        .scalar_low_g   = 0.10f,
+                        .scalar_low_b   = 0.24f,
+                        .scalar_high_r  = 0.24f,
+                        .scalar_high_g  = 0.88f,
+                        .scalar_high_b  = 1.00f,
+                    },
             },
             FieldInfo{
-                .id = FieldId::Pressure,
-                .label = "Pressure",
-                .semantic = FieldSemantic::Pressure,
+                .id          = FieldId::Pressure,
+                .label       = "Pressure",
+                .semantic    = FieldSemantic::Pressure,
                 .export_kind = STABLE_FLUIDS_EXPORT_PRESSURE,
-                .preset = {
-                    .density_scale = 1.0f,
-                    .scalar_min = -0.18f,
-                    .scalar_max = 0.18f,
-                    .scalar_opacity = 2.3f,
-                    .scalar_low_r = 0.08f,
-                    .scalar_low_g = 0.22f,
-                    .scalar_low_b = 0.62f,
-                    .scalar_high_r = 0.96f,
-                    .scalar_high_g = 0.58f,
-                    .scalar_high_b = 0.18f,
-                },
+                .preset =
+                    {
+                        .density_scale  = 1.0f,
+                        .scalar_min     = -0.18f,
+                        .scalar_max     = 0.18f,
+                        .scalar_opacity = 2.3f,
+                        .scalar_low_r   = 0.08f,
+                        .scalar_low_g   = 0.22f,
+                        .scalar_low_b   = 0.62f,
+                        .scalar_high_r  = 0.96f,
+                        .scalar_high_g  = 0.58f,
+                        .scalar_high_b  = 0.18f,
+                    },
             },
             FieldInfo{
-                .id = FieldId::Divergence,
-                .label = "Divergence",
-                .semantic = FieldSemantic::Divergence,
+                .id          = FieldId::Divergence,
+                .label       = "Divergence",
+                .semantic    = FieldSemantic::Divergence,
                 .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
-                .preset = {
-                    .density_scale = 1.0f,
-                    .scalar_min = -24.0f,
-                    .scalar_max = 24.0f,
-                    .scalar_opacity = 2.3f,
-                    .scalar_low_r = 0.05f,
-                    .scalar_low_g = 0.14f,
-                    .scalar_low_b = 0.50f,
-                    .scalar_high_r = 0.94f,
-                    .scalar_high_g = 0.28f,
-                    .scalar_high_b = 0.22f,
-                },
+                .preset =
+                    {
+                        .density_scale  = 1.0f,
+                        .scalar_min     = -24.0f,
+                        .scalar_max     = 24.0f,
+                        .scalar_opacity = 2.3f,
+                        .scalar_low_r   = 0.05f,
+                        .scalar_low_g   = 0.14f,
+                        .scalar_low_b   = 0.50f,
+                        .scalar_high_r  = 0.94f,
+                        .scalar_high_g  = 0.28f,
+                        .scalar_high_b  = 0.22f,
+                    },
             },
         };
 
@@ -139,26 +143,26 @@ namespace app {
         camera_.home();
 
         DescriptorSetLayoutBinding field_binding{
-            .binding = 0,
-            .descriptorType = DescriptorType::eStorageBuffer,
+            .binding         = 0,
+            .descriptorType  = DescriptorType::eStorageBuffer,
             .descriptorCount = 1,
-            .stageFlags = ShaderStageFlagBits::eFragment,
+            .stageFlags      = ShaderStageFlagBits::eFragment,
         };
         DescriptorSetLayoutCreateInfo field_layout_ci{
             .bindingCount = 1,
-            .pBindings = &field_binding,
+            .pBindings    = &field_binding,
         };
         field_set_layout_ = raii::DescriptorSetLayout{vkctx_.device, field_layout_ci};
 
         DescriptorPoolSize field_pool_size{
-            .type = DescriptorType::eStorageBuffer,
+            .type            = DescriptorType::eStorageBuffer,
             .descriptorCount = 128,
         };
         DescriptorPoolCreateInfo field_pool_ci{
-            .flags = DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-            .maxSets = 128,
+            .flags         = DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets       = 128,
             .poolSizeCount = 1,
-            .pPoolSizes = &field_pool_size,
+            .pPoolSizes    = &field_pool_size,
         };
         field_descriptor_pool_ = raii::DescriptorPool{vkctx_.device, field_pool_ci};
 
@@ -170,14 +174,14 @@ namespace app {
 
         std::array<DescriptorSetLayout, 1> pipeline_set_layouts{*field_set_layout_};
         pipeline::GraphicsPipelineDesc pipeline_desc{
-            .color_format = sc_.format,
-            .use_depth = false,
-            .use_blend = false,
-            .topology = PrimitiveTopology::eTriangleList,
-            .cull = CullModeFlagBits::eNone,
-            .push_constant_bytes = sizeof(FieldPushConstants),
+            .color_format         = sc_.format,
+            .use_depth            = false,
+            .use_blend            = false,
+            .topology             = PrimitiveTopology::eTriangleList,
+            .cull                 = CullModeFlagBits::eNone,
+            .push_constant_bytes  = sizeof(FieldPushConstants),
             .push_constant_stages = ShaderStageFlagBits::eVertex | ShaderStageFlagBits::eFragment,
-            .set_layouts = pipeline_set_layouts,
+            .set_layouts          = pipeline_set_layouts,
         };
 
         pipeline::VertexInput empty_vertex_input{};
@@ -257,10 +261,10 @@ namespace app {
     }
 
     void VisualizationApp::draw_visualization_ui(AppState& state, const AppData& data, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
-        bool reframe_requested = false;
-        auto& settings = state.ui.render;
+        bool reframe_requested       = false;
+        auto& settings               = state.ui.render;
         state.physics.selected_field = std::clamp(state.physics.selected_field, 0, static_cast<int>(field_catalog_storage.size()) - 1);
-        const auto& field = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
+        const auto& field            = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
 
         ImGui::Begin("Smoke");
         if (ImGui::BeginCombo("Field", field.label.data())) {
@@ -268,18 +272,18 @@ namespace app {
                 const bool is_selected = state.physics.selected_field == i;
                 if (ImGui::Selectable(field_catalog_storage[static_cast<size_t>(i)].label.data(), is_selected)) {
                     state.physics.selected_field = i;
-                    const auto& preset = field_catalog_storage[static_cast<size_t>(i)].preset;
-                    settings.density_scale  = preset.density_scale;
-                    settings.scalar_min     = preset.scalar_min;
-                    settings.scalar_max     = preset.scalar_max;
-                    settings.scalar_opacity = preset.scalar_opacity;
-                    settings.scalar_low_r   = preset.scalar_low_r;
-                    settings.scalar_low_g   = preset.scalar_low_g;
-                    settings.scalar_low_b   = preset.scalar_low_b;
-                    settings.scalar_high_r  = preset.scalar_high_r;
-                    settings.scalar_high_g  = preset.scalar_high_g;
-                    settings.scalar_high_b  = preset.scalar_high_b;
-                    field_changed = true;
+                    const auto& preset           = field_catalog_storage[static_cast<size_t>(i)].preset;
+                    settings.density_scale       = preset.density_scale;
+                    settings.scalar_min          = preset.scalar_min;
+                    settings.scalar_max          = preset.scalar_max;
+                    settings.scalar_opacity      = preset.scalar_opacity;
+                    settings.scalar_low_r        = preset.scalar_low_r;
+                    settings.scalar_low_g        = preset.scalar_low_g;
+                    settings.scalar_low_b        = preset.scalar_low_b;
+                    settings.scalar_high_r       = preset.scalar_high_r;
+                    settings.scalar_high_g       = preset.scalar_high_g;
+                    settings.scalar_high_b       = preset.scalar_high_b;
+                    field_changed                = true;
                 }
                 if (is_selected) ImGui::SetItemDefaultFocus();
             }
@@ -354,35 +358,35 @@ namespace app {
         const uint32_t image_index        = acquire_result.image_index;
         const ImageLayout previous_layout = frames_.swapchain_image_layout[image_index];
         const ImageMemoryBarrier2 to_color_barrier{
-            .srcStageMask = previous_layout == ImageLayout::eUndefined ? PipelineStageFlagBits2::eNone : PipelineStageFlagBits2::eAllCommands,
-            .srcAccessMask = previous_layout == ImageLayout::eUndefined ? AccessFlags2{} : (AccessFlagBits2::eMemoryRead | AccessFlagBits2::eMemoryWrite),
-            .dstStageMask = PipelineStageFlagBits2::eColorAttachmentOutput,
-            .dstAccessMask = AccessFlagBits2::eColorAttachmentWrite,
-            .oldLayout = previous_layout,
-            .newLayout = ImageLayout::eColorAttachmentOptimal,
-            .image = sc_.images[image_index],
+            .srcStageMask     = previous_layout == ImageLayout::eUndefined ? PipelineStageFlagBits2::eNone : PipelineStageFlagBits2::eAllCommands,
+            .srcAccessMask    = previous_layout == ImageLayout::eUndefined ? AccessFlags2{} : (AccessFlagBits2::eMemoryRead | AccessFlagBits2::eMemoryWrite),
+            .dstStageMask     = PipelineStageFlagBits2::eColorAttachmentOutput,
+            .dstAccessMask    = AccessFlagBits2::eColorAttachmentWrite,
+            .oldLayout        = previous_layout,
+            .newLayout        = ImageLayout::eColorAttachmentOptimal,
+            .image            = sc_.images[image_index],
             .subresourceRange = ImageSubresourceRange{ImageAspectFlagBits::eColor, 0, 1, 0, 1},
         };
         cmd.pipelineBarrier2(DependencyInfo{
             .imageMemoryBarrierCount = 1,
-            .pImageMemoryBarriers = &to_color_barrier,
+            .pImageMemoryBarriers    = &to_color_barrier,
         });
         frames_.swapchain_image_layout[image_index] = ImageLayout::eColorAttachmentOptimal;
 
         ClearValue clear_value{};
         clear_value.color = ClearColorValue{std::array<float, 4>{0.035f, 0.04f, 0.05f, 1.0f}};
         RenderingAttachmentInfo color_attachment{
-            .imageView = *sc_.image_views[image_index],
+            .imageView   = *sc_.image_views[image_index],
             .imageLayout = ImageLayout::eColorAttachmentOptimal,
-            .loadOp = AttachmentLoadOp::eClear,
-            .storeOp = AttachmentStoreOp::eStore,
-            .clearValue = clear_value,
+            .loadOp      = AttachmentLoadOp::eClear,
+            .storeOp     = AttachmentStoreOp::eStore,
+            .clearValue  = clear_value,
         };
         RenderingInfo rendering_info{
-            .renderArea = Rect2D{Offset2D{0, 0}, sc_.extent},
-            .layerCount = 1,
+            .renderArea           = Rect2D{Offset2D{0, 0}, sc_.extent},
+            .layerCount           = 1,
             .colorAttachmentCount = 1,
-            .pColorAttachments = &color_attachment,
+            .pColorAttachments    = &color_attachment,
         };
 
         cmd.beginRendering(rendering_info);
@@ -399,7 +403,7 @@ namespace app {
         if (snapshot) {
             const auto& matrices      = camera_.matrices();
             const auto& camera_config = camera_.config();
-            const float aspect        = static_cast<float>(sc_.extent.width) / static_cast<float>((std::max)(sc_.extent.height, 1u));
+            const float aspect        = static_cast<float>(sc_.extent.width) / static_cast<float>((std::max) (sc_.extent.height, 1u));
             const float half_fov_tan  = std::tan(camera_config.fov_y_rad * 0.5f);
             FieldPushConstants push{};
             push.eye        = {matrices.eye.x, matrices.eye.y, matrices.eye.z, 1.0f};
@@ -453,17 +457,17 @@ namespace app {
         imgui::render(imgui_sys_, cmd, sc_.extent, *sc_.image_views[image_index], ImageLayout::eColorAttachmentOptimal);
 
         const ImageMemoryBarrier2 to_present_barrier{
-            .srcStageMask = PipelineStageFlagBits2::eColorAttachmentOutput,
-            .srcAccessMask = AccessFlagBits2::eColorAttachmentWrite,
-            .dstStageMask = PipelineStageFlagBits2::eBottomOfPipe,
-            .oldLayout = ImageLayout::eColorAttachmentOptimal,
-            .newLayout = ImageLayout::ePresentSrcKHR,
-            .image = sc_.images[image_index],
+            .srcStageMask     = PipelineStageFlagBits2::eColorAttachmentOutput,
+            .srcAccessMask    = AccessFlagBits2::eColorAttachmentWrite,
+            .dstStageMask     = PipelineStageFlagBits2::eBottomOfPipe,
+            .oldLayout        = ImageLayout::eColorAttachmentOptimal,
+            .newLayout        = ImageLayout::ePresentSrcKHR,
+            .image            = sc_.images[image_index],
             .subresourceRange = ImageSubresourceRange{ImageAspectFlagBits::eColor, 0, 1, 0, 1},
         };
         cmd.pipelineBarrier2(DependencyInfo{
             .imageMemoryBarrierCount = 1,
-            .pImageMemoryBarriers = &to_present_barrier,
+            .pImageMemoryBarriers    = &to_present_barrier,
         });
         frames_.swapchain_image_layout[image_index] = ImageLayout::ePresentSrcKHR;
 
@@ -472,7 +476,7 @@ namespace app {
         if (snapshot && snapshot->field.timeline_semaphore) {
             volume_waits[0] = SemaphoreSubmitInfo{
                 .semaphore = snapshot->field.timeline_semaphore,
-                .value = snapshot->field.ready_generation,
+                .value     = snapshot->field.ready_generation,
                 .stageMask = PipelineStageFlagBits2::eFragmentShader,
             };
             extra_waits = std::span<const SemaphoreSubmitInfo>(volume_waits.data(), volume_waits.size());
@@ -488,15 +492,15 @@ namespace app {
 
     void VisualizationApp::frame_content(const VisualizationSettings& settings, const VisualizationSnapshotView& snapshot) {
         auto update_camera_config = [&](const vk::camera::Projection projection, const float ortho_height) {
-            auto camera_config = camera_.config();
+            auto camera_config         = camera_.config();
             camera_config.projection   = projection;
             camera_config.ortho_height = ortho_height;
             camera_.set_config(camera_config);
         };
 
-        const float center_x = snapshot.grid.extent_x() * 0.5f;
-        const float center_y = snapshot.grid.extent_y() * 0.5f;
-        const float center_z = snapshot.grid.extent_z() * 0.5f;
+        const float center_x                 = snapshot.grid.extent_x() * 0.5f;
+        const float center_y                 = snapshot.grid.extent_y() * 0.5f;
+        const float center_z                 = snapshot.grid.extent_z() * 0.5f;
         vk::camera::CameraState camera_state = camera_.state();
         camera_state.mode                    = vk::camera::Mode::Orbit;
         camera_state.orbit.target            = {center_x, center_y, center_z, 0.0f};
@@ -536,9 +540,9 @@ namespace app {
     std::vector<vk::raii::DescriptorSet> VisualizationApp::allocate_field_descriptor_sets(const uint32_t count) {
         std::vector<vk::DescriptorSetLayout> field_layouts(count, *field_set_layout_);
         vk::DescriptorSetAllocateInfo field_alloc_info{
-            .descriptorPool = *field_descriptor_pool_,
+            .descriptorPool     = *field_descriptor_pool_,
             .descriptorSetCount = count,
-            .pSetLayouts = field_layouts.data(),
+            .pSetLayouts        = field_layouts.data(),
         };
         return vkctx_.device.allocateDescriptorSets(field_alloc_info);
     }
@@ -584,9 +588,9 @@ namespace app {
         if (data.physics.force_y_device != nullptr) cudaFree(data.physics.force_y_device);
         if (data.physics.force_z_device != nullptr) cudaFree(data.physics.force_z_device);
         if (data.physics.density_source_device != nullptr) cudaFree(data.physics.density_source_device);
-        data.physics.force_x_device = nullptr;
-        data.physics.force_y_device = nullptr;
-        data.physics.force_z_device = nullptr;
+        data.physics.force_x_device        = nullptr;
+        data.physics.force_y_device        = nullptr;
+        data.physics.force_z_device        = nullptr;
         data.physics.density_source_device = nullptr;
         data.physics.force_x_host.clear();
         data.physics.force_z_host.clear();
@@ -629,9 +633,9 @@ namespace app {
         if (data.physics.force_y_device != nullptr) cudaFree(data.physics.force_y_device);
         if (data.physics.force_z_device != nullptr) cudaFree(data.physics.force_z_device);
         if (data.physics.density_source_device != nullptr) cudaFree(data.physics.density_source_device);
-        data.physics.force_x_device = nullptr;
-        data.physics.force_y_device = nullptr;
-        data.physics.force_z_device = nullptr;
+        data.physics.force_x_device        = nullptr;
+        data.physics.force_y_device        = nullptr;
+        data.physics.force_z_device        = nullptr;
         data.physics.density_source_device = nullptr;
         data.physics.force_x_host.clear();
         data.physics.force_z_host.clear();
@@ -642,37 +646,43 @@ namespace app {
 
         const std::array fields{
             StableFluidsFieldCreateDesc{
-                .name = "density",
-                .diffusion = 0.00005f,
-                .dissipation = 0.35f,
+                .name          = "density",
+                .diffusion     = 0.00005f,
+                .dissipation   = 0.35f,
                 .initial_value = 0.0f,
             },
         };
         std::array<StableFluidsFieldHandle, 1> field_handles{};
         const StableFluidsContextCreateDesc create_desc{
-            .config = state.physics.config,
-            .stream = data.physics.stream,
-            .fields = fields.data(),
+            .config      = state.physics.config,
+            .stream      = data.physics.stream,
+            .fields      = fields.data(),
             .field_count = static_cast<uint32_t>(fields.size()),
         };
         check_stable(stable_fluids_create_context_cuda(&create_desc, &data.physics.context, field_handles.data(), static_cast<uint32_t>(field_handles.size())), "stable_fluids_create_context_cuda");
         data.physics.density_field = field_handles[0];
 
-        const auto nx         = state.physics.config.nx;
-        const auto ny         = state.physics.config.ny;
-        const auto nz         = state.physics.config.nz;
-        const auto cell_count = static_cast<size_t>(nx) * static_cast<size_t>(ny) * static_cast<size_t>(nz);
+        const auto nx           = state.physics.config.nx;
+        const auto ny           = state.physics.config.ny;
+        const auto nz           = state.physics.config.nz;
+        const auto cell_count   = static_cast<size_t>(nx) * static_cast<size_t>(ny) * static_cast<size_t>(nz);
         const auto scalar_bytes = cell_count * sizeof(float);
-        const float h         = state.physics.config.cell_size;
-        const float extent_x  = static_cast<float>(nx) * h;
-        const float extent_y  = static_cast<float>(ny) * h;
-        const float extent_z  = static_cast<float>(nz) * h;
-        const float source_x  = extent_x * 0.50f;
-        const float source_y  = extent_y * 0.13f;
-        const float source_z  = extent_z * 0.50f;
-        const float source_r  = h * 6.0f;
-        const float swirl_y   = source_y + source_r * 0.90f;
-        const float drift_y   = source_y + source_r * 1.35f;
+        const float h           = state.physics.config.cell_size;
+        const float extent_x    = static_cast<float>(nx) * h;
+        const float extent_y    = static_cast<float>(ny) * h;
+        const float extent_z    = static_cast<float>(nz) * h;
+        data.physics.grid       = {
+                  .nx        = static_cast<uint32_t>(nx),
+                  .ny        = static_cast<uint32_t>(ny),
+                  .nz        = static_cast<uint32_t>(nz),
+                  .cell_size = h,
+        };
+        const float source_x = extent_x * 0.50f;
+        const float source_y = extent_y * 0.13f;
+        const float source_z = extent_z * 0.50f;
+        const float source_r = h * 6.0f;
+        const float swirl_y  = source_y + source_r * 0.90f;
+        const float drift_y  = source_y + source_r * 1.35f;
 
         data.physics.force_x_host.assign(cell_count, 0.0f);
         data.physics.force_z_host.assign(cell_count, 0.0f);
@@ -696,18 +706,18 @@ namespace app {
         for (int z = 0; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
                 for (int x = 0; x < nx; ++x) {
-                    const auto index = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
-                    const float px   = (static_cast<float>(x) + 0.5f) * h;
-                    const float py   = (static_cast<float>(y) + 0.5f) * h;
-                    const float pz   = (static_cast<float>(z) + 0.5f) * h;
-                    const float source_weight = radial_weight(px, py, pz, source_x, source_y, source_z, source_r);
-                    const float swirl_weight  = radial_weight(px, py, pz, source_x, swirl_y, source_z, source_r * 1.65f);
-                    const float drift_weight  = radial_weight(px, py, pz, source_x, drift_y, source_z, source_r * 2.10f);
-                    const float dx = px - source_x;
-                    const float dz = pz - source_z;
-                    const float radial = std::sqrt(dx * dx + dz * dz);
-                    const float inv_radial = radial > 1.0e-5f ? 1.0f / radial : 0.0f;
-                    data.physics.source_mask[index] = source_weight;
+                    const auto index                 = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
+                    const float px                   = (static_cast<float>(x) + 0.5f) * h;
+                    const float py                   = (static_cast<float>(y) + 0.5f) * h;
+                    const float pz                   = (static_cast<float>(z) + 0.5f) * h;
+                    const float source_weight        = radial_weight(px, py, pz, source_x, source_y, source_z, source_r);
+                    const float swirl_weight         = radial_weight(px, py, pz, source_x, swirl_y, source_z, source_r * 1.65f);
+                    const float drift_weight         = radial_weight(px, py, pz, source_x, drift_y, source_z, source_r * 2.10f);
+                    const float dx                   = px - source_x;
+                    const float dz                   = pz - source_z;
+                    const float radial               = std::sqrt(dx * dx + dz * dz);
+                    const float inv_radial           = radial > 1.0e-5f ? 1.0f / radial : 0.0f;
+                    data.physics.source_mask[index]  = source_weight;
                     data.physics.swirl_x_mask[index] = -dz * inv_radial * swirl_weight;
                     data.physics.swirl_z_mask[index] = dx * inv_radial * swirl_weight;
                     data.physics.drift_mask[index]   = drift_weight;
@@ -741,7 +751,7 @@ namespace app {
         if (sim_steps <= 0) return;
         const auto scalar_bytes = data.physics.force_x_host.size() * sizeof(float);
         const StableFluidsFieldSourceDesc field_source{
-            .field = data.physics.density_field,
+            .field  = data.physics.density_field,
             .values = data.physics.density_source_device,
         };
 
@@ -759,24 +769,22 @@ namespace app {
             check_cuda(cudaMemcpyAsync(data.physics.force_x_device, data.physics.force_x_host.data(), scalar_bytes, cudaMemcpyHostToDevice, data.physics.stream), "cudaMemcpyAsync force_x_device");
             check_cuda(cudaMemcpyAsync(data.physics.force_z_device, data.physics.force_z_host.data(), scalar_bytes, cudaMemcpyHostToDevice, data.physics.stream), "cudaMemcpyAsync force_z_device");
             const StableFluidsStepDesc step_desc{
-                .force_x = data.physics.force_x_device,
-                .force_y = data.physics.force_y_device,
-                .force_z = data.physics.force_z_device,
-                .field_sources = &field_source,
+                .force_x            = data.physics.force_x_device,
+                .force_y            = data.physics.force_y_device,
+                .force_z            = data.physics.force_z_device,
+                .field_sources      = &field_source,
                 .field_source_count = 1,
             };
             check_stable(stable_fluids_step_cuda(data.physics.context, &step_desc), "stable_fluids_step_cuda");
-            const auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+            const auto elapsed_ms                = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
             data.physics.stats.last_step_call_ms = elapsed_ms;
             ++data.physics.stats.step_count;
             data.physics.stats.average_step_call_ms += (elapsed_ms - data.physics.stats.average_step_call_ms) / static_cast<double>(data.physics.stats.step_count);
             ++data.physics.animation_step;
         }
 
-        StableFluidsProjectionMetrics metrics{};
-        check_stable(stable_fluids_get_projection_metrics_cuda(data.physics.context, &metrics), "stable_fluids_get_projection_metrics_cuda");
-        data.physics.stats.projection_max_abs_divergence = metrics.max_abs_divergence;
-        data.physics.stats.projection_rms_divergence     = metrics.rms_divergence;
+        data.physics.stats.projection_max_abs_divergence = 0.0f;
+        data.physics.stats.projection_rms_divergence     = 0.0f;
     }
 
     bool sync_capture_storage(AppData& data, VisualizationApp& renderer) {
@@ -788,19 +796,13 @@ namespace app {
             if (code == STABLE_FLUIDS_RESULT_OK) return;
             throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
         };
-        StableFluidsGridDesc grid_desc{};
-        check_stable(stable_fluids_get_grid_desc_cuda(data.physics.context, &grid_desc), "stable_fluids_get_grid_desc_cuda");
         const GridShape request_grid{
-            .nx = static_cast<uint32_t>(grid_desc.nx),
-            .ny = static_cast<uint32_t>(grid_desc.ny),
-            .nz = static_cast<uint32_t>((std::max)(grid_desc.nz, 1)),
-            .cell_size = grid_desc.cell_size,
+            .nx        = data.physics.grid.nx,
+            .ny        = data.physics.grid.ny,
+            .nz        = data.physics.grid.nz,
+            .cell_size = data.physics.grid.cell_size,
         };
-        const bool matches = !data.capture.slots.empty()
-            && data.capture.request_grid.nx == request_grid.nx
-            && data.capture.request_grid.ny == request_grid.ny
-            && data.capture.request_grid.nz == request_grid.nz
-            && data.capture.request_grid.cell_size == request_grid.cell_size;
+        const bool matches = !data.capture.slots.empty() && data.capture.request_grid.nx == request_grid.nx && data.capture.request_grid.ny == request_grid.ny && data.capture.request_grid.nz == request_grid.nz && data.capture.request_grid.cell_size == request_grid.cell_size;
         if (matches) return false;
 
         renderer.vk_context().device.waitIdle();
@@ -810,14 +812,14 @@ namespace app {
             if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
             slot = {};
         }
-        data.capture = {};
+        data.capture              = {};
         data.capture.request_grid = request_grid;
-        data.capture.field_bytes  = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max)(request_grid.nz, 1u)) * sizeof(float);
+        data.capture.field_bytes  = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max) (request_grid.nz, 1u)) * sizeof(float);
 
         auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
         data.capture.slots.reserve(descriptor_sets.size());
         for (size_t slot_index = 0; slot_index < descriptor_sets.size(); ++slot_index) {
-            auto& slot = data.capture.slots.emplace_back();
+            auto& slot          = data.capture.slots.emplace_back();
             slot.descriptor_set = std::move(descriptor_sets[slot_index]);
 #if defined(_WIN32)
             constexpr auto memory_handle_type    = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueWin32;
@@ -828,10 +830,10 @@ namespace app {
 #endif
             vk::SemaphoreTypeCreateInfo timeline_semaphore_ci{
                 .semaphoreType = vk::SemaphoreType::eTimeline,
-                .initialValue = 0,
+                .initialValue  = 0,
             };
             vk::ExportSemaphoreCreateInfo export_semaphore_ci{
-                .pNext = &timeline_semaphore_ci,
+                .pNext       = &timeline_semaphore_ci,
                 .handleTypes = semaphore_handle_type,
             };
             vk::SemaphoreCreateInfo semaphore_ci{
@@ -843,19 +845,19 @@ namespace app {
                 .handleTypes = memory_handle_type,
             };
             vk::BufferCreateInfo buffer_ci{
-                .pNext = &external_buffer_ci,
-                .size = data.capture.field_bytes,
-                .usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
+                .pNext       = &external_buffer_ci,
+                .size        = data.capture.field_bytes,
+                .usage       = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
                 .sharingMode = vk::SharingMode::eExclusive,
             };
-            slot.buffer = vk::raii::Buffer{renderer.vk_context().device, buffer_ci};
+            slot.buffer                               = vk::raii::Buffer{renderer.vk_context().device, buffer_ci};
             const vk::MemoryRequirements requirements = slot.buffer.getMemoryRequirements();
             vk::ExportMemoryAllocateInfo export_memory_ci{
                 .handleTypes = memory_handle_type,
             };
             vk::MemoryAllocateInfo alloc_ci{
-                .pNext = &export_memory_ci,
-                .allocationSize = requirements.size,
+                .pNext           = &export_memory_ci,
+                .allocationSize  = requirements.size,
                 .memoryTypeIndex = vk::memory::find_memory_type(renderer.vk_context().physical_device, requirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal),
             };
             slot.memory = vk::raii::DeviceMemory{renderer.vk_context().device, alloc_ci};
@@ -863,71 +865,89 @@ namespace app {
 
 #if defined(_WIN32)
             vk::MemoryGetWin32HandleInfoKHR memory_handle_info{
-                .memory = *slot.memory,
+                .memory     = *slot.memory,
                 .handleType = memory_handle_type,
             };
             HANDLE memory_handle = renderer.vk_context().device.getMemoryWin32HandleKHR(memory_handle_info);
             cudaExternalMemoryHandleDesc external_memory_desc{
                 .type = cudaExternalMemoryHandleTypeOpaqueWin32,
-                .handle = { .win32 = { .handle = memory_handle, }, },
+                .handle =
+                    {
+                        .win32 =
+                            {
+                                .handle = memory_handle,
+                            },
+                    },
                 .size = requirements.size,
             };
             check_cuda(cudaImportExternalMemory(&slot.external_memory, &external_memory_desc), "cudaImportExternalMemory");
             CloseHandle(memory_handle);
 
             vk::SemaphoreGetWin32HandleInfoKHR semaphore_handle_info{
-                .semaphore = *slot.timeline_semaphore,
+                .semaphore  = *slot.timeline_semaphore,
                 .handleType = semaphore_handle_type,
             };
             HANDLE semaphore_handle = renderer.vk_context().device.getSemaphoreWin32HandleKHR(semaphore_handle_info);
             cudaExternalSemaphoreHandleDesc external_semaphore_desc{
                 .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreWin32,
-                .handle = { .win32 = { .handle = semaphore_handle, }, },
+                .handle =
+                    {
+                        .win32 =
+                            {
+                                .handle = semaphore_handle,
+                            },
+                    },
             };
             check_cuda(cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc), "cudaImportExternalSemaphore");
             CloseHandle(semaphore_handle);
 #else
             vk::MemoryGetFdInfoKHR memory_handle_info{
-                .memory = *slot.memory,
+                .memory     = *slot.memory,
                 .handleType = memory_handle_type,
             };
             const int memory_fd = renderer.vk_context().device.getMemoryFdKHR(memory_handle_info);
             cudaExternalMemoryHandleDesc external_memory_desc{
                 .type = cudaExternalMemoryHandleTypeOpaqueFd,
-                .handle = { .fd = memory_fd, },
+                .handle =
+                    {
+                        .fd = memory_fd,
+                    },
                 .size = requirements.size,
             };
             check_cuda(cudaImportExternalMemory(&slot.external_memory, &external_memory_desc), "cudaImportExternalMemory");
 
             vk::SemaphoreGetFdInfoKHR semaphore_handle_info{
-                .semaphore = *slot.timeline_semaphore,
+                .semaphore  = *slot.timeline_semaphore,
                 .handleType = semaphore_handle_type,
             };
             const int semaphore_fd = renderer.vk_context().device.getSemaphoreFdKHR(semaphore_handle_info);
             cudaExternalSemaphoreHandleDesc external_semaphore_desc{
                 .type = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd,
-                .handle = { .fd = semaphore_fd, },
+                .handle =
+                    {
+                        .fd = semaphore_fd,
+                    },
             };
             check_cuda(cudaImportExternalSemaphore(&slot.external_semaphore, &external_semaphore_desc), "cudaImportExternalSemaphore");
 #endif
 
             cudaExternalMemoryBufferDesc buffer_desc{
                 .offset = 0,
-                .size = data.capture.field_bytes,
+                .size   = data.capture.field_bytes,
             };
             check_cuda(cudaExternalMemoryGetMappedBuffer(&slot.field_cuda_ptr, slot.external_memory, &buffer_desc), "cudaExternalMemoryGetMappedBuffer");
 
             vk::DescriptorBufferInfo field_info{
                 .buffer = *slot.buffer,
                 .offset = 0,
-                .range = data.capture.field_bytes,
+                .range  = data.capture.field_bytes,
             };
             vk::WriteDescriptorSet field_write{
-                .dstSet = *slot.descriptor_set,
-                .dstBinding = 0,
+                .dstSet          = *slot.descriptor_set,
+                .dstBinding      = 0,
                 .descriptorCount = 1,
-                .descriptorType = vk::DescriptorType::eStorageBuffer,
-                .pBufferInfo = &field_info,
+                .descriptorType  = vk::DescriptorType::eStorageBuffer,
+                .pBufferInfo     = &field_info,
             };
             renderer.vk_context().device.updateDescriptorSets(field_write, {});
         }
@@ -954,11 +974,11 @@ namespace app {
         if (slot_index < 0) return false;
         nvtx3::scoped_range range{tag};
 
-        auto& slot = data.capture.slots.at(static_cast<size_t>(slot_index));
+        auto& slot                   = data.capture.slots.at(static_cast<size_t>(slot_index));
         state.physics.selected_field = std::clamp(state.physics.selected_field, 0, static_cast<int>(field_catalog_storage.size()) - 1);
-        const auto& field = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
+        const auto& field            = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
         const StableFluidsExportDesc export_desc{
-            .kind = field.export_kind,
+            .kind  = field.export_kind,
             .field = field.id == FieldId::Density ? data.physics.density_field : 0u,
         };
 
@@ -969,13 +989,13 @@ namespace app {
         check_cuda(cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, data.physics.stream), "cudaSignalExternalSemaphoresAsync");
         check_cuda(cudaStreamSynchronize(data.physics.stream), "cudaStreamSynchronize");
 
-        slot.ready_generation     = data.capture.generation + 1;
-        slot.grid                 = data.capture.request_grid;
-        slot.field_component_count = 1;
-        slot.semantic             = field.semantic;
-        slot.label                = field.label;
-        data.capture.generation   = slot.ready_generation;
-        data.capture.active_slot  = slot_index;
+        slot.ready_generation               = data.capture.generation + 1;
+        slot.grid                           = data.capture.request_grid;
+        slot.field_component_count          = 1;
+        slot.semantic                       = field.semantic;
+        slot.label                          = field.label;
+        data.capture.generation             = slot.ready_generation;
+        data.capture.active_slot            = slot_index;
         data.capture.stats.last_snapshot_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
         ++data.capture.stats.snapshot_count;
         data.capture.stats.average_snapshot_ms += (data.capture.stats.last_snapshot_ms - data.capture.stats.average_snapshot_ms) / static_cast<double>(data.capture.stats.snapshot_count);
@@ -987,14 +1007,15 @@ namespace app {
         const auto& slot = data.capture.slots.at(static_cast<size_t>(data.capture.active_slot));
         return VisualizationSnapshotView{
             .grid = slot.grid,
-            .field = {
-                .descriptor_set = *slot.descriptor_set,
-                .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
-                .ready_generation = slot.ready_generation,
-                .component_count = slot.field_component_count,
-                .semantic = slot.semantic,
-                .label = slot.label,
-            },
+            .field =
+                {
+                    .descriptor_set     = *slot.descriptor_set,
+                    .timeline_semaphore = slot.external_semaphore != nullptr ? *slot.timeline_semaphore : vk::Semaphore{},
+                    .ready_generation   = slot.ready_generation,
+                    .component_count    = slot.field_component_count,
+                    .semantic           = slot.semantic,
+                    .label              = slot.label,
+                },
         };
     }
 

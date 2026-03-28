@@ -1,9 +1,8 @@
 module;
 
 #include "stable-fluids-3d.h"
-
-#include <cuda_runtime.h>
 #include <GLFW/glfw3.h>
+#include <cuda_runtime.h>
 
 #include <vulkan/vulkan_raii.hpp>
 
@@ -46,10 +45,10 @@ export namespace app {
     };
 
     struct GridShape {
-        uint32_t nx      = 0;
-        uint32_t ny      = 0;
-        uint32_t nz      = 1;
-        float cell_size  = 1.0f;
+        uint32_t nx     = 0;
+        uint32_t ny     = 0;
+        uint32_t nz     = 1;
+        float cell_size = 1.0f;
 
         [[nodiscard]] float extent_x() const {
             return static_cast<float>(nx) * cell_size;
@@ -60,11 +59,11 @@ export namespace app {
         }
 
         [[nodiscard]] float extent_z() const {
-            return static_cast<float>((std::max)(nz, 1u)) * cell_size;
+            return static_cast<float>((std::max) (nz, 1u)) * cell_size;
         }
 
         [[nodiscard]] float max_extent() const {
-            return (std::max)({extent_x(), extent_y(), extent_z()});
+            return (std::max) ({extent_x(), extent_y(), extent_z()});
         }
     };
 
@@ -98,20 +97,20 @@ export namespace app {
     };
 
     struct VisualizationSettings {
-        ViewMode view_mode      = ViewMode::Volume;
-        PlaneAxis plane_axis    = PlaneAxis::XZ;
-        int march_steps         = 112;
-        float slice_position    = 0.42f;
-        float density_scale     = 1.35f;
-        float scalar_min        = 0.0f;
-        float scalar_max        = 3.5f;
-        float scalar_opacity    = 5.4f;
-        float scalar_low_r      = 0.03f;
-        float scalar_low_g      = 0.04f;
-        float scalar_low_b      = 0.07f;
-        float scalar_high_r     = 0.94f;
-        float scalar_high_g     = 0.90f;
-        float scalar_high_b     = 0.84f;
+        ViewMode view_mode   = ViewMode::Volume;
+        PlaneAxis plane_axis = PlaneAxis::XZ;
+        int march_steps      = 112;
+        float slice_position = 0.42f;
+        float density_scale  = 1.35f;
+        float scalar_min     = 0.0f;
+        float scalar_max     = 3.5f;
+        float scalar_opacity = 5.4f;
+        float scalar_low_r   = 0.03f;
+        float scalar_low_g   = 0.04f;
+        float scalar_low_b   = 0.07f;
+        float scalar_high_r  = 0.94f;
+        float scalar_high_g  = 0.90f;
+        float scalar_high_b  = 0.84f;
     };
 
     enum class FieldId : uint32_t {
@@ -122,9 +121,9 @@ export namespace app {
     };
 
     struct FieldVisualPreset {
-        float density_scale = 1.0f;
-        float scalar_min    = 0.0f;
-        float scalar_max    = 1.0f;
+        float density_scale  = 1.0f;
+        float scalar_min     = 0.0f;
+        float scalar_max     = 1.0f;
         float scalar_opacity = 3.0f;
         float scalar_low_r   = 0.06f;
         float scalar_low_g   = 0.08f;
@@ -164,19 +163,20 @@ export namespace app {
         struct {
             int selected_field = 0;
             StableFluidsSimulationConfig config{
-                .nx = 96,
-                .ny = 128,
-                .nz = 96,
-                .cell_size = 0.01f,
-                .dt = 1.0f / 90.0f,
-                .viscosity = 0.00012f,
-                .diffuse_iterations = 24,
+                .nx                  = 96,
+                .ny                  = 128,
+                .nz                  = 96,
+                .cell_size           = 0.01f,
+                .dt                  = 1.0f / 90.0f,
+                .viscosity           = 0.00012f,
+                .diffuse_iterations  = 24,
                 .pressure_iterations = 96,
-                .boundary = {
-                    .x = STABLE_FLUIDS_BOUNDARY_PERIODIC,
-                    .y = STABLE_FLUIDS_BOUNDARY_FIXED,
-                    .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
-                },
+                .boundary =
+                    {
+                        .x = STABLE_FLUIDS_BOUNDARY_PERIODIC,
+                        .y = STABLE_FLUIDS_BOUNDARY_FIXED,
+                        .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
+                    },
                 .block_x = 8,
                 .block_y = 8,
                 .block_z = 4,
@@ -200,8 +200,8 @@ export namespace app {
         uint64_t ready_generation                  = 0;
         uint64_t last_used_submit_serial           = 0;
         GridShape grid{};
-        uint32_t field_component_count            = 1;
-        FieldSemantic semantic                    = FieldSemantic::Density;
+        uint32_t field_component_count = 1;
+        FieldSemantic semantic         = FieldSemantic::Density;
         std::string_view label{};
     };
 
@@ -210,10 +210,11 @@ export namespace app {
             cudaStream_t stream                   = nullptr;
             StableFluidsContext context           = nullptr;
             StableFluidsFieldHandle density_field = 0;
-            float* force_x_device                 = nullptr;
-            float* force_y_device                 = nullptr;
-            float* force_z_device                 = nullptr;
-            float* density_source_device          = nullptr;
+            GridShape grid{};
+            float* force_x_device        = nullptr;
+            float* force_y_device        = nullptr;
+            float* force_z_device        = nullptr;
+            float* density_source_device = nullptr;
             std::vector<float> force_x_host{};
             std::vector<float> force_z_host{};
             std::vector<float> source_mask{};
@@ -226,10 +227,10 @@ export namespace app {
 
         struct {
             CaptureStats stats{};
-            uint64_t field_bytes = 0;
-            uint64_t generation  = 0;
+            uint64_t field_bytes   = 0;
+            uint64_t generation    = 0;
             uint64_t submit_serial = 0;
-            int active_slot      = -1;
+            int active_slot        = -1;
             GridShape request_grid{};
             std::vector<CaptureSlot> slots{};
         } capture{};

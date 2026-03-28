@@ -1,7 +1,5 @@
 #include "stable-fluids-3d.h"
 #include <algorithm>
-#include <cmath>
-#include <cstdint>
 #include <cuda_runtime.h>
 #include <memory>
 #include <new>
@@ -496,29 +494,6 @@ StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext contex
     return stable_fluids::success;
 }
 
-StableFluidsResult stable_fluids_reset_context_cuda(StableFluidsContext context) {
-    auto& storage         = *static_cast<stable_fluids::ContextStorage*>(context);
-    const auto cell_count = static_cast<std::uint64_t>(storage.config.nx) * static_cast<std::uint64_t>(storage.config.ny) * static_cast<std::uint64_t>(storage.config.nz);
-    const auto bytes      = cell_count * sizeof(float);
-    const dim3 block(static_cast<unsigned>((std::max) (storage.config.block_x, 1)), static_cast<unsigned>((std::max) (storage.config.block_y, 1)), static_cast<unsigned>((std::max) (storage.config.block_z, 1)));
-    const dim3 cells(static_cast<unsigned>((storage.config.nx + static_cast<int>(block.x) - 1) / static_cast<int>(block.x)), static_cast<unsigned>((storage.config.ny + static_cast<int>(block.y) - 1) / static_cast<int>(block.y)), static_cast<unsigned>((storage.config.nz + static_cast<int>(block.z) - 1) / static_cast<int>(block.z)));
-    if (bytes > 0 && cudaMemsetAsync(storage.device.velocity_x, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (bytes > 0 && cudaMemsetAsync(storage.device.velocity_y, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (bytes > 0 && cudaMemsetAsync(storage.device.velocity_z, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (bytes > 0 && cudaMemsetAsync(storage.device.temp_velocity_x, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (bytes > 0 && cudaMemsetAsync(storage.device.temp_velocity_y, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (bytes > 0 && cudaMemsetAsync(storage.device.temp_velocity_z, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (bytes > 0 && cudaMemsetAsync(storage.device.pressure, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (bytes > 0 && cudaMemsetAsync(storage.device.divergence, 0, bytes, storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    if (cudaMemsetAsync(storage.device.projection_metrics, 0, sizeof(stable_fluids::ProjectionMetricsState), storage.stream) != cudaSuccess) return stable_fluids::backend_failure;
-    for (auto& field : storage.fields) {
-        stable_fluids::fill_kernel<<<cells, block, 0, storage.stream>>>(field.data, field.desc.initial_value, storage.config.nx, storage.config.ny, storage.config.nz);
-        stable_fluids::fill_kernel<<<cells, block, 0, storage.stream>>>(field.temp, field.desc.initial_value, storage.config.nx, storage.config.ny, storage.config.nz);
-        if (cudaGetLastError() != cudaSuccess) return stable_fluids::backend_failure;
-    }
-    return stable_fluids::success;
-}
-
 StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc) {
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     const dim3 block(static_cast<unsigned>((std::max) (storage.config.block_x, 1)), static_cast<unsigned>((std::max) (storage.config.block_y, 1)), static_cast<unsigned>((std::max) (storage.config.block_z, 1)));
@@ -627,26 +602,6 @@ StableFluidsResult stable_fluids_export_cuda(StableFluidsContext context, const 
     case STABLE_FLUIDS_EXPORT_DIVERGENCE: return cudaMemcpyAsync(destination, storage.device.divergence, scalar_bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? stable_fluids::success : stable_fluids::backend_failure;
     default: return stable_fluids::backend_failure;
     }
-}
-
-StableFluidsResult stable_fluids_get_projection_metrics_cuda(StableFluidsContext context, StableFluidsProjectionMetrics* out_metrics) {
-    auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
-    stable_fluids::ProjectionMetricsState state{};
-    if (cudaMemcpy(&state, storage.device.projection_metrics, sizeof(state), cudaMemcpyDeviceToHost) != cudaSuccess) return stable_fluids::backend_failure;
-    out_metrics->max_abs_divergence = state.max_abs_divergence;
-    out_metrics->rms_divergence     = state.cell_count > 0 ? std::sqrt(state.sum_sq_divergence / static_cast<float>(state.cell_count)) : 0.0f;
-    return stable_fluids::success;
-}
-
-StableFluidsResult stable_fluids_get_grid_desc_cuda(StableFluidsContext context, StableFluidsGridDesc* out_desc) {
-    const auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
-    *out_desc           = StableFluidsGridDesc{
-                  .nx        = storage.config.nx,
-                  .ny        = storage.config.ny,
-                  .nz        = storage.config.nz,
-                  .cell_size = storage.config.cell_size,
-    };
-    return stable_fluids::success;
 }
 
 } // extern "C"

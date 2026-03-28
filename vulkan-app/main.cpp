@@ -1,5 +1,5 @@
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 
 import app;
 import std;
@@ -41,7 +41,7 @@ int main() {
                 if (!state.ui.playback.paused || field_changed || !snapshot) app::capture_snapshot(state, data, *renderer, "stable_fluids.frame_snapshot");
             }
 
-            snapshot = app::active_snapshot(data);
+            snapshot             = app::active_snapshot(data);
             const bool submitted = renderer->render_frame(state.ui.render, snapshot);
             if (submitted) app::mark_snapshot_submitted(data);
         }

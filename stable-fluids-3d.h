@@ -82,18 +82,6 @@ typedef struct StableFluidsStepDesc {
     uint32_t field_source_count;
 } StableFluidsStepDesc;
 
-typedef struct StableFluidsGridDesc {
-    int32_t nx;
-    int32_t ny;
-    int32_t nz;
-    float cell_size;
-} StableFluidsGridDesc;
-
-typedef struct StableFluidsProjectionMetrics {
-    float max_abs_divergence;
-    float rms_divergence;
-} StableFluidsProjectionMetrics;
-
 typedef enum StableFluidsExportKind {
     STABLE_FLUIDS_EXPORT_FIELD              = 0,
     STABLE_FLUIDS_EXPORT_VELOCITY           = 1,
@@ -109,11 +97,8 @@ typedef struct StableFluidsExportDesc {
 
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_reset_context_cuda(StableFluidsContext context);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_cuda(StableFluidsContext context, const StableFluidsExportDesc* desc, void* destination);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_projection_metrics_cuda(StableFluidsContext context, StableFluidsProjectionMetrics* out_metrics);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_grid_desc_cuda(StableFluidsContext context, StableFluidsGridDesc* out_desc);
 
 #ifdef __cplusplus
 }

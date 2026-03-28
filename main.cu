@@ -170,9 +170,6 @@ int main() {
     std::vector<float> density(cell_count, 0.0f);
     if (!cuda_ok(cudaMemcpy(density.data(), device_density, scalar_size, cudaMemcpyDeviceToHost), "cudaMemcpy density")) return EXIT_FAILURE;
 
-    StableFluidsProjectionMetrics metrics{};
-    if (!stable_ok(stable_fluids_get_projection_metrics_cuda(context, &metrics), "stable_fluids_get_projection_metrics_cuda")) return EXIT_FAILURE;
-
     cudaFree(force_x);
     cudaFree(force_y);
     cudaFree(force_z);
@@ -183,6 +180,6 @@ int main() {
     const float total_density = std::accumulate(density.begin(), density.end(), 0.0f);
     const float peak_density  = density.empty() ? 0.0f : *std::max_element(density.begin(), density.end());
     const auto elapsed_ms     = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
-    std::printf("frames=%d total_density=%.6f peak_density=%.6f max_div=%.6e rms_div=%.6e elapsed_ms=%.3f\n", frames, total_density, peak_density, metrics.max_abs_divergence, metrics.rms_divergence, elapsed_ms);
+    std::printf("frames=%d total_density=%.6f peak_density=%.6f elapsed_ms=%.3f\n", frames, total_density, peak_density, elapsed_ms);
     return EXIT_SUCCESS;
 }
