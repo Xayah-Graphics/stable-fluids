@@ -699,10 +699,12 @@ namespace stable_fluids {
             tz    = gz - static_cast<float>(zs[0]);
         }
 
-        float c[2][2][2]{};
+        float weighted_sum = 0.0f;
+        float weight_sum   = 0.0f;
         for (int ax = 0; ax < 2; ++ax) {
             for (int ay = 0; ay < 2; ++ay) {
                 for (int az = 0; az < 2; ++az) {
+                    const float weight = (ax == 0 ? 1.0f - tx : tx) * (ay == 0 ? 1.0f - ty : ty) * (az == 0 ? 1.0f - tz : tz);
                     int ix = xs[ax];
                     int iy = ys[ay];
                     int iz = zs[az];
@@ -715,7 +717,8 @@ namespace stable_fluids {
                         if (iz < 0) iz += nz;
                     } else if (ix < 0 || ix >= nx || iy < 0 || iy >= ny || iz < 0 || iz >= nz) {
                         if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT) {
-                            c[ax][ay][az] = constant_value;
+                            weighted_sum += constant_value * weight;
+                            weight_sum += weight;
                             continue;
                         }
                         ix = cuda::std::clamp(ix, 0, nx - 1);
@@ -723,18 +726,13 @@ namespace stable_fluids {
                         iz = cuda::std::clamp(iz, 0, nz - 1);
                     }
                     const auto sample_index = index_3d(ix, iy, iz, nx, ny);
-                    c[ax][ay][az]           = cell_flags[sample_index] == cell_solid ? constant_value : field[sample_index];
+                    if (cell_flags[sample_index] == cell_solid) continue;
+                    weighted_sum += field[sample_index] * weight;
+                    weight_sum += weight;
                 }
             }
         }
-
-        const float c00 = c[0][0][0] + (c[1][0][0] - c[0][0][0]) * tx;
-        const float c10 = c[0][1][0] + (c[1][1][0] - c[0][1][0]) * tx;
-        const float c01 = c[0][0][1] + (c[1][0][1] - c[0][0][1]) * tx;
-        const float c11 = c[0][1][1] + (c[1][1][1] - c[0][1][1]) * tx;
-        const float c0  = c00 + (c10 - c00) * ty;
-        const float c1  = c01 + (c11 - c01) * ty;
-        return c0 + (c1 - c0) * tz;
+        return weight_sum > 0.0f ? weighted_sum / weight_sum : constant_value;
     }
 
     __device__ float sample_u_field(const float* field, const uint8_t* flags, const float* target, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
@@ -1171,6 +1169,7 @@ namespace stable_fluids {
             return;
         }
         float sum             = 0.0f;
+        const float center    = dst[index];
         const int sample_x[6] = {
             x - 1,
             x + 1,
@@ -1217,7 +1216,7 @@ namespace stable_fluids {
             }
             const auto sample_index = index_3d(ix, iy, iz, nx, ny);
             if (cell_flags[sample_index] == cell_solid)
-                sum += constant_value;
+                sum += center;
             else
                 sum += dst[sample_index];
         }
