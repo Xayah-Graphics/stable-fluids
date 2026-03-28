@@ -53,7 +53,7 @@ endif ()
 # ============================================================================
 # Samples
 # ============================================================================
-if (STABLE_FLUIDS_BUILD_SAMPLES)
+if (STABLE_FLUIDS_BUILD_BENCHMARK)
     add_executable(stable-fluids-benchmark benchmark.cu)
     target_link_libraries(stable-fluids-benchmark PRIVATE stable-fluids CUDA::cudart)
     target_compile_options(stable-fluids-benchmark PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
