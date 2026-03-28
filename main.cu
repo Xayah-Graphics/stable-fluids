@@ -109,7 +109,7 @@ int main() {
 
     const StableFluidsColliderDesc collider{
         .collider_type = static_cast<uint32_t>(STABLE_FLUIDS_COLLIDER_SPHERE),
-        .velocity_boundary_type = static_cast<uint32_t>(STABLE_FLUIDS_VELOCITY_BOUNDARY_NO_SLIP),
+        .velocity_boundary_type = static_cast<uint32_t>(STABLE_FLUIDS_COLLIDER_VELOCITY_BOUNDARY_NO_SLIP),
         .center_x = extent_x * 0.5f,
         .center_y = extent_y * 0.36f,
         .center_z = extent_z * 0.5f,

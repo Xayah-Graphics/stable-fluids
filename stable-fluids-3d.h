@@ -32,6 +32,11 @@ typedef enum StableFluidsVelocityBoundaryType {
     STABLE_FLUIDS_VELOCITY_BOUNDARY_OUTFLOW   = 3,
 } StableFluidsVelocityBoundaryType;
 
+typedef enum StableFluidsColliderVelocityBoundaryType {
+    STABLE_FLUIDS_COLLIDER_VELOCITY_BOUNDARY_NO_SLIP   = 0,
+    STABLE_FLUIDS_COLLIDER_VELOCITY_BOUNDARY_FREE_SLIP = 1,
+} StableFluidsColliderVelocityBoundaryType;
+
 typedef enum StableFluidsColliderType {
     STABLE_FLUIDS_COLLIDER_SPHERE = 0,
     STABLE_FLUIDS_COLLIDER_BOX    = 1,
