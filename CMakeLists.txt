@@ -3,7 +3,7 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
 project(stable-fluids VERSION 1.0.0 LANGUAGES CXX CUDA)
 
 option(STABLE_FLUIDS_BUILD_SAMPLES "Build sample applications" ON)
-option(STABLE_FLUIDS_BUILD_VULKAN_APP "Build Vulkan sample application" OFF)
+option(STABLE_FLUIDS_BUILD_VULKAN_APP "Build Vulkan sample application" ON)
 
 # ============================================================================
 # C++ Configuration
@@ -70,7 +70,6 @@ endif ()
 # Vulkan Sample Application
 # ============================================================================
 if (STABLE_FLUIDS_BUILD_VULKAN_APP)
-    message(FATAL_ERROR "stable-fluids-app still targets the removed pre-rewrite API. Migrate the visualizer to the new paper-faithful core before enabling STABLE_FLUIDS_BUILD_VULKAN_APP.")
     find_package(Vulkan REQUIRED)
     set(_VULKAN_HPP_IMPL "${CMAKE_CURRENT_BINARY_DIR}/_vulkan_hpp_impl.cpp")
     file(WRITE "${_VULKAN_HPP_IMPL}" [[
