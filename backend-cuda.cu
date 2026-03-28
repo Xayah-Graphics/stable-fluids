@@ -7,6 +7,9 @@
 #include <new>
 #include <vector>
 
+#include <cuda/std/__algorithm/clamp.h>
+#include <cuda/std/__algorithm/max.h>
+#include <cuda/std/__algorithm/min.h>
 #include <cuda_runtime.h>
 #include <nvtx3/nvtx3.hpp>
 
@@ -28,7 +31,12 @@ namespace stable_fluids {
         z = 2,
     };
 
-    struct ProjectionMetricsState;
+    struct ProjectionMetricsState {
+        float max_abs_divergence = 0.0f;
+        float sum_sq_divergence  = 0.0f;
+        uint32_t fluid_cell_count = 0;
+        uint32_t _padding         = 0;
+    };
 
     struct DeviceBuffers {
         float* velocity_x    = nullptr;
@@ -77,13 +85,6 @@ namespace stable_fluids {
         bool owns_stream              = false;
         bool atlas_dirty              = true;
         uint32_t max_field_components = 0;
-    };
-
-    struct ProjectionMetricsState {
-        float max_abs_divergence = 0.0f;
-        float sum_sq_divergence  = 0.0f;
-        uint32_t fluid_cell_count = 0;
-        uint32_t _padding         = 0;
     };
 
     __host__ __device__ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, const int sy) {
@@ -604,9 +605,9 @@ namespace stable_fluids {
             if (xs[1] < 0) xs[1] += nx;
             tx = gx - static_cast<float>(i0);
         } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
-            const float clamped = fminf(fmaxf(gx, 0.0f), static_cast<float>(nx - 1));
+            const float clamped = cuda::std::clamp(gx, 0.0f, static_cast<float>(nx - 1));
             xs[0] = static_cast<int>(floorf(clamped));
-            xs[1] = min(xs[0] + 1, nx - 1);
+            xs[1] = cuda::std::min(xs[0] + 1, nx - 1);
             tx = clamped - static_cast<float>(xs[0]);
         } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
             if (gx <= 0.0f) {
@@ -640,9 +641,9 @@ namespace stable_fluids {
             if (ys[1] < 0) ys[1] += ny;
             ty = gy - static_cast<float>(i0);
         } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
-            const float clamped = fminf(fmaxf(gy, 0.0f), static_cast<float>(ny - 1));
+            const float clamped = cuda::std::clamp(gy, 0.0f, static_cast<float>(ny - 1));
             ys[0] = static_cast<int>(floorf(clamped));
-            ys[1] = min(ys[0] + 1, ny - 1);
+            ys[1] = cuda::std::min(ys[0] + 1, ny - 1);
             ty = clamped - static_cast<float>(ys[0]);
         } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
             if (gy <= 0.0f) {
@@ -676,9 +677,9 @@ namespace stable_fluids {
             if (zs[1] < 0) zs[1] += nz;
             tz = gz - static_cast<float>(i0);
         } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
-            const float clamped = fminf(fmaxf(gz, 0.0f), static_cast<float>(nz - 1));
+            const float clamped = cuda::std::clamp(gz, 0.0f, static_cast<float>(nz - 1));
             zs[0] = static_cast<int>(floorf(clamped));
-            zs[1] = min(zs[0] + 1, nz - 1);
+            zs[1] = cuda::std::min(zs[0] + 1, nz - 1);
             tz = clamped - static_cast<float>(zs[0]);
         } else if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_EXTRAPOLATE) {
             if (gz <= 0.0f) {
@@ -719,9 +720,9 @@ namespace stable_fluids {
                             c[ax][ay][az] = constant_value;
                             continue;
                         }
-                        ix = min(max(ix, 0), nx - 1);
-                        iy = min(max(iy, 0), ny - 1);
-                        iz = min(max(iz, 0), nz - 1);
+                        ix = cuda::std::clamp(ix, 0, nx - 1);
+                        iy = cuda::std::clamp(iy, 0, ny - 1);
+                        iz = cuda::std::clamp(iz, 0, nz - 1);
                     }
                     const auto sample_index = index_3d(ix, iy, iz, nx, ny);
                     c[ax][ay][az] = cell_flags[sample_index] == cell_solid ? constant_value : field[sample_index];
@@ -739,15 +740,15 @@ namespace stable_fluids {
     }
 
     __device__ float sample_u_field(const float* field, const uint8_t* flags, const float* target, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
-        const float gx = fminf(fmaxf(x / h, 0.0f), static_cast<float>(nx));
-        const float gy = fminf(fmaxf(y / h - 0.5f, 0.0f), static_cast<float>(ny - 1));
-        const float gz = fminf(fmaxf(z / h - 0.5f, 0.0f), static_cast<float>(nz - 1));
+        const float gx = cuda::std::clamp(x / h, 0.0f, static_cast<float>(nx));
+        const float gy = cuda::std::clamp(y / h - 0.5f, 0.0f, static_cast<float>(ny - 1));
+        const float gz = cuda::std::clamp(z / h - 0.5f, 0.0f, static_cast<float>(nz - 1));
         const int x0 = static_cast<int>(floorf(gx));
         const int y0 = static_cast<int>(floorf(gy));
         const int z0 = static_cast<int>(floorf(gz));
-        const int x1 = min(x0 + 1, nx);
-        const int y1 = min(y0 + 1, ny - 1);
-        const int z1 = min(z0 + 1, nz - 1);
+        const int x1 = cuda::std::min(x0 + 1, nx);
+        const int y1 = cuda::std::min(y0 + 1, ny - 1);
+        const int z1 = cuda::std::min(z0 + 1, nz - 1);
         const float tx = gx - static_cast<float>(x0);
         const float ty = gy - static_cast<float>(y0);
         const float tz = gz - static_cast<float>(z0);
@@ -773,15 +774,15 @@ namespace stable_fluids {
     }
 
     __device__ float sample_v_field(const float* field, const uint8_t* flags, const float* target, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
-        const float gx = fminf(fmaxf(x / h - 0.5f, 0.0f), static_cast<float>(nx - 1));
-        const float gy = fminf(fmaxf(y / h, 0.0f), static_cast<float>(ny));
-        const float gz = fminf(fmaxf(z / h - 0.5f, 0.0f), static_cast<float>(nz - 1));
+        const float gx = cuda::std::clamp(x / h - 0.5f, 0.0f, static_cast<float>(nx - 1));
+        const float gy = cuda::std::clamp(y / h, 0.0f, static_cast<float>(ny));
+        const float gz = cuda::std::clamp(z / h - 0.5f, 0.0f, static_cast<float>(nz - 1));
         const int x0 = static_cast<int>(floorf(gx));
         const int y0 = static_cast<int>(floorf(gy));
         const int z0 = static_cast<int>(floorf(gz));
-        const int x1 = min(x0 + 1, nx - 1);
-        const int y1 = min(y0 + 1, ny);
-        const int z1 = min(z0 + 1, nz - 1);
+        const int x1 = cuda::std::min(x0 + 1, nx - 1);
+        const int y1 = cuda::std::min(y0 + 1, ny);
+        const int z1 = cuda::std::min(z0 + 1, nz - 1);
         const float tx = gx - static_cast<float>(x0);
         const float ty = gy - static_cast<float>(y0);
         const float tz = gz - static_cast<float>(z0);
@@ -807,15 +808,15 @@ namespace stable_fluids {
     }
 
     __device__ float sample_w_field(const float* field, const uint8_t* flags, const float* target, const float x, const float y, const float z, const int nx, const int ny, const int nz, const float h) {
-        const float gx = fminf(fmaxf(x / h - 0.5f, 0.0f), static_cast<float>(nx - 1));
-        const float gy = fminf(fmaxf(y / h - 0.5f, 0.0f), static_cast<float>(ny - 1));
-        const float gz = fminf(fmaxf(z / h, 0.0f), static_cast<float>(nz));
+        const float gx = cuda::std::clamp(x / h - 0.5f, 0.0f, static_cast<float>(nx - 1));
+        const float gy = cuda::std::clamp(y / h - 0.5f, 0.0f, static_cast<float>(ny - 1));
+        const float gz = cuda::std::clamp(z / h, 0.0f, static_cast<float>(nz));
         const int x0 = static_cast<int>(floorf(gx));
         const int y0 = static_cast<int>(floorf(gy));
         const int z0 = static_cast<int>(floorf(gz));
-        const int x1 = min(x0 + 1, nx - 1);
-        const int y1 = min(y0 + 1, ny - 1);
-        const int z1 = min(z0 + 1, nz);
+        const int x1 = cuda::std::min(x0 + 1, nx - 1);
+        const int y1 = cuda::std::min(y0 + 1, ny - 1);
+        const int z1 = cuda::std::min(z0 + 1, nz);
         const float tx = gx - static_cast<float>(x0);
         const float ty = gy - static_cast<float>(y0);
         const float tz = gz - static_cast<float>(z0);
@@ -870,24 +871,24 @@ namespace stable_fluids {
             const auto index = index_3d(x, y, z, nx + 1, ny);
             if (u_flags[index] == face_fixed) u[index] = u_target[index];
             else if (u_flags[index] == face_outflow) {
-                if (x == 0) u[index] = fminf(u[index], 0.0f);
-                else if (x == nx) u[index] = fmaxf(u[index], 0.0f);
+                if (x == 0) u[index] = cuda::std::min(u[index], 0.0f);
+                else if (x == nx) u[index] = cuda::std::max(u[index], 0.0f);
             }
         }
         if (x < nx && y <= ny && z < nz) {
             const auto index = index_3d(x, y, z, nx, ny + 1);
             if (v_flags[index] == face_fixed) v[index] = v_target[index];
             else if (v_flags[index] == face_outflow) {
-                if (y == 0) v[index] = fminf(v[index], 0.0f);
-                else if (y == ny) v[index] = fmaxf(v[index], 0.0f);
+                if (y == 0) v[index] = cuda::std::min(v[index], 0.0f);
+                else if (y == ny) v[index] = cuda::std::max(v[index], 0.0f);
             }
         }
         if (x < nx && y < ny && z <= nz) {
             const auto index = index_3d(x, y, z, nx, ny);
             if (w_flags[index] == face_fixed) w[index] = w_target[index];
             else if (w_flags[index] == face_outflow) {
-                if (z == 0) w[index] = fminf(w[index], 0.0f);
-                else if (z == nz) w[index] = fmaxf(w[index], 0.0f);
+                if (z == 0) w[index] = cuda::std::min(w[index], 0.0f);
+                else if (z == nz) w[index] = cuda::std::max(w[index], 0.0f);
             }
         }
     }
@@ -917,7 +918,7 @@ namespace stable_fluids {
             const float dz = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
             if (distance2 <= radius2) {
-                const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
+                const float weight = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
                 const auto index = index_3d(x, y, z, nx + 1, ny);
                 u[index] = u[index] * (1.0f - weight) + velocity_x * weight;
             }
@@ -932,7 +933,7 @@ namespace stable_fluids {
             const float dz = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
             if (distance2 <= radius2) {
-                const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
+                const float weight = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
                 const auto index = index_3d(x, y, z, nx, ny + 1);
                 v[index] = v[index] * (1.0f - weight) + velocity_y * weight;
             }
@@ -947,7 +948,7 @@ namespace stable_fluids {
             const float dz = pz - center_z;
             const float distance2 = dx * dx + dy * dy + dz * dz;
             if (distance2 <= radius2) {
-                const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
+                const float weight = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
                 const auto index = index_3d(x, y, z, nx, ny);
                 w[index] = w[index] * (1.0f - weight) + velocity_z * weight;
             }
@@ -970,7 +971,7 @@ namespace stable_fluids {
         const float distance2 = dx * dx + dy * dy + dz * dz;
         const float radius2 = radius * radius;
         if (distance2 > radius2) return;
-        const float weight = fmaxf(0.0f, 1.0f - distance2 / radius2);
+        const float weight = cuda::std::clamp(1.0f - distance2 / radius2, 0.0f, 1.0f);
         const auto cell_count_value = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz);
         if (components > 0) field[index] = field[index] * (1.0f - weight) + value_0 * weight;
         if (components > 1) field[cell_count_value + index] = field[cell_count_value + index] * (1.0f - weight) + value_1 * weight;
@@ -1029,21 +1030,21 @@ namespace stable_fluids {
                     sample_w_field(w_src, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
                 );
                 float3 back = make_float3(
-                    fminf(fmaxf(pos.x - dt * vel.x, 0.0f), static_cast<float>(nx) * h),
-                    fminf(fmaxf(pos.y - dt * vel.y, 0.0f), static_cast<float>(ny) * h),
-                    fminf(fmaxf(pos.z - dt * vel.z, 0.0f), static_cast<float>(nz) * h)
+                    cuda::std::clamp(pos.x - dt * vel.x, 0.0f, static_cast<float>(nx) * h),
+                    cuda::std::clamp(pos.y - dt * vel.y, 0.0f, static_cast<float>(ny) * h),
+                    cuda::std::clamp(pos.z - dt * vel.z, 0.0f, static_cast<float>(nz) * h)
                 );
-                const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
-                const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
-                const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+                const int back_ix = cuda::std::clamp(static_cast<int>(floorf(back.x / h)), 0, nx - 1);
+                const int back_iy = cuda::std::clamp(static_cast<int>(floorf(back.y / h)), 0, ny - 1);
+                const int back_iz = cuda::std::clamp(static_cast<int>(floorf(back.z / h)), 0, nz - 1);
                 if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
                     float3 lo = pos;
                     float3 hi = back;
                     for (int iteration = 0; iteration < 8; ++iteration) {
                         const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
-                        const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
-                        const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
-                        const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                        const int mid_ix = cuda::std::clamp(static_cast<int>(floorf(mid.x / h)), 0, nx - 1);
+                        const int mid_iy = cuda::std::clamp(static_cast<int>(floorf(mid.y / h)), 0, ny - 1);
+                        const int mid_iz = cuda::std::clamp(static_cast<int>(floorf(mid.z / h)), 0, nz - 1);
                         if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
                         else lo = mid;
                     }
@@ -1064,21 +1065,21 @@ namespace stable_fluids {
                     sample_w_field(w_src, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
                 );
                 float3 back = make_float3(
-                    fminf(fmaxf(pos.x - dt * vel.x, 0.0f), static_cast<float>(nx) * h),
-                    fminf(fmaxf(pos.y - dt * vel.y, 0.0f), static_cast<float>(ny) * h),
-                    fminf(fmaxf(pos.z - dt * vel.z, 0.0f), static_cast<float>(nz) * h)
+                    cuda::std::clamp(pos.x - dt * vel.x, 0.0f, static_cast<float>(nx) * h),
+                    cuda::std::clamp(pos.y - dt * vel.y, 0.0f, static_cast<float>(ny) * h),
+                    cuda::std::clamp(pos.z - dt * vel.z, 0.0f, static_cast<float>(nz) * h)
                 );
-                const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
-                const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
-                const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+                const int back_ix = cuda::std::clamp(static_cast<int>(floorf(back.x / h)), 0, nx - 1);
+                const int back_iy = cuda::std::clamp(static_cast<int>(floorf(back.y / h)), 0, ny - 1);
+                const int back_iz = cuda::std::clamp(static_cast<int>(floorf(back.z / h)), 0, nz - 1);
                 if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
                     float3 lo = pos;
                     float3 hi = back;
                     for (int iteration = 0; iteration < 8; ++iteration) {
                         const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
-                        const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
-                        const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
-                        const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                        const int mid_ix = cuda::std::clamp(static_cast<int>(floorf(mid.x / h)), 0, nx - 1);
+                        const int mid_iy = cuda::std::clamp(static_cast<int>(floorf(mid.y / h)), 0, ny - 1);
+                        const int mid_iz = cuda::std::clamp(static_cast<int>(floorf(mid.z / h)), 0, nz - 1);
                         if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
                         else lo = mid;
                     }
@@ -1099,21 +1100,21 @@ namespace stable_fluids {
                     sample_w_field(w_src, w_flags, w_target, pos.x, pos.y, pos.z, nx, ny, nz, h)
                 );
                 float3 back = make_float3(
-                    fminf(fmaxf(pos.x - dt * vel.x, 0.0f), static_cast<float>(nx) * h),
-                    fminf(fmaxf(pos.y - dt * vel.y, 0.0f), static_cast<float>(ny) * h),
-                    fminf(fmaxf(pos.z - dt * vel.z, 0.0f), static_cast<float>(nz) * h)
+                    cuda::std::clamp(pos.x - dt * vel.x, 0.0f, static_cast<float>(nx) * h),
+                    cuda::std::clamp(pos.y - dt * vel.y, 0.0f, static_cast<float>(ny) * h),
+                    cuda::std::clamp(pos.z - dt * vel.z, 0.0f, static_cast<float>(nz) * h)
                 );
-                const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
-                const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
-                const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+                const int back_ix = cuda::std::clamp(static_cast<int>(floorf(back.x / h)), 0, nx - 1);
+                const int back_iy = cuda::std::clamp(static_cast<int>(floorf(back.y / h)), 0, ny - 1);
+                const int back_iz = cuda::std::clamp(static_cast<int>(floorf(back.z / h)), 0, nz - 1);
                 if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
                     float3 lo = pos;
                     float3 hi = back;
                     for (int iteration = 0; iteration < 8; ++iteration) {
                         const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
-                        const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
-                        const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
-                        const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                        const int mid_ix = cuda::std::clamp(static_cast<int>(floorf(mid.x / h)), 0, nx - 1);
+                        const int mid_iy = cuda::std::clamp(static_cast<int>(floorf(mid.y / h)), 0, ny - 1);
+                        const int mid_iz = cuda::std::clamp(static_cast<int>(floorf(mid.z / h)), 0, nz - 1);
                         if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
                         else lo = mid;
                     }
@@ -1144,23 +1145,23 @@ namespace stable_fluids {
         float3 back = raw_back;
         if (extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_CONSTANT || extension_mode == STABLE_FLUIDS_FIELD_EXTENSION_STREAK) {
             back = make_float3(
-                fminf(fmaxf(back.x, 0.0f), static_cast<float>(nx) * h),
-                fminf(fmaxf(back.y, 0.0f), static_cast<float>(ny) * h),
-                fminf(fmaxf(back.z, 0.0f), static_cast<float>(nz) * h)
+                cuda::std::clamp(back.x, 0.0f, static_cast<float>(nx) * h),
+                cuda::std::clamp(back.y, 0.0f, static_cast<float>(ny) * h),
+                cuda::std::clamp(back.z, 0.0f, static_cast<float>(nz) * h)
             );
         }
         if (back.x >= 0.0f && back.x <= static_cast<float>(nx) * h && back.y >= 0.0f && back.y <= static_cast<float>(ny) * h && back.z >= 0.0f && back.z <= static_cast<float>(nz) * h) {
-            const int back_ix = min(max(static_cast<int>(floorf(back.x / h)), 0), nx - 1);
-            const int back_iy = min(max(static_cast<int>(floorf(back.y / h)), 0), ny - 1);
-            const int back_iz = min(max(static_cast<int>(floorf(back.z / h)), 0), nz - 1);
+            const int back_ix = cuda::std::clamp(static_cast<int>(floorf(back.x / h)), 0, nx - 1);
+            const int back_iy = cuda::std::clamp(static_cast<int>(floorf(back.y / h)), 0, ny - 1);
+            const int back_iz = cuda::std::clamp(static_cast<int>(floorf(back.z / h)), 0, nz - 1);
             if (cell_flags[index_3d(back_ix, back_iy, back_iz, nx, ny)] == cell_solid) {
                 float3 lo = pos;
                 float3 hi = back;
                 for (int iteration = 0; iteration < 8; ++iteration) {
                     const float3 mid = make_float3(0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z));
-                    const int mid_ix = min(max(static_cast<int>(floorf(mid.x / h)), 0), nx - 1);
-                    const int mid_iy = min(max(static_cast<int>(floorf(mid.y / h)), 0), ny - 1);
-                    const int mid_iz = min(max(static_cast<int>(floorf(mid.z / h)), 0), nz - 1);
+                    const int mid_ix = cuda::std::clamp(static_cast<int>(floorf(mid.x / h)), 0, nx - 1);
+                    const int mid_iy = cuda::std::clamp(static_cast<int>(floorf(mid.y / h)), 0, ny - 1);
+                    const int mid_iz = cuda::std::clamp(static_cast<int>(floorf(mid.z / h)), 0, nz - 1);
                     if (cell_flags[index_3d(mid_ix, mid_iy, mid_iz, nx, ny)] == cell_solid) hi = mid;
                     else lo = mid;
                 }
@@ -1200,9 +1201,9 @@ namespace stable_fluids {
                     sum += constant_value;
                     continue;
                 }
-                ix = min(max(ix, 0), nx - 1);
-                iy = min(max(iy, 0), ny - 1);
-                iz = min(max(iz, 0), nz - 1);
+                ix = cuda::std::clamp(ix, 0, nx - 1);
+                iy = cuda::std::clamp(iy, 0, ny - 1);
+                iz = cuda::std::clamp(iz, 0, nz - 1);
             }
             const auto sample_index = index_3d(ix, iy, iz, nx, ny);
             if (cell_flags[sample_index] == cell_solid) sum += constant_value;
