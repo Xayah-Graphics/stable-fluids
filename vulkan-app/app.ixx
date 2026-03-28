@@ -125,9 +125,11 @@ export namespace app {
         FieldVisualPreset preset{};
     };
 
-    struct SolverStats {
-        double last_step_call_ms = 0.0;
+    struct SceneInfo {
+        GridShape grid{};
+        float dt                 = 0.0f;
         uint64_t step_count      = 0;
+        double last_step_call_ms = 0.0;
     };
 
     struct PlaybackSettings {
@@ -135,28 +137,7 @@ export namespace app {
     };
 
     struct AppState {
-        struct {
-            int selected_field = 0;
-            StableFluidsSimulationConfig config{
-                .nx                  = 96,
-                .ny                  = 128,
-                .nz                  = 96,
-                .cell_size           = 0.01f,
-                .dt                  = 1.0f / 90.0f,
-                .viscosity           = 0.00012f,
-                .diffuse_iterations  = 24,
-                .pressure_iterations = 96,
-                .boundary =
-                    {
-                        .x = STABLE_FLUIDS_BOUNDARY_PERIODIC,
-                        .y = STABLE_FLUIDS_BOUNDARY_FIXED,
-                        .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
-                    },
-                .block_x = 8,
-                .block_y = 8,
-                .block_z = 4,
-            };
-        } physics{};
+        int selected_field = 0;
 
         struct {
             VisualizationSettings render{};
@@ -182,25 +163,6 @@ export namespace app {
 
     struct AppData {
         struct {
-            cudaStream_t stream                   = nullptr;
-            StableFluidsContext context           = nullptr;
-            StableFluidsFieldHandle density_field = 0;
-            GridShape grid{};
-            float* force_x_device        = nullptr;
-            float* force_y_device        = nullptr;
-            float* force_z_device        = nullptr;
-            float* density_source_device = nullptr;
-            std::vector<float> force_x_host{};
-            std::vector<float> force_z_host{};
-            std::vector<float> source_mask{};
-            std::vector<float> swirl_x_mask{};
-            std::vector<float> swirl_z_mask{};
-            std::vector<float> drift_mask{};
-            uint64_t animation_step = 0;
-            SolverStats stats{};
-        } physics{};
-
-        struct {
             uint64_t field_bytes   = 0;
             uint64_t velocity_bytes = 0;
             uint64_t generation    = 0;
@@ -223,7 +185,7 @@ export namespace app {
 
         [[nodiscard]] bool should_close() const;
         void begin_frame();
-        void draw_visualization_ui(AppState& state, const AppData& data, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot);
+        void draw_visualization_ui(AppState& state, const SceneInfo& scene, std::span<const FieldInfo> fields, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot);
         bool render_frame(const VisualizationSettings& settings, const std::optional<VisualizationSnapshotView>& snapshot);
         void frame_content(const VisualizationSettings& settings, const VisualizationSnapshotView& snapshot);
 
@@ -262,13 +224,62 @@ export namespace app {
         std::chrono::steady_clock::time_point last_frame_time_ = std::chrono::steady_clock::now();
     };
 
+    template<typename TScene>
+    concept SceneSample = requires(TScene scene, const TScene const_scene, const uint32_t field_index, const int sim_steps, void* device_destination, float* host_destination) {
+        { const_scene.fields() } -> std::convertible_to<std::span<const FieldInfo>>;
+        { const_scene.default_visualization() } -> std::same_as<VisualizationSettings>;
+        { const_scene.info() } -> std::same_as<SceneInfo>;
+        { scene.rebuild() } -> std::same_as<void>;
+        { scene.step(sim_steps) } -> std::same_as<void>;
+        { const_scene.export_field(field_index, device_destination) } -> std::same_as<void>;
+        { const_scene.export_velocity(device_destination, host_destination) } -> std::same_as<void>;
+        { const_scene.stream() } -> std::same_as<cudaStream_t>;
+    };
+
     void create_runtime_data(AppData& data);
     void destroy_runtime_data(AppData& data);
     void check_interop_support(const VisualizationApp& renderer);
-    void rebuild_physics(const AppState& state, AppData& data);
-    void step_physics(const AppState& state, AppData& data, int sim_steps);
-    bool sync_capture_storage(AppData& data, VisualizationApp& renderer);
-    bool capture_snapshot(AppState& state, AppData& data, VisualizationApp& renderer, const char* tag);
+    void apply_field_preset(VisualizationSettings& settings, const FieldVisualPreset& preset);
+    bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid);
+
+    template<SceneSample TScene>
+    bool capture_snapshot(AppState& state, AppData& data, TScene& scene, VisualizationApp& renderer, const char* tag) {
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
+        int slot_index = -1;
+        for (uint32_t i = 0; i < data.capture.slots.size(); ++i) {
+            const auto& slot = data.capture.slots[i];
+            if (static_cast<int>(i) == data.capture.active_slot) continue;
+            if (slot.ready_generation != 0 && data.capture.submit_serial < slot.last_used_submit_serial + renderer.frames_in_flight() + 1) continue;
+            slot_index = static_cast<int>(i);
+            break;
+        }
+        if (slot_index < 0) return false;
+
+        const auto& const_scene = scene;
+        const auto fields = const_scene.fields();
+        if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
+        state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
+
+        auto& slot = data.capture.slots.at(static_cast<size_t>(slot_index));
+        (void) tag;
+        const auto field_index = static_cast<uint32_t>(state.selected_field);
+        scene.export_field(field_index, slot.field_cuda_ptr);
+        if (state.ui.render.show_velocity_plane) scene.export_velocity(slot.velocity_cuda_ptr, slot.velocity_host.data());
+        cudaExternalSemaphoreSignalParams signal_params{};
+        signal_params.params.fence.value = data.capture.generation + 1;
+        check_cuda(cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, scene.stream()), "cudaSignalExternalSemaphoresAsync");
+        check_cuda(cudaStreamSynchronize(scene.stream()), "cudaStreamSynchronize");
+        slot.ready_generation   = data.capture.generation + 1;
+        slot.grid               = data.capture.request_grid;
+        slot.has_velocity_host  = state.ui.render.show_velocity_plane;
+        data.capture.generation  = slot.ready_generation;
+        data.capture.active_slot = slot_index;
+        return true;
+    }
+
     [[nodiscard]] std::optional<VisualizationSnapshotView> active_snapshot(const AppData& data);
     void mark_snapshot_submitted(AppData& data);
 

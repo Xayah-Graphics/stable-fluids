@@ -31,77 +31,6 @@ namespace app {
 
     namespace {
 
-        constexpr std::array field_catalog_storage{
-            FieldInfo{
-                .label       = "Density",
-                .export_kind = STABLE_FLUIDS_EXPORT_FIELD,
-                .export_density_field = true,
-                .preset =
-                    {
-                        .density_scale  = 1.35f,
-                        .scalar_min     = 0.0f,
-                        .scalar_max     = 3.5f,
-                        .scalar_opacity = 5.4f,
-                        .scalar_low_r   = 0.03f,
-                        .scalar_low_g   = 0.04f,
-                        .scalar_low_b   = 0.07f,
-                        .scalar_high_r  = 0.94f,
-                        .scalar_high_g  = 0.90f,
-                        .scalar_high_b  = 0.84f,
-                    },
-            },
-            FieldInfo{
-                .label       = "Velocity Magnitude",
-                .export_kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
-                .preset =
-                    {
-                        .density_scale  = 1.0f,
-                        .scalar_min     = 0.0f,
-                        .scalar_max     = 1.3f,
-                        .scalar_opacity = 2.2f,
-                        .scalar_low_r   = 0.06f,
-                        .scalar_low_g   = 0.10f,
-                        .scalar_low_b   = 0.24f,
-                        .scalar_high_r  = 0.24f,
-                        .scalar_high_g  = 0.88f,
-                        .scalar_high_b  = 1.00f,
-                    },
-            },
-            FieldInfo{
-                .label       = "Pressure",
-                .export_kind = STABLE_FLUIDS_EXPORT_PRESSURE,
-                .preset =
-                    {
-                        .density_scale  = 1.0f,
-                        .scalar_min     = -0.18f,
-                        .scalar_max     = 0.18f,
-                        .scalar_opacity = 2.3f,
-                        .scalar_low_r   = 0.08f,
-                        .scalar_low_g   = 0.22f,
-                        .scalar_low_b   = 0.62f,
-                        .scalar_high_r  = 0.96f,
-                        .scalar_high_g  = 0.58f,
-                        .scalar_high_b  = 0.18f,
-                    },
-            },
-            FieldInfo{
-                .label       = "Divergence",
-                .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
-                .preset =
-                    {
-                        .density_scale  = 1.0f,
-                        .scalar_min     = -24.0f,
-                        .scalar_max     = 24.0f,
-                        .scalar_opacity = 2.3f,
-                        .scalar_low_r   = 0.05f,
-                        .scalar_low_g   = 0.14f,
-                        .scalar_low_b   = 0.50f,
-                        .scalar_high_r  = 0.94f,
-                        .scalar_high_g  = 0.28f,
-                        .scalar_high_b  = 0.22f,
-                    },
-            },
-        };
         constexpr int velocity_plane_seed_count = 20;
         constexpr int velocity_plane_step_count = 48;
         constexpr float velocity_plane_step_cells = 0.24f;
@@ -254,29 +183,20 @@ namespace app {
         camera_.update(dt_seconds, sc_.extent.width, sc_.extent.height, camera_input);
     }
 
-    void VisualizationApp::draw_visualization_ui(AppState& state, const AppData& data, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
+    void VisualizationApp::draw_visualization_ui(AppState& state, const SceneInfo& scene, const std::span<const FieldInfo> fields, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
         bool reframe_requested       = false;
         auto& settings               = state.ui.render;
-        state.physics.selected_field = std::clamp(state.physics.selected_field, 0, static_cast<int>(field_catalog_storage.size()) - 1);
-        const auto& field            = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
+        if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
+        state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
+        const auto& field    = fields[static_cast<size_t>(state.selected_field)];
 
         ImGui::Begin("Smoke");
         if (ImGui::BeginCombo("Field", field.label.data())) {
-            for (int i = 0; i < static_cast<int>(field_catalog_storage.size()); ++i) {
-                const bool is_selected = state.physics.selected_field == i;
-                if (ImGui::Selectable(field_catalog_storage[static_cast<size_t>(i)].label.data(), is_selected)) {
-                    state.physics.selected_field = i;
-                    const auto& preset           = field_catalog_storage[static_cast<size_t>(i)].preset;
-                    settings.density_scale       = preset.density_scale;
-                    settings.scalar_min          = preset.scalar_min;
-                    settings.scalar_max          = preset.scalar_max;
-                    settings.scalar_opacity      = preset.scalar_opacity;
-                    settings.scalar_low_r        = preset.scalar_low_r;
-                    settings.scalar_low_g        = preset.scalar_low_g;
-                    settings.scalar_low_b        = preset.scalar_low_b;
-                    settings.scalar_high_r       = preset.scalar_high_r;
-                    settings.scalar_high_g       = preset.scalar_high_g;
-                    settings.scalar_high_b       = preset.scalar_high_b;
+            for (int i = 0; i < static_cast<int>(fields.size()); ++i) {
+                const bool is_selected = state.selected_field == i;
+                if (ImGui::Selectable(fields[static_cast<size_t>(i)].label.data(), is_selected)) {
+                    state.selected_field = i;
+                    apply_field_preset(settings, fields[static_cast<size_t>(i)].preset);
                     field_changed                = true;
                 }
                 if (is_selected) ImGui::SetItemDefaultFocus();
@@ -324,11 +244,11 @@ namespace app {
         }
 
         ImGui::Separator();
-        ImGui::Text("Grid: %d x %d x %d", state.physics.config.nx, state.physics.config.ny, state.physics.config.nz);
-        ImGui::Text("dt: %.5f  h: %.4f", state.physics.config.dt, state.physics.config.cell_size);
+        ImGui::Text("Grid: %u x %u x %u", scene.grid.nx, scene.grid.ny, scene.grid.nz);
+        ImGui::Text("dt: %.5f  h: %.4f", scene.dt, scene.grid.cell_size);
         ImGui::Text("Field: %.*s", static_cast<int>(field.label.size()), field.label.data());
-        ImGui::Text("Steps: %llu", static_cast<unsigned long long>(data.physics.stats.step_count));
-        ImGui::Text("Step Call: %.3f ms", data.physics.stats.last_step_call_ms);
+        ImGui::Text("Steps: %llu", static_cast<unsigned long long>(scene.step_count));
+        ImGui::Text("Step Call: %.3f ms", scene.last_step_call_ms);
         ImGui::End();
 
         if (reframe_requested && snapshot) frame_content(settings, *snapshot);
@@ -705,12 +625,7 @@ namespace app {
     } // namespace
 
     void create_runtime_data(AppData& data) {
-        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
-            if (status == cudaSuccess) return;
-            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
-        };
         destroy_runtime_data(data);
-        check_cuda(cudaStreamCreateWithFlags(&data.physics.stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags");
     }
 
     void destroy_runtime_data(AppData& data) {
@@ -722,23 +637,6 @@ namespace app {
             slot = {};
         }
         data.capture = {};
-        if (data.physics.context != nullptr) stable_fluids_destroy_context_cuda(data.physics.context);
-        if (data.physics.force_x_device != nullptr) cudaFree(data.physics.force_x_device);
-        if (data.physics.force_y_device != nullptr) cudaFree(data.physics.force_y_device);
-        if (data.physics.force_z_device != nullptr) cudaFree(data.physics.force_z_device);
-        if (data.physics.density_source_device != nullptr) cudaFree(data.physics.density_source_device);
-        data.physics.force_x_device        = nullptr;
-        data.physics.force_y_device        = nullptr;
-        data.physics.force_z_device        = nullptr;
-        data.physics.density_source_device = nullptr;
-        data.physics.force_x_host.clear();
-        data.physics.force_z_host.clear();
-        data.physics.source_mask.clear();
-        data.physics.swirl_x_mask.clear();
-        data.physics.swirl_z_mask.clear();
-        data.physics.drift_mask.clear();
-        if (data.physics.stream != nullptr) cudaStreamDestroy(data.physics.stream);
-        data.physics = {};
     }
 
     void check_interop_support(const VisualizationApp& renderer) {
@@ -755,187 +653,29 @@ namespace app {
         if (timeline_supported == 0) throw std::runtime_error("CUDA timeline semaphore interop is required");
     }
 
-    void rebuild_physics(const AppState& state, AppData& data) {
-        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
-            if (status == cudaSuccess) return;
-            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
-        };
-        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
-            if (code == STABLE_FLUIDS_RESULT_OK) return;
-            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
-        };
-        if (data.physics.context != nullptr) {
-            check_stable(stable_fluids_destroy_context_cuda(data.physics.context), "stable_fluids_destroy_context_cuda");
-            data.physics.context = nullptr;
-        }
-        if (data.physics.force_x_device != nullptr) cudaFree(data.physics.force_x_device);
-        if (data.physics.force_y_device != nullptr) cudaFree(data.physics.force_y_device);
-        if (data.physics.force_z_device != nullptr) cudaFree(data.physics.force_z_device);
-        if (data.physics.density_source_device != nullptr) cudaFree(data.physics.density_source_device);
-        data.physics.force_x_device        = nullptr;
-        data.physics.force_y_device        = nullptr;
-        data.physics.force_z_device        = nullptr;
-        data.physics.density_source_device = nullptr;
-        data.physics.force_x_host.clear();
-        data.physics.force_z_host.clear();
-        data.physics.source_mask.clear();
-        data.physics.swirl_x_mask.clear();
-        data.physics.swirl_z_mask.clear();
-        data.physics.drift_mask.clear();
-
-        const std::array fields{
-            StableFluidsFieldCreateDesc{
-                .name          = "density",
-                .diffusion     = 0.00005f,
-                .dissipation   = 0.35f,
-                .initial_value = 0.0f,
-            },
-        };
-        std::array<StableFluidsFieldHandle, 1> field_handles{};
-        const StableFluidsContextCreateDesc create_desc{
-            .config      = state.physics.config,
-            .stream      = data.physics.stream,
-            .fields      = fields.data(),
-            .field_count = static_cast<uint32_t>(fields.size()),
-        };
-        check_stable(stable_fluids_create_context_cuda(&create_desc, &data.physics.context, field_handles.data(), static_cast<uint32_t>(field_handles.size())), "stable_fluids_create_context_cuda");
-        data.physics.density_field = field_handles[0];
-
-        const auto nx           = state.physics.config.nx;
-        const auto ny           = state.physics.config.ny;
-        const auto nz           = state.physics.config.nz;
-        const auto cell_count   = static_cast<size_t>(nx) * static_cast<size_t>(ny) * static_cast<size_t>(nz);
-        const auto scalar_bytes = cell_count * sizeof(float);
-        const float h           = state.physics.config.cell_size;
-        const float extent_x    = static_cast<float>(nx) * h;
-        const float extent_y    = static_cast<float>(ny) * h;
-        const float extent_z    = static_cast<float>(nz) * h;
-        data.physics.grid       = {
-                  .nx        = static_cast<uint32_t>(nx),
-                  .ny        = static_cast<uint32_t>(ny),
-                  .nz        = static_cast<uint32_t>(nz),
-                  .cell_size = h,
-        };
-        const float source_x = extent_x * 0.50f;
-        const float source_y = extent_y * 0.13f;
-        const float source_z = extent_z * 0.50f;
-        const float source_r = h * 6.0f;
-        const float swirl_y  = source_y + source_r * 0.90f;
-        const float drift_y  = source_y + source_r * 1.35f;
-
-        data.physics.force_x_host.assign(cell_count, 0.0f);
-        data.physics.force_z_host.assign(cell_count, 0.0f);
-        data.physics.source_mask.assign(cell_count, 0.0f);
-        data.physics.swirl_x_mask.assign(cell_count, 0.0f);
-        data.physics.swirl_z_mask.assign(cell_count, 0.0f);
-        data.physics.drift_mask.assign(cell_count, 0.0f);
-
-        std::vector<float> force_y_host(cell_count, 0.0f);
-        std::vector<float> density_source_host(cell_count, 0.0f);
-        auto radial_weight = [](const float px, const float py, const float pz, const float cx, const float cy, const float cz, const float radius) {
-            const float dx      = px - cx;
-            const float dy      = py - cy;
-            const float dz      = pz - cz;
-            const float radius2 = radius * radius;
-            const float dist2   = dx * dx + dy * dy + dz * dz;
-            if (dist2 >= radius2 || radius2 <= 0.0f) return 0.0f;
-            return 1.0f - dist2 / radius2;
-        };
-
-        for (int z = 0; z < nz; ++z) {
-            for (int y = 0; y < ny; ++y) {
-                for (int x = 0; x < nx; ++x) {
-                    const auto index                 = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
-                    const float px                   = (static_cast<float>(x) + 0.5f) * h;
-                    const float py                   = (static_cast<float>(y) + 0.5f) * h;
-                    const float pz                   = (static_cast<float>(z) + 0.5f) * h;
-                    const float source_weight        = radial_weight(px, py, pz, source_x, source_y, source_z, source_r);
-                    const float swirl_weight         = radial_weight(px, py, pz, source_x, swirl_y, source_z, source_r * 1.65f);
-                    const float drift_weight         = radial_weight(px, py, pz, source_x, drift_y, source_z, source_r * 2.10f);
-                    const float dx                   = px - source_x;
-                    const float dz                   = pz - source_z;
-                    const float radial               = std::sqrt(dx * dx + dz * dz);
-                    const float inv_radial           = radial > 1.0e-5f ? 1.0f / radial : 0.0f;
-                    data.physics.source_mask[index]  = source_weight;
-                    data.physics.swirl_x_mask[index] = -dz * inv_radial * swirl_weight;
-                    data.physics.swirl_z_mask[index] = dx * inv_radial * swirl_weight;
-                    data.physics.drift_mask[index]   = drift_weight;
-                    density_source_host[index]       = 32.0f * source_weight;
-                    force_y_host[index]              = 7.6f * source_weight;
-                }
-            }
-        }
-
-        check_cuda(cudaMalloc(reinterpret_cast<void**>(&data.physics.force_x_device), scalar_bytes), "cudaMalloc force_x_device");
-        check_cuda(cudaMalloc(reinterpret_cast<void**>(&data.physics.force_y_device), scalar_bytes), "cudaMalloc force_y_device");
-        check_cuda(cudaMalloc(reinterpret_cast<void**>(&data.physics.force_z_device), scalar_bytes), "cudaMalloc force_z_device");
-        check_cuda(cudaMalloc(reinterpret_cast<void**>(&data.physics.density_source_device), scalar_bytes), "cudaMalloc density_source_device");
-        check_cuda(cudaMemsetAsync(data.physics.force_x_device, 0, scalar_bytes, data.physics.stream), "cudaMemsetAsync force_x_device");
-        check_cuda(cudaMemsetAsync(data.physics.force_z_device, 0, scalar_bytes, data.physics.stream), "cudaMemsetAsync force_z_device");
-        check_cuda(cudaMemcpyAsync(data.physics.force_y_device, force_y_host.data(), scalar_bytes, cudaMemcpyHostToDevice, data.physics.stream), "cudaMemcpyAsync force_y_device");
-        check_cuda(cudaMemcpyAsync(data.physics.density_source_device, density_source_host.data(), scalar_bytes, cudaMemcpyHostToDevice, data.physics.stream), "cudaMemcpyAsync density_source_device");
-        data.physics.animation_step = 0;
-        data.physics.stats          = {};
+    void apply_field_preset(VisualizationSettings& settings, const FieldVisualPreset& preset) {
+        settings.density_scale  = preset.density_scale;
+        settings.scalar_min     = preset.scalar_min;
+        settings.scalar_max     = preset.scalar_max;
+        settings.scalar_opacity = preset.scalar_opacity;
+        settings.scalar_low_r   = preset.scalar_low_r;
+        settings.scalar_low_g   = preset.scalar_low_g;
+        settings.scalar_low_b   = preset.scalar_low_b;
+        settings.scalar_high_r  = preset.scalar_high_r;
+        settings.scalar_high_g  = preset.scalar_high_g;
+        settings.scalar_high_b  = preset.scalar_high_b;
     }
 
-    void step_physics(const AppState&, AppData& data, const int sim_steps) {
+    bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid) {
         auto check_cuda = [](const cudaError_t status, const std::string_view what) {
             if (status == cudaSuccess) return;
             throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
-        };
-        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
-            if (code == STABLE_FLUIDS_RESULT_OK) return;
-            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
-        };
-        if (sim_steps <= 0) return;
-        const auto scalar_bytes = data.physics.force_x_host.size() * sizeof(float);
-        const StableFluidsFieldSourceDesc field_source{
-            .field  = data.physics.density_field,
-            .values = data.physics.density_source_device,
-        };
-
-        for (int step_index = 0; step_index < sim_steps; ++step_index) {
-            const float phase   = static_cast<float>(data.physics.animation_step) * 0.045f;
-            const float drift_x = 1.15f * std::sin(phase);
-            const float drift_z = 0.85f * std::cos(phase * 0.71f);
-            const float swirl   = 1.65f * std::cos(phase * 0.53f);
-            for (size_t i = 0; i < data.physics.force_x_host.size(); ++i) {
-                data.physics.force_x_host[i] = drift_x * data.physics.drift_mask[i] + swirl * data.physics.swirl_x_mask[i];
-                data.physics.force_z_host[i] = drift_z * data.physics.drift_mask[i] + swirl * data.physics.swirl_z_mask[i];
-            }
-
-            const auto begin = std::chrono::steady_clock::now();
-            check_cuda(cudaMemcpyAsync(data.physics.force_x_device, data.physics.force_x_host.data(), scalar_bytes, cudaMemcpyHostToDevice, data.physics.stream), "cudaMemcpyAsync force_x_device");
-            check_cuda(cudaMemcpyAsync(data.physics.force_z_device, data.physics.force_z_host.data(), scalar_bytes, cudaMemcpyHostToDevice, data.physics.stream), "cudaMemcpyAsync force_z_device");
-            const StableFluidsStepDesc step_desc{
-                .force_x            = data.physics.force_x_device,
-                .force_y            = data.physics.force_y_device,
-                .force_z            = data.physics.force_z_device,
-                .field_sources      = &field_source,
-                .field_source_count = 1,
-            };
-            check_stable(stable_fluids_step_cuda(data.physics.context, &step_desc), "stable_fluids_step_cuda");
-            const auto elapsed_ms                = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
-            data.physics.stats.last_step_call_ms = elapsed_ms;
-            ++data.physics.stats.step_count;
-            ++data.physics.animation_step;
-        }
-    }
-
-    bool sync_capture_storage(AppData& data, VisualizationApp& renderer) {
-        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
-            if (status == cudaSuccess) return;
-            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
-        };
-        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
-            if (code == STABLE_FLUIDS_RESULT_OK) return;
-            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
         };
         const GridShape request_grid{
-            .nx        = data.physics.grid.nx,
-            .ny        = data.physics.grid.ny,
-            .nz        = data.physics.grid.nz,
-            .cell_size = data.physics.grid.cell_size,
+            .nx        = grid.nx,
+            .ny        = grid.ny,
+            .nz        = grid.nz,
+            .cell_size = grid.cell_size,
         };
         const bool matches = !data.capture.slots.empty() && data.capture.request_grid.nx == request_grid.nx && data.capture.request_grid.ny == request_grid.ny && data.capture.request_grid.nz == request_grid.nz && data.capture.request_grid.cell_size == request_grid.cell_size;
         if (matches) return false;
@@ -1090,55 +830,6 @@ namespace app {
             };
             renderer.vk_context().device.updateDescriptorSets(field_write, {});
         }
-        return true;
-    }
-
-    bool capture_snapshot(AppState& state, AppData& data, VisualizationApp& renderer, const char* tag) {
-        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
-            if (status == cudaSuccess) return;
-            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
-        };
-        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
-            if (code == STABLE_FLUIDS_RESULT_OK) return;
-            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
-        };
-        int slot_index = -1;
-        for (uint32_t i = 0; i < data.capture.slots.size(); ++i) {
-            const auto& slot = data.capture.slots[i];
-            if (static_cast<int>(i) == data.capture.active_slot) continue;
-            if (slot.ready_generation != 0 && data.capture.submit_serial < slot.last_used_submit_serial + renderer.frames_in_flight() + 1) continue;
-            slot_index = static_cast<int>(i);
-            break;
-        }
-        if (slot_index < 0) return false;
-        nvtx3::scoped_range range{tag};
-
-        auto& slot                   = data.capture.slots.at(static_cast<size_t>(slot_index));
-        state.physics.selected_field = std::clamp(state.physics.selected_field, 0, static_cast<int>(field_catalog_storage.size()) - 1);
-        const auto& field            = field_catalog_storage[static_cast<size_t>(state.physics.selected_field)];
-        const StableFluidsExportDesc export_desc{
-            .kind  = field.export_kind,
-            .field = field.export_density_field ? data.physics.density_field : 0u,
-        };
-
-        check_stable(stable_fluids_export_cuda(data.physics.context, &export_desc, slot.field_cuda_ptr), "stable_fluids_export_cuda");
-        if (state.ui.render.show_velocity_plane) {
-            const StableFluidsExportDesc velocity_export_desc{
-                .kind = STABLE_FLUIDS_EXPORT_VELOCITY,
-            };
-            check_stable(stable_fluids_export_cuda(data.physics.context, &velocity_export_desc, slot.velocity_cuda_ptr), "stable_fluids_export_cuda");
-            check_cuda(cudaMemcpyAsync(slot.velocity_host.data(), slot.velocity_cuda_ptr, data.capture.velocity_bytes, cudaMemcpyDeviceToHost, data.physics.stream), "cudaMemcpyAsync velocity snapshot");
-        }
-        cudaExternalSemaphoreSignalParams signal_params{};
-        signal_params.params.fence.value = data.capture.generation + 1;
-        check_cuda(cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, data.physics.stream), "cudaSignalExternalSemaphoresAsync");
-        check_cuda(cudaStreamSynchronize(data.physics.stream), "cudaStreamSynchronize");
-
-        slot.ready_generation               = data.capture.generation + 1;
-        slot.grid                           = data.capture.request_grid;
-        slot.has_velocity_host              = state.ui.render.show_velocity_plane;
-        data.capture.generation             = slot.ready_generation;
-        data.capture.active_slot            = slot_index;
         return true;
     }
 
