@@ -106,7 +106,7 @@ namespace vk::texture {
         return cmd;
     }
 
-    static void end_one_time(const raii::Queue& q, raii::CommandBuffer& cmd) {
+    static void end_one_time(const raii::Queue& q, const raii::CommandBuffer& cmd) {
         cmd.end();
 
         SubmitInfo si{};
@@ -189,7 +189,7 @@ namespace vk::texture {
         sci.compareOp     = CompareOp::eNever;
 
         sci.minLod                  = 0.0f;
-        sci.maxLod                  = float(mip_levels);
+        sci.maxLod                  = static_cast<float>(mip_levels);
         sci.borderColor             = BorderColor::eFloatTransparentBlack;
         sci.unnormalizedCoordinates = VK_FALSE;
 
@@ -199,7 +199,7 @@ namespace vk::texture {
     Texture2D create_texture_2d_rgba8(const context::VulkanContext& vkctx, std::span<const std::byte> rgba8, Texture2DDesc desc) {
         if (desc.width == 0 || desc.height == 0) throw std::runtime_error("vk.texture: invalid extent");
         if (desc.layers != 1) throw std::runtime_error("vk.texture: create_texture_2d_rgba8 expects layers == 1");
-        const size_t expected = size_t(desc.width) * size_t(desc.height) * size_t(desc.layers) * 4u;
+        const size_t expected = static_cast<size_t>(desc.width) * static_cast<size_t>(desc.height) * static_cast<size_t>(desc.layers) * 4u;
         if (rgba8.size_bytes() != expected) throw std::runtime_error("vk.texture: rgba8 size mismatch");
 
         const Format format = desc.srgb ? Format::eR8G8B8A8Srgb : Format::eR8G8B8A8Unorm;
@@ -212,7 +212,7 @@ namespace vk::texture {
             }
         }
 
-        const DeviceSize upload_size = DeviceSize(rgba8.size_bytes());
+        const auto upload_size = static_cast<DeviceSize>(rgba8.size_bytes());
 
         auto staging = create_buffer(vkctx.physical_device, vkctx.device, upload_size, BufferUsageFlagBits::eTransferSrc, MemoryPropertyFlagBits::eHostVisible | MemoryPropertyFlagBits::eHostCoherent);
 
@@ -259,7 +259,7 @@ namespace vk::texture {
                 blit.srcSubresource.baseArrayLayer = 0;
                 blit.srcSubresource.layerCount     = 1;
                 blit.srcOffsets[0]                 = Offset3D{0, 0, 0};
-                blit.srcOffsets[1]                 = Offset3D{int32_t(w), int32_t(h), 1};
+                blit.srcOffsets[1]                 = Offset3D{static_cast<int32_t>(w), static_cast<int32_t>(h), 1};
 
                 const uint32_t nw = std::max(1u, w / 2);
                 const uint32_t nh = std::max(1u, h / 2);
@@ -269,7 +269,7 @@ namespace vk::texture {
                 blit.dstSubresource.baseArrayLayer = 0;
                 blit.dstSubresource.layerCount     = 1;
                 blit.dstOffsets[0]                 = Offset3D{0, 0, 0};
-                blit.dstOffsets[1]                 = Offset3D{int32_t(nw), int32_t(nh), 1};
+                blit.dstOffsets[1]                 = Offset3D{static_cast<int32_t>(nw), static_cast<int32_t>(nh), 1};
 
                 cmd.blitImage(*img.image, ImageLayout::eTransferSrcOptimal, *img.image, ImageLayout::eTransferDstOptimal, blit, Filter::eLinear);
 
@@ -300,13 +300,13 @@ namespace vk::texture {
     Texture2DArray create_texture_2d_array_rgba8(const context::VulkanContext& vkctx, std::span<const std::byte> rgba8, Texture2DDesc desc) {
         if (desc.width == 0 || desc.height == 0 || desc.layers == 0) throw std::runtime_error("vk.texture: invalid extent/layers");
         if (desc.mip_mode != MipMode::None) throw std::runtime_error("vk.texture: mip generation for arrays not implemented");
-        const size_t expected = size_t(desc.width) * size_t(desc.height) * size_t(desc.layers) * 4u;
+        const size_t expected = static_cast<size_t>(desc.width) * static_cast<size_t>(desc.height) * static_cast<size_t>(desc.layers) * 4u;
         if (rgba8.size_bytes() != expected) throw std::runtime_error("vk.texture: rgba8 size mismatch for array");
 
         const Format format = desc.srgb ? Format::eR8G8B8A8Srgb : Format::eR8G8B8A8Unorm;
-        const uint32_t mip_levels = 1;
+        constexpr uint32_t mip_levels = 1;
 
-        const DeviceSize upload_size = DeviceSize(rgba8.size_bytes());
+        const auto upload_size = static_cast<DeviceSize>(rgba8.size_bytes());
 
         auto staging = create_buffer(vkctx.physical_device, vkctx.device, upload_size, BufferUsageFlagBits::eTransferSrc, MemoryPropertyFlagBits::eHostVisible | MemoryPropertyFlagBits::eHostCoherent);
 
@@ -326,7 +326,7 @@ namespace vk::texture {
 
         std::vector<BufferImageCopy> regions;
         regions.reserve(desc.layers);
-        const DeviceSize layer_stride = DeviceSize(size_t(desc.width) * size_t(desc.height) * 4u);
+        const auto layer_stride = static_cast<DeviceSize>(static_cast<size_t>(desc.width) * static_cast<size_t>(desc.height) * 4u);
         for (uint32_t layer = 0; layer < desc.layers; ++layer) {
             BufferImageCopy bic{};
             bic.bufferOffset                    = layer_stride * layer;
@@ -362,7 +362,7 @@ namespace vk::texture {
 
     raii::DescriptorSetLayout make_texture_set_layout(const raii::Device& device) {
 
-        const DescriptorSetLayoutBinding bindings[] = {{
+        constexpr DescriptorSetLayoutBinding bindings[] = {{
                                                            .binding         = 0,
                                                            .descriptorType  = DescriptorType::eSampledImage,
                                                            .descriptorCount = 1,

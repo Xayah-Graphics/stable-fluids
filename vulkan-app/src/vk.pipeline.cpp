@@ -75,7 +75,7 @@ vk::pipeline::GraphicsPipeline vk::pipeline::create_graphics_pipeline(const raii
         .topology = desc.topology,
     };
 
-    const PipelineViewportStateCreateInfo vp{
+    constexpr PipelineViewportStateCreateInfo vp{
         .viewportCount = 1,
         .scissorCount  = 1,
     };
@@ -87,7 +87,7 @@ vk::pipeline::GraphicsPipeline vk::pipeline::create_graphics_pipeline(const raii
         .lineWidth   = 1.0f,
     };
 
-    const PipelineMultisampleStateCreateInfo ms{
+    constexpr PipelineMultisampleStateCreateInfo ms{
         .rasterizationSamples = SampleCountFlagBits::e1,
     };
 

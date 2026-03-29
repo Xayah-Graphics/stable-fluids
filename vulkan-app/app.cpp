@@ -81,7 +81,7 @@ namespace app {
         };
         field_descriptor_pool_ = raii::DescriptorPool{vkctx_.device, field_pool_ci};
 
-        shader_dir_ = std::filesystem::path(SMOKE_SIM_SHADER_DIR);
+        shader_dir_                      = std::filesystem::path(SMOKE_SIM_SHADER_DIR);
         const auto background_shader_spv = pipeline::read_file_bytes((shader_dir_ / "background.spv").string());
         const auto plane_shader_spv      = pipeline::read_file_bytes((shader_dir_ / "field_plane.spv").string());
         const auto volume_shader_spv     = pipeline::read_file_bytes((shader_dir_ / "field_volume.spv").string());
@@ -112,9 +112,9 @@ namespace app {
 
         pipeline::VertexInput empty_vertex_input{};
         background_pipeline_ = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, background_pipeline_desc, background_shader_module_, "vs_main", "fs_main");
-        plane_pipeline_  = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, plane_shader_module_, "vs_main", "fs_main");
-        volume_pipeline_ = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, volume_shader_module_, "vs_main", "fs_main");
-        last_frame_time_ = std::chrono::steady_clock::now();
+        plane_pipeline_      = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, plane_shader_module_, "vs_main", "fs_main");
+        volume_pipeline_     = pipeline::create_graphics_pipeline(vkctx_.device, empty_vertex_input, pipeline_desc, volume_shader_module_, "vs_main", "fs_main");
+        last_frame_time_     = std::chrono::steady_clock::now();
     }
 
     VisualizationApp::~VisualizationApp() {
@@ -124,16 +124,16 @@ namespace app {
         }
 
         if (imgui_sys_.initialized) vk::imgui::shutdown(imgui_sys_);
-        volume_pipeline_ = {};
-        plane_pipeline_ = {};
-        background_pipeline_ = {};
-        volume_shader_module_ = nullptr;
-        plane_shader_module_ = nullptr;
+        volume_pipeline_          = {};
+        plane_pipeline_           = {};
+        background_pipeline_      = {};
+        volume_shader_module_     = nullptr;
+        plane_shader_module_      = nullptr;
         background_shader_module_ = nullptr;
-        field_descriptor_pool_ = nullptr;
-        field_set_layout_ = nullptr;
-        frames_ = {};
-        sc_ = {};
+        field_descriptor_pool_    = nullptr;
+        field_set_layout_         = nullptr;
+        frames_                   = {};
+        sc_                       = {};
     }
 
     bool VisualizationApp::should_close() const {
@@ -194,8 +194,8 @@ namespace app {
     }
 
     void VisualizationApp::draw_visualization_ui(AppState& state, const SceneInfo& scene, const std::span<const FieldInfo> fields, bool& reset_requested, bool& field_changed, const std::optional<VisualizationSnapshotView>& snapshot) {
-        bool reframe_requested       = false;
-        auto& settings               = state.render;
+        bool reframe_requested = false;
+        auto& settings         = state.render;
         if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
         state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
         const auto& field    = fields[static_cast<size_t>(state.selected_field)];
@@ -207,7 +207,7 @@ namespace app {
                 if (ImGui::Selectable(fields[static_cast<size_t>(i)].label.data(), is_selected)) {
                     state.selected_field = i;
                     apply_field_preset(settings, fields[static_cast<size_t>(i)].preset);
-                    field_changed                = true;
+                    field_changed = true;
                 }
                 if (is_selected) ImGui::SetItemDefaultFocus();
             }
@@ -325,13 +325,13 @@ namespace app {
         const float aspect        = static_cast<float>(sc_.extent.width) / static_cast<float>((std::max) (sc_.extent.height, 1u));
         const float half_fov_tan  = std::tan(camera_config.fov_y_rad * 0.5f);
         FieldPushConstants push{};
-        push.eye        = {matrices.eye.x, matrices.eye.y, matrices.eye.z, 1.0f};
-        push.right      = {matrices.right.x, matrices.right.y, matrices.right.z, 0.0f};
-        push.up         = {matrices.up.x, matrices.up.y, matrices.up.z, 0.0f};
-        push.forward    = {matrices.forward.x, matrices.forward.y, matrices.forward.z, 0.0f};
+        push.eye               = {matrices.eye.x, matrices.eye.y, matrices.eye.z, 1.0f};
+        push.right             = {matrices.right.x, matrices.right.y, matrices.right.z, 0.0f};
+        push.up                = {matrices.up.x, matrices.up.y, matrices.up.z, 0.0f};
+        push.forward           = {matrices.forward.x, matrices.forward.y, matrices.forward.z, 0.0f};
         push.background_bottom = {settings.background_bottom_r, settings.background_bottom_g, settings.background_bottom_b, 1.0f};
         push.background_top    = {settings.background_top_r, settings.background_top_g, settings.background_top_b, 1.0f};
-        push.params0 = {
+        push.params0           = {
             aspect,
             half_fov_tan,
             0.0f,
@@ -397,7 +397,7 @@ namespace app {
             if (ImGuiViewport* viewport = ImGui::GetMainViewport()) {
                 ImDrawList* draw_list = ImGui::GetForegroundDrawList(viewport);
                 const auto& view_proj = camera_.matrices().view_proj;
-                auto project_point = [&](const vk::math::vec3& point, ImVec2& out) {
+                auto project_point    = [&](const vk::math::vec3& point, ImVec2& out) {
                     const auto clip = vk::math::mul(view_proj, vk::math::vec4{point.x, point.y, point.z, 1.0f});
                     if (clip.w <= 1.0e-4f) return false;
                     const float inv_w = 1.0f / clip.w;
@@ -417,23 +417,23 @@ namespace app {
                     draw_list->AddLine(screen_a, screen_b, color, settings.velocity_plane_thickness);
                 };
                 auto sample_velocity = [&](const float px, const float py, const float pz) {
-                    const auto nx = static_cast<int>(snapshot->grid.nx);
-                    const auto ny = static_cast<int>(snapshot->grid.ny);
-                    const auto nz = static_cast<int>(snapshot->grid.nz);
+                    const auto nx         = static_cast<int>(snapshot->grid.nx);
+                    const auto ny         = static_cast<int>(snapshot->grid.ny);
+                    const auto nz         = static_cast<int>(snapshot->grid.nz);
                     const auto cell_count = static_cast<size_t>(nx) * static_cast<size_t>(ny) * static_cast<size_t>(nz);
-                    const float gx = std::clamp(px / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nx - 1));
-                    const float gy = std::clamp(py / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(ny - 1));
-                    const float gz = std::clamp(pz / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nz - 1));
-                    const int x0 = static_cast<int>(std::floor(gx));
-                    const int y0 = static_cast<int>(std::floor(gy));
-                    const int z0 = static_cast<int>(std::floor(gz));
-                    const int x1 = (std::min)(x0 + 1, nx - 1);
-                    const int y1 = (std::min)(y0 + 1, ny - 1);
-                    const int z1 = (std::min)(z0 + 1, nz - 1);
-                    const float tx = gx - static_cast<float>(x0);
-                    const float ty = gy - static_cast<float>(y0);
-                    const float tz = gz - static_cast<float>(z0);
-                    auto load = [&](const int x, const int y, const int z) {
+                    const float gx        = std::clamp(px / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nx - 1));
+                    const float gy        = std::clamp(py / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(ny - 1));
+                    const float gz        = std::clamp(pz / snapshot->grid.cell_size - 0.5f, 0.0f, static_cast<float>(nz - 1));
+                    const int x0          = static_cast<int>(std::floor(gx));
+                    const int y0          = static_cast<int>(std::floor(gy));
+                    const int z0          = static_cast<int>(std::floor(gz));
+                    const int x1          = (std::min) (x0 + 1, nx - 1);
+                    const int y1          = (std::min) (y0 + 1, ny - 1);
+                    const int z1          = (std::min) (z0 + 1, nz - 1);
+                    const float tx        = gx - static_cast<float>(x0);
+                    const float ty        = gy - static_cast<float>(y0);
+                    const float tz        = gz - static_cast<float>(z0);
+                    auto load             = [&](const int x, const int y, const int z) {
                         const auto index = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
                         return vk::math::vec3{
                             snapshot->velocity[index],
@@ -458,13 +458,13 @@ namespace app {
                 };
 
                 const PlaneAxis plane_axis = settings.plane_axis;
-                const float max_x = snapshot->grid.extent_x();
-                const float max_y = snapshot->grid.extent_y();
-                const float max_z = snapshot->grid.extent_z();
+                const float max_x          = snapshot->grid.extent_x();
+                const float max_y          = snapshot->grid.extent_y();
+                const float max_z          = snapshot->grid.extent_z();
                 const float slice_position = std::clamp(settings.slice_position, 0.0f, 1.0f);
-                const int seed_count = (std::max)(settings.velocity_plane_seed_count, 2);
-                const float min_speed = (std::max)(settings.velocity_plane_min_speed, 1.0e-5f);
-                const float arrow_scale = settings.velocity_plane_arrow_cells * snapshot->grid.cell_size;
+                const int seed_count       = (std::max) (settings.velocity_plane_seed_count, 2);
+                const float min_speed      = (std::max) (settings.velocity_plane_min_speed, 1.0e-5f);
+                const float arrow_scale    = settings.velocity_plane_arrow_cells * snapshot->grid.cell_size;
                 std::array<vk::math::vec3, 4> plane_corners{};
                 if (plane_axis == PlaneAxis::XY) {
                     const float z = slice_position * max_z;
@@ -524,10 +524,10 @@ namespace app {
                         if (plane_axis == PlaneAxis::XY) side = {-direction.y, direction.x, 0.0f, 0.0f};
                         if (plane_axis == PlaneAxis::XZ) side = {-direction.z, 0.0f, direction.x, 0.0f};
                         if (plane_axis == PlaneAxis::YZ) side = {0.0f, -direction.z, direction.y, 0.0f};
-                        const float speed_t = std::clamp(speed / (min_speed * 8.0f), 0.0f, 1.0f);
+                        const float speed_t      = std::clamp(speed / (min_speed * 8.0f), 0.0f, 1.0f);
                         const float glyph_length = arrow_scale * std::lerp(0.35f, 1.0f, speed_t);
-                        const float head_length = glyph_length * 0.34f;
-                        const float wing_span = head_length * 0.55f;
+                        const float head_length  = glyph_length * 0.34f;
+                        const float wing_span    = head_length * 0.55f;
                         vk::math::vec3 tip{
                             pos.x + direction.x * glyph_length,
                             pos.y + direction.y * glyph_length,
@@ -558,12 +558,7 @@ namespace app {
                             head_base.z - side.z * wing_span,
                             0.0f,
                         };
-                        const ImU32 color = IM_COL32(
-                            static_cast<int>(std::lerp(72.0f, 255.0f, speed_t)),
-                            static_cast<int>(std::lerp(196.0f, 212.0f, speed_t)),
-                            static_cast<int>(std::lerp(255.0f, 96.0f, speed_t)),
-                            static_cast<int>(std::lerp(112.0f, 224.0f, speed_t))
-                        );
+                        const ImU32 color = IM_COL32(static_cast<int>(std::lerp(72.0f, 255.0f, speed_t)), static_cast<int>(std::lerp(196.0f, 212.0f, speed_t)), static_cast<int>(std::lerp(255.0f, 96.0f, speed_t)), static_cast<int>(std::lerp(112.0f, 224.0f, speed_t)));
                         draw_segment(pos, tip, color);
                         draw_segment(head_left, tip, color);
                         draw_segment(head_right, tip, color);
@@ -750,11 +745,11 @@ namespace app {
             if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
             slot = {};
         }
-        data.capture              = {};
-        data.capture.request_grid = request_grid;
+        data.capture                      = {};
+        data.capture.request_grid         = request_grid;
         data.capture.has_velocity_storage = with_velocity_plane;
-        const auto field_bytes = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max) (request_grid.nz, 1u)) * sizeof(float);
-        const auto velocity_bytes = field_bytes * 3u;
+        const auto field_bytes            = static_cast<uint64_t>(request_grid.nx) * static_cast<uint64_t>(request_grid.ny) * static_cast<uint64_t>((std::max) (request_grid.nz, 1u)) * sizeof(float);
+        const auto velocity_bytes         = field_bytes * 3u;
 
         auto descriptor_sets = renderer.allocate_field_descriptor_sets(snapshot_slot_count);
         data.capture.slots.reserve(descriptor_sets.size());

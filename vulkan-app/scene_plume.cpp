@@ -1,7 +1,6 @@
 module;
 
 #include "stable-fluids-3d.h"
-
 #include <cuda_runtime.h>
 
 module scene_plume;
@@ -23,7 +22,7 @@ namespace scene_plume {
             PlumeFieldInfo{
                 .view =
                     {
-                        .label  = "Density",
+                        .label = "Density",
                         .preset =
                             {
                                 .density_scale  = 1.35f,
@@ -38,13 +37,13 @@ namespace scene_plume {
                                 .scalar_high_b  = 0.84f,
                             },
                     },
-                .export_kind      = STABLE_FLUIDS_EXPORT_FIELD,
+                .export_kind       = STABLE_FLUIDS_EXPORT_FIELD,
                 .use_density_field = true,
             },
             PlumeFieldInfo{
                 .view =
                     {
-                        .label  = "Velocity Magnitude",
+                        .label = "Velocity Magnitude",
                         .preset =
                             {
                                 .density_scale  = 1.0f,
@@ -64,7 +63,7 @@ namespace scene_plume {
             PlumeFieldInfo{
                 .view =
                     {
-                        .label  = "Pressure",
+                        .label = "Pressure",
                         .preset =
                             {
                                 .density_scale  = 1.0f,
@@ -84,7 +83,7 @@ namespace scene_plume {
             PlumeFieldInfo{
                 .view =
                     {
-                        .label  = "Divergence",
+                        .label = "Divergence",
                         .preset =
                             {
                                 .density_scale  = 1.0f,
@@ -171,12 +170,12 @@ namespace scene_plume {
         if (force_y_device_ != nullptr) cudaFree(force_y_device_);
         if (force_z_device_ != nullptr) cudaFree(force_z_device_);
         if (density_source_device_ != nullptr) cudaFree(density_source_device_);
-        context_                = nullptr;
-        density_field_          = 0;
-        force_x_device_         = nullptr;
-        force_y_device_         = nullptr;
-        force_z_device_         = nullptr;
-        density_source_device_  = nullptr;
+        context_               = nullptr;
+        density_field_         = 0;
+        force_x_device_        = nullptr;
+        force_y_device_        = nullptr;
+        force_z_device_        = nullptr;
+        density_source_device_ = nullptr;
         force_x_host_.clear();
         force_z_host_.clear();
         source_mask_.clear();
@@ -246,21 +245,21 @@ namespace scene_plume {
         for (int z = 0; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
                 for (int x = 0; x < nx; ++x) {
-                    const auto index          = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
-                    const float px            = (static_cast<float>(x) + 0.5f) * h;
-                    const float py            = (static_cast<float>(y) + 0.5f) * h;
-                    const float pz            = (static_cast<float>(z) + 0.5f) * h;
-                    const float source_weight = radial_weight(px, py, pz, source_x, source_y, source_z, source_r);
-                    const float swirl_weight  = radial_weight(px, py, pz, source_x, swirl_y, source_z, source_r * 1.65f);
-                    const float drift_weight  = radial_weight(px, py, pz, source_x, drift_y, source_z, source_r * 2.10f);
-                    const float dx            = px - source_x;
-                    const float dz            = pz - source_z;
-                    const float radial        = std::sqrt(dx * dx + dz * dz);
-                    const float inv_radial    = radial > 1.0e-5f ? 1.0f / radial : 0.0f;
-                    source_mask_[index]       = source_weight;
-                    swirl_x_mask_[index]      = -dz * inv_radial * swirl_weight;
-                    swirl_z_mask_[index]      = dx * inv_radial * swirl_weight;
-                    drift_mask_[index]        = drift_weight;
+                    const auto index           = static_cast<size_t>(x) + static_cast<size_t>(nx) * (static_cast<size_t>(y) + static_cast<size_t>(ny) * static_cast<size_t>(z));
+                    const float px             = (static_cast<float>(x) + 0.5f) * h;
+                    const float py             = (static_cast<float>(y) + 0.5f) * h;
+                    const float pz             = (static_cast<float>(z) + 0.5f) * h;
+                    const float source_weight  = radial_weight(px, py, pz, source_x, source_y, source_z, source_r);
+                    const float swirl_weight   = radial_weight(px, py, pz, source_x, swirl_y, source_z, source_r * 1.65f);
+                    const float drift_weight   = radial_weight(px, py, pz, source_x, drift_y, source_z, source_r * 2.10f);
+                    const float dx             = px - source_x;
+                    const float dz             = pz - source_z;
+                    const float radial         = std::sqrt(dx * dx + dz * dz);
+                    const float inv_radial     = radial > 1.0e-5f ? 1.0f / radial : 0.0f;
+                    source_mask_[index]        = source_weight;
+                    swirl_x_mask_[index]       = -dz * inv_radial * swirl_weight;
+                    swirl_z_mask_[index]       = dx * inv_radial * swirl_weight;
+                    drift_mask_[index]         = drift_weight;
                     density_source_host[index] = 32.0f * source_weight;
                     force_y_host[index]        = 7.6f * source_weight;
                 }
@@ -276,11 +275,11 @@ namespace scene_plume {
         check_cuda(cudaMemcpyAsync(force_y_device_, force_y_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_y_device");
         check_cuda(cudaMemcpyAsync(density_source_device_, density_source_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync density_source_device");
         animation_step_ = 0;
-        info_ = {
-            .grid              = grid_,
-            .dt                = config_.dt,
-            .step_count        = 0,
-            .last_step_call_ms = 0.0,
+        info_           = {
+                      .grid              = grid_,
+                      .dt                = config_.dt,
+                      .step_count        = 0,
+                      .last_step_call_ms = 0.0,
         };
     }
 

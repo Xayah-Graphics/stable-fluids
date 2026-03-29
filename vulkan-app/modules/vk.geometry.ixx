@@ -70,9 +70,13 @@ namespace vk::geometry {
 
 namespace vk::geometry::detail {
 
+    template <typename>
+    inline constexpr bool unsupported_vertex_v = false;
+
     template <typename VertexT>
     VertexT make_vertex(const math::vec3& p, const math::vec4& c, const math::vec2&) {
-        throw std::runtime_error("Unsupported vertex type in make_vertex");
+        static_assert(unsupported_vertex_v<VertexT>, "Unsupported vertex type in make_vertex");
+        return {};
     }
 
     template <>
@@ -112,14 +116,14 @@ vk::geometry::Mesh<VertexT> vk::geometry::make_sphere(float radius, std::uint32_
     constexpr float pi = std::numbers::pi_v<float>;
 
     for (std::uint32_t y = 0; y <= stacks; ++y) {
-        const float v   = float(y) / float(stacks);
+        const float v   = static_cast<float>(y) / static_cast<float>(stacks);
         const float phi = pi * v;
 
         const float sin_p = std::sin(phi);
         const float cos_p = std::cos(phi);
 
         for (std::uint32_t x = 0; x <= slices; ++x) {
-            const float u     = float(x) / float(slices);
+            const float u     = static_cast<float>(x) / static_cast<float>(slices);
             const float theta = 2.0f * pi * u;
 
             const math::vec3 pos{
@@ -166,18 +170,17 @@ vk::geometry::Mesh<VertexT> vk::geometry::make_cube(float half_extent, const mat
         {-h, h, h},
     };
 
-    const math::vec2 uvs[] = {
-        {0, 0},
-        {1, 0},
-        {1, 1},
-        {0, 1},
-        {0, 0},
-        {1, 0},
-        {1, 1},
-        {0, 1},
-    };
-
     for (int i = 0; i < 8; ++i) {
+        constexpr math::vec2 uvs[] = {
+            {0, 0},
+            {1, 0},
+            {1, 1},
+            {0, 1},
+            {0, 0},
+            {1, 0},
+            {1, 1},
+            {0, 1},
+        };
         mesh.vertices.push_back(detail::make_vertex<VertexT>(positions[i], color, uvs[i]));
     }
 

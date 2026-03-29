@@ -21,8 +21,8 @@ namespace vk::camera {
         }
 
         [[nodiscard]] inline float safe_aspect(std::uint32_t w, std::uint32_t h) noexcept {
-            const float fw = float(w ? w : 1);
-            const float fh = float(h ? h : 1);
+            const auto fw = static_cast<float>(w ? w : 1);
+            const auto fh = static_cast<float>(h ? h : 1);
             return fw / fh;
         }
 
@@ -93,8 +93,8 @@ namespace vk::camera {
             math::vec3 up_hint = axis_dir_to_vec3(conv.world_up);
             up_hint            = normalized_or(up_hint, {0.0f, 1.0f, 0.0f, 0.0f});
 
-            math::vec3 right{};
-            math::vec3 up{};
+            math::vec3 right;
+            math::vec3 up;
 
             if (conv.handedness == Handedness::Right) {
                 right = vk::math::cross(forward_world, up_hint);
@@ -120,9 +120,9 @@ namespace vk::camera {
         // The math is intentionally explicit, because implicit assumptions here are a
         // common source of "my camera is rotated 90 degrees" bugs.
         [[nodiscard]] inline Basis map_frame_to_view_axes(const Convention& conv, const Frame& f) noexcept {
-            math::vec3 bx{};
+            math::vec3 bx;
             math::vec3 by = f.up;
-            math::vec3 bz{};
+            math::vec3 bz;
 
             const float fwd_sign = (conv.view_forward.sign == Sign::Positive) ? 1.0f : -1.0f;
             const math::vec3 fwd = mul3(f.forward, fwd_sign);
@@ -335,8 +335,8 @@ namespace vk::camera {
 
             const float pan = base * cfg_.orbit_pan_sens;
 
-            const float sx  = float(vw ? vw : 1);
-            const float sy  = float(vh ? vh : 1);
+            const auto sx   = static_cast<float>(vw ? vw : 1);
+            const auto sy   = static_cast<float>(vh ? vh : 1);
             const float ndx = in.mouse_dx / sx;
             const float ndy = in.mouse_dy / sy;
 
@@ -405,8 +405,8 @@ namespace vk::camera {
 
     void Camera::rebuild_matrices_() noexcept {
         // Step 1: determine eye position and desired forward direction in world space.
-        math::vec3 eye{};
-        math::vec3 forward_world{};
+        math::vec3 eye;
+        math::vec3 forward_world;
 
         if (st_.mode == Mode::Orbit) {
             forward_world = detail::look_from_yaw_pitch(cfg_.convention, st_.orbit.yaw_rad, st_.orbit.pitch_rad);

@@ -150,16 +150,16 @@ export namespace app {
         void* field_cuda_ptr                       = nullptr;
         void* velocity_cuda_ptr                    = nullptr;
         std::vector<float> velocity_host{};
-        uint64_t ready_generation                  = 0;
-        uint64_t last_used_submit_serial           = 0;
-        bool has_velocity_host                     = false;
+        uint64_t ready_generation        = 0;
+        uint64_t last_used_submit_serial = 0;
+        bool has_velocity_host           = false;
     };
 
     struct AppData {
         struct {
-            uint64_t generation    = 0;
-            uint64_t submit_serial = 0;
-            int active_slot        = -1;
+            uint64_t generation       = 0;
+            uint64_t submit_serial    = 0;
+            int active_slot           = -1;
             bool has_velocity_storage = false;
             GridShape request_grid{};
             std::vector<CaptureSlot> slots{};
@@ -216,11 +216,11 @@ export namespace app {
         vk::pipeline::GraphicsPipeline background_pipeline_{};
         vk::pipeline::GraphicsPipeline plane_pipeline_{};
         vk::pipeline::GraphicsPipeline volume_pipeline_{};
-        uint32_t frame_index_                                  = 0;
-        std::chrono::steady_clock::time_point last_frame_time_{};  // default-initialized
+        uint32_t frame_index_ = 0;
+        std::chrono::steady_clock::time_point last_frame_time_{}; // default-initialized
     };
 
-    template<typename TScene>
+    template <typename TScene>
     concept SceneSample = requires(TScene scene, const TScene const_scene, const uint32_t field_index, const int sim_steps, void* device_destination, float* host_destination) {
         { const_scene.fields() } -> std::convertible_to<std::span<const FieldInfo>>;
         { const_scene.default_visualization() } -> std::same_as<VisualizationSettings>;
@@ -237,7 +237,7 @@ export namespace app {
     void apply_field_preset(VisualizationSettings& settings, const FieldVisualPreset& preset);
     bool sync_capture_storage(AppData& data, VisualizationApp& renderer, const GridShape& grid, bool with_velocity_plane);
 
-    template<SceneSample TScene>
+    template <SceneSample TScene>
     bool capture_snapshot(AppState& state, AppData& data, TScene& scene, VisualizationApp& renderer) {
         auto check_cuda = [](const cudaError_t status, const std::string_view what) {
             if (status == cudaSuccess) return;
@@ -254,11 +254,11 @@ export namespace app {
         if (slot_index < 0) return false;
 
         const auto& const_scene = scene;
-        const auto fields = const_scene.fields();
+        const auto fields       = const_scene.fields();
         if (fields.empty()) throw std::runtime_error("scene must expose at least one field");
         state.selected_field = std::clamp(state.selected_field, 0, static_cast<int>(fields.size()) - 1);
 
-        auto& slot = data.capture.slots.at(static_cast<size_t>(slot_index));
+        auto& slot             = data.capture.slots.at(static_cast<size_t>(slot_index));
         const auto field_index = static_cast<uint32_t>(state.selected_field);
         scene.export_field(field_index, slot.field_cuda_ptr);
         if (state.render.show_velocity_plane && slot.velocity_cuda_ptr != nullptr && !slot.velocity_host.empty()) scene.export_velocity(slot.velocity_cuda_ptr, slot.velocity_host.data());
@@ -266,9 +266,9 @@ export namespace app {
         signal_params.params.fence.value = data.capture.generation + 1;
         check_cuda(cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, scene.stream()), "cudaSignalExternalSemaphoresAsync");
         check_cuda(cudaStreamSynchronize(scene.stream()), "cudaStreamSynchronize");
-        slot.ready_generation   = data.capture.generation + 1;
-        slot.has_velocity_host  = state.render.show_velocity_plane && slot.velocity_cuda_ptr != nullptr && !slot.velocity_host.empty();
-        data.capture.generation = slot.ready_generation;
+        slot.ready_generation    = data.capture.generation + 1;
+        slot.has_velocity_host   = state.render.show_velocity_plane && slot.velocity_cuda_ptr != nullptr && !slot.velocity_host.empty();
+        data.capture.generation  = slot.ready_generation;
         data.capture.active_slot = slot_index;
         return true;
     }
@@ -276,7 +276,7 @@ export namespace app {
     [[nodiscard]] std::optional<VisualizationSnapshotView> active_snapshot(const AppData& data);
     void mark_snapshot_submitted(AppData& data);
 
-    template<SceneSample TScene>
+    template <SceneSample TScene>
     int run_scene() {
         AppState state{};
         AppData data{};

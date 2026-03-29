@@ -315,7 +315,7 @@ std::pair<vk::context::VulkanContext, vk::context::SurfaceContext> vk::context::
     VulkanContext vk_context;
     SurfaceContext surface_context;
 
-    vk_context.instance        = create_instance_raii(vk_context.context, app_name.c_str(), engine_name.c_str(), required_layers(), required_extensions());
+    vk_context.instance        = create_instance_raii(vk_context.context, app_name, engine_name, required_layers(), required_extensions());
     vk_context.debug_messenger = create_debug_messenger_raii(vk_context.instance);
 
     auto [surface, window, extent] = create_surface_raii(vk_context.instance);
