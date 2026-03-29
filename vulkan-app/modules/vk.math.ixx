@@ -61,53 +61,151 @@ namespace vk::math {
     static_assert(sizeof(mat4) == 64);
     static_assert(alignof(mat4) == 16);
 
-    export [[nodiscard]] vec2 add(vec2 a, vec2 b) noexcept;
-    export [[nodiscard]] vec2 sub(vec2 a, vec2 b) noexcept;
-    export [[nodiscard]] vec2 mul(vec2 v, float s) noexcept;
-    export [[nodiscard]] float dot(vec2 a, vec2 b) noexcept;
-    export [[nodiscard]] float length2(vec2 v) noexcept;
-    export [[nodiscard]] float length(vec2 v) noexcept;
-    export [[nodiscard]] vec2 normalize(vec2 v) noexcept;
+    template <typename V>
+    struct vec_traits;
 
-    export [[nodiscard]] vec3 add(vec3 a, vec3 b) noexcept;
-    export [[nodiscard]] vec3 sub(vec3 a, vec3 b) noexcept;
-    export [[nodiscard]] vec3 mul(vec3 v, float s) noexcept;
-    export [[nodiscard]] float dot(vec3 a, vec3 b) noexcept;
+    template <>
+    struct vec_traits<vec2> {
+        using scalar_type                  = float;
+        static constexpr std::size_t lanes = 2;
+        static scalar_type get(const vec2& v, const std::size_t i) noexcept {
+            return i == 0 ? v.x : v.y;
+        }
+        static void set(vec2& v, const std::size_t i, const scalar_type s) noexcept {
+            if (i == 0) v.x = s;
+            if (i == 1) v.y = s;
+        }
+    };
+
+    template <>
+    struct vec_traits<vec3> {
+        using scalar_type                  = float;
+        static constexpr std::size_t lanes = 3;
+        static scalar_type get(const vec3& v, const std::size_t i) noexcept {
+            return i == 0 ? v.x : (i == 1 ? v.y : v.z);
+        }
+        static void set(vec3& v, const std::size_t i, const scalar_type s) noexcept {
+            if (i == 0) v.x = s;
+            if (i == 1) v.y = s;
+            if (i == 2) v.z = s;
+            v._pad = 0.0f;
+        }
+    };
+
+    template <>
+    struct vec_traits<vec4> {
+        using scalar_type                  = float;
+        static constexpr std::size_t lanes = 4;
+        static scalar_type get(const vec4& v, const std::size_t i) noexcept {
+            return i == 0 ? v.x : (i == 1 ? v.y : (i == 2 ? v.z : v.w));
+        }
+        static void set(vec4& v, const std::size_t i, const scalar_type s) noexcept {
+            if (i == 0) v.x = s;
+            if (i == 1) v.y = s;
+            if (i == 2) v.z = s;
+            if (i == 3) v.w = s;
+        }
+    };
+
+    template <>
+    struct vec_traits<uvec4> {
+        using scalar_type                  = std::uint32_t;
+        static constexpr std::size_t lanes = 4;
+        static scalar_type get(const uvec4& v, const std::size_t i) noexcept {
+            return i == 0 ? v.x : (i == 1 ? v.y : (i == 2 ? v.z : v.w));
+        }
+        static void set(uvec4& v, const std::size_t i, const scalar_type s) noexcept {
+            if (i == 0) v.x = s;
+            if (i == 1) v.y = s;
+            if (i == 2) v.z = s;
+            if (i == 3) v.w = s;
+        }
+    };
+
+    template <typename V>
+    concept vector_type = requires(V v, std::size_t i, typename vec_traits<V>::scalar_type s) {
+        typename vec_traits<V>::scalar_type;
+        { vec_traits<V>::get(v, i) } -> std::same_as<typename vec_traits<V>::scalar_type>;
+        { vec_traits<V>::set(v, i, s) } -> std::same_as<void>;
+    };
+
+    template <typename V>
+    concept float_vector_type = vector_type<V> && std::same_as<typename vec_traits<V>::scalar_type, float>;
+
+    template <typename V>
+    concept subtractable_vector_type = vector_type<V> && (std::floating_point<typename vec_traits<V>::scalar_type> || std::signed_integral<typename vec_traits<V>::scalar_type>);
+
+    export template <vector_type V>
+    [[nodiscard]] V add(const V a, const V b) noexcept {
+        V out{};
+        for (std::size_t i = 0; i < vec_traits<V>::lanes; ++i) vec_traits<V>::set(out, i, vec_traits<V>::get(a, i) + vec_traits<V>::get(b, i));
+        return out;
+    }
+
+    export template <subtractable_vector_type V>
+    [[nodiscard]] V sub(const V a, const V b) noexcept {
+        V out{};
+        for (std::size_t i = 0; i < vec_traits<V>::lanes; ++i) vec_traits<V>::set(out, i, vec_traits<V>::get(a, i) - vec_traits<V>::get(b, i));
+        return out;
+    }
+
+    export template <vector_type V>
+    [[nodiscard]] V mul(const V v, const typename vec_traits<V>::scalar_type s) noexcept {
+        V out{};
+        for (std::size_t i = 0; i < vec_traits<V>::lanes; ++i) vec_traits<V>::set(out, i, vec_traits<V>::get(v, i) * s);
+        return out;
+    }
+
+    export template <vector_type V>
+    [[nodiscard]] auto dot(const V a, const V b) noexcept -> typename vec_traits<V>::scalar_type {
+        typename vec_traits<V>::scalar_type out{};
+        for (std::size_t i = 0; i < vec_traits<V>::lanes; ++i) out += vec_traits<V>::get(a, i) * vec_traits<V>::get(b, i);
+        return out;
+    }
+
+    export template <float_vector_type V>
+    [[nodiscard]] float length2(const V v) noexcept {
+        return dot(v, v);
+    }
+
+    export template <float_vector_type V>
+    [[nodiscard]] float length(const V v) noexcept {
+        return std::sqrt(length2(v));
+    }
+
+    export template <float_vector_type V>
+    [[nodiscard]] V normalize(const V v) noexcept {
+        const float l2 = length2(v);
+        if (!(l2 > 0.0f)) return V{};
+        return mul(v, 1.0f / std::sqrt(l2));
+    }
+
     export [[nodiscard]] vec3 cross(vec3 a, vec3 b) noexcept;
-    export [[nodiscard]] float length2(vec3 v) noexcept;
-    export [[nodiscard]] float length(vec3 v) noexcept;
-    export [[nodiscard]] vec3 normalize(vec3 v) noexcept;
-
-    export [[nodiscard]] vec4 add(vec4 a, vec4 b) noexcept;
-    export [[nodiscard]] vec4 mul(vec4 v, float s) noexcept;
-    export [[nodiscard]] float dot(vec4 a, vec4 b) noexcept;
-
-    export [[nodiscard]] uvec4 add(uvec4 a, uvec4 b) noexcept;
-    export [[nodiscard]] uvec4 mul(uvec4 v, std::uint32_t s) noexcept;
-    export [[nodiscard]] std::uint32_t dot(uvec4 a, uvec4 b) noexcept;
 
     export [[nodiscard]] mat4 identity_mat4() noexcept;
     export [[nodiscard]] vec4 mul(const mat4& m, vec4 v) noexcept;
     export [[nodiscard]] mat4 mul(const mat4& a, const mat4& b) noexcept;
 
 
-    export [[nodiscard]] vec2 operator+(vec2 a, vec2 b) noexcept;
-    export [[nodiscard]] vec2 operator-(vec2 a, vec2 b) noexcept;
-    export [[nodiscard]] vec2 operator*(vec2 v, float s) noexcept;
-    export [[nodiscard]] vec2 operator*(float s, vec2 v) noexcept;
+    export template <vector_type V>
+    [[nodiscard]] V operator+(const V a, const V b) noexcept {
+        return add(a, b);
+    }
 
-    export [[nodiscard]] vec3 operator+(vec3 a, vec3 b) noexcept;
-    export [[nodiscard]] vec3 operator-(vec3 a, vec3 b) noexcept;
-    export [[nodiscard]] vec3 operator*(vec3 v, float s) noexcept;
-    export [[nodiscard]] vec3 operator*(float s, vec3 v) noexcept;
+    export template <subtractable_vector_type V>
+    [[nodiscard]] V operator-(const V a, const V b) noexcept {
+        return sub(a, b);
+    }
 
-    export [[nodiscard]] vec4 operator+(vec4 a, vec4 b) noexcept;
-    export [[nodiscard]] vec4 operator*(vec4 v, float s) noexcept;
-    export [[nodiscard]] vec4 operator*(float s, vec4 v) noexcept;
+    export template <vector_type V>
+    [[nodiscard]] V operator*(const V v, const typename vec_traits<V>::scalar_type s) noexcept {
+        return mul(v, s);
+    }
 
-    export [[nodiscard]] uvec4 operator+(uvec4 a, uvec4 b) noexcept;
-    export [[nodiscard]] uvec4 operator*(uvec4 v, std::uint32_t s) noexcept;
-    export [[nodiscard]] uvec4 operator*(std::uint32_t s, uvec4 v) noexcept;
+    export template <vector_type V>
+    [[nodiscard]] V operator*(const typename vec_traits<V>::scalar_type s, const V v) noexcept {
+        return mul(v, s);
+    }
 
     export [[nodiscard]] mat4 operator*(const mat4& a, const mat4& b) noexcept;
     export [[nodiscard]] vec4 operator*(const mat4& m, vec4 v) noexcept;

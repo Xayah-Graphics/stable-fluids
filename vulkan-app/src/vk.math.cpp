@@ -2,90 +2,8 @@ module vk.math;
 import std;
 
 
-vk::math::vec2 vk::math::add(const vec2 a, const vec2 b) noexcept {
-    return {a.x + b.x, a.y + b.y};
-}
-
-vk::math::vec2 vk::math::sub(const vec2 a, const vec2 b) noexcept {
-    return {a.x - b.x, a.y - b.y};
-}
-
-vk::math::vec2 vk::math::mul(const vec2 v, const float s) noexcept {
-    return {v.x * s, v.y * s};
-}
-
-float vk::math::dot(const vec2 a, const vec2 b) noexcept {
-    return a.x * b.x + a.y * b.y;
-}
-
-float vk::math::length2(const vec2 v) noexcept {
-    return dot(v, v);
-}
-
-float vk::math::length(const vec2 v) noexcept {
-    return std::sqrt(length2(v));
-}
-
-vk::math::vec2 vk::math::normalize(const vec2 v) noexcept {
-    const float l2 = length2(v);
-    if (!(l2 > 0.0f)) {
-        return {0.0f, 0.0f};
-    }
-    const float inv = 1.0f / std::sqrt(l2);
-    return mul(v, inv);
-}
-
-
-vk::math::vec3 vk::math::add(const vec3 a, const vec3 b) noexcept {
-    return {a.x + b.x, a.y + b.y, a.z + b.z, 0.0f};
-}
-vk::math::vec3 vk::math::sub(const vec3 a, const vec3 b) noexcept {
-    return {a.x - b.x, a.y - b.y, a.z - b.z, 0.0f};
-}
-vk::math::vec3 vk::math::mul(const vec3 v, const float s) noexcept {
-    return {v.x * s, v.y * s, v.z * s, 0.0f};
-}
-float vk::math::dot(const vec3 a, const vec3 b) noexcept {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
 vk::math::vec3 vk::math::cross(const vec3 a, const vec3 b) noexcept {
     return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x, 0.0f};
-}
-float vk::math::length2(const vec3 v) noexcept {
-    return dot(v, v);
-}
-float vk::math::length(const vec3 v) noexcept {
-    return std::sqrt(length2(v));
-}
-vk::math::vec3 vk::math::normalize(const vec3 v) noexcept {
-    const float l2 = length2(v);
-    if (!(l2 > 0.0f)) {
-        return {0.0f, 0.0f, 0.0f, 0.0f};
-    }
-    const float inv = 1.0f / std::sqrt(l2);
-    return mul(v, inv);
-}
-
-
-vk::math::vec4 vk::math::add(const vec4 a, const vec4 b) noexcept {
-    return {a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
-}
-vk::math::vec4 vk::math::mul(const vec4 v, const float s) noexcept {
-    return {v.x * s, v.y * s, v.z * s, v.w * s};
-}
-float vk::math::dot(const vec4 a, const vec4 b) noexcept {
-    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-}
-
-
-vk::math::uvec4 vk::math::add(const uvec4 a, const uvec4 b) noexcept {
-    return {a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
-}
-vk::math::uvec4 vk::math::mul(const uvec4 v, const std::uint32_t s) noexcept {
-    return {v.x * s, v.y * s, v.z * s, v.w * s};
-}
-std::uint32_t vk::math::dot(const uvec4 a, const uvec4 b) noexcept {
-    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
 
@@ -114,48 +32,6 @@ vk::math::mat4 vk::math::mul(const mat4& a, const mat4& b) noexcept {
     };
 }
 
-vk::math::vec2 vk::math::operator+(const vec2 a, const vec2 b) noexcept {
-    return add(a, b);
-}
-vk::math::vec2 vk::math::operator-(const vec2 a, const vec2 b) noexcept {
-    return sub(a, b);
-}
-vk::math::vec2 vk::math::operator*(const vec2 v, const float s) noexcept {
-    return mul(v, s);
-}
-vk::math::vec2 vk::math::operator*(const float s, const vec2 v) noexcept {
-    return mul(v, s);
-}
-vk::math::vec3 vk::math::operator+(const vec3 a, const vec3 b) noexcept {
-    return add(a, b);
-}
-vk::math::vec3 vk::math::operator-(const vec3 a, const vec3 b) noexcept {
-    return sub(a, b);
-}
-vk::math::vec3 vk::math::operator*(const vec3 v, const float s) noexcept {
-    return mul(v, s);
-}
-vk::math::vec3 vk::math::operator*(const float s, const vec3 v) noexcept {
-    return mul(v, s);
-}
-vk::math::vec4 vk::math::operator+(const vec4 a, const vec4 b) noexcept {
-    return add(a, b);
-}
-vk::math::vec4 vk::math::operator*(const vec4 v, const float s) noexcept {
-    return mul(v, s);
-}
-vk::math::vec4 vk::math::operator*(const float s, const vec4 v) noexcept {
-    return mul(v, s);
-}
-vk::math::uvec4 vk::math::operator+(const uvec4 a, const uvec4 b) noexcept {
-    return add(a, b);
-}
-vk::math::uvec4 vk::math::operator*(const uvec4 v, const std::uint32_t s) noexcept {
-    return mul(v, s);
-}
-vk::math::uvec4 vk::math::operator*(const std::uint32_t s, const uvec4 v) noexcept {
-    return mul(v, s);
-}
 vk::math::mat4 vk::math::operator*(const mat4& a, const mat4& b) noexcept {
     return mul(a, b);
 }
@@ -185,6 +61,10 @@ vk::math::mat4 vk::math::rotate_y(const float radians) noexcept {
 }
 
 vk::math::mat4 vk::math::perspective_vk(float fovy_rad, float aspect, float znear, float zfar) noexcept {
+    if (!std::isfinite(fovy_rad) || !std::isfinite(aspect) || !std::isfinite(znear) || !std::isfinite(zfar)) return identity_mat4();
+    if (!(aspect > 0.0f) || !(znear > 0.0f) || !(zfar > znear)) return identity_mat4();
+    if (!(fovy_rad > 0.0f) || !(fovy_rad < std::numbers::pi_v<float>)) return identity_mat4();
+
     const float f = 1.0f / std::tan(fovy_rad * 0.5f);
 
     mat4 m{};
@@ -195,8 +75,22 @@ vk::math::mat4 vk::math::perspective_vk(float fovy_rad, float aspect, float znea
     return m;
 }
 vk::math::mat4 vk::math::look_at(const vec3 eye, const vec3 center, const vec3 up) noexcept {
-    const vec3 f = normalize(sub(center, eye)); // forward
-    const vec3 s = normalize(cross(f, up)); // right
+    constexpr float epsilon = 1.0e-12f;
+
+    vec3 f = normalize(sub(center, eye)); // forward
+    if (!(length2(f) > epsilon)) f = {0.0f, 0.0f, -1.0f, 0.0f};
+
+    vec3 up_axis = normalize(up);
+    if (!(length2(up_axis) > epsilon)) up_axis = {0.0f, 1.0f, 0.0f, 0.0f};
+
+    vec3 s = cross(f, up_axis); // right
+    if (!(length2(s) > epsilon)) {
+        const vec3 fallback_up = std::abs(f.y) < 0.99f ? vec3{0.0f, 1.0f, 0.0f, 0.0f} : vec3{1.0f, 0.0f, 0.0f, 0.0f};
+        s = cross(f, fallback_up);
+    }
+    s = normalize(s);
+    if (!(length2(s) > epsilon)) s = {1.0f, 0.0f, 0.0f, 0.0f};
+
     const vec3 u = cross(s, f); // up
 
     mat4 m{};
