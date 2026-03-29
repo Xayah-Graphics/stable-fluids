@@ -78,6 +78,17 @@ float vk::math::dot(const vec4 a, const vec4 b) noexcept {
 }
 
 
+vk::math::uvec4 vk::math::add(const uvec4 a, const uvec4 b) noexcept {
+    return {a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
+}
+vk::math::uvec4 vk::math::mul(const uvec4 v, const std::uint32_t s) noexcept {
+    return {v.x * s, v.y * s, v.z * s, v.w * s};
+}
+std::uint32_t vk::math::dot(const uvec4 a, const uvec4 b) noexcept {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+
 vk::math::mat4 vk::math::identity_mat4() noexcept {
     return {
         {1.0f, 0.0f, 0.0f, 0.0f},
@@ -134,6 +145,15 @@ vk::math::vec4 vk::math::operator*(const vec4 v, const float s) noexcept {
     return mul(v, s);
 }
 vk::math::vec4 vk::math::operator*(const float s, const vec4 v) noexcept {
+    return mul(v, s);
+}
+vk::math::uvec4 vk::math::operator+(const uvec4 a, const uvec4 b) noexcept {
+    return add(a, b);
+}
+vk::math::uvec4 vk::math::operator*(const uvec4 v, const std::uint32_t s) noexcept {
+    return mul(v, s);
+}
+vk::math::uvec4 vk::math::operator*(const std::uint32_t s, const uvec4 v) noexcept {
     return mul(v, s);
 }
 vk::math::mat4 vk::math::operator*(const mat4& a, const mat4& b) noexcept {

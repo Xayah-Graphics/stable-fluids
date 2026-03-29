@@ -22,6 +22,13 @@ namespace vk::math {
         float w;
     };
 
+    export struct alignas(16) uvec4 {
+        std::uint32_t x;
+        std::uint32_t y;
+        std::uint32_t z;
+        std::uint32_t w;
+    };
+
     export struct alignas(16) mat4 {
         vec4 c0;
         vec4 c1;
@@ -43,6 +50,11 @@ namespace vk::math {
     static_assert(std::is_trivially_copyable_v<vec4>);
     static_assert(sizeof(vec4) == 16);
     static_assert(alignof(vec4) == 16);
+
+    static_assert(std::is_standard_layout_v<uvec4>);
+    static_assert(std::is_trivially_copyable_v<uvec4>);
+    static_assert(sizeof(uvec4) == 16);
+    static_assert(alignof(uvec4) == 16);
 
     static_assert(std::is_standard_layout_v<mat4>);
     static_assert(std::is_trivially_copyable_v<mat4>);
@@ -70,6 +82,10 @@ namespace vk::math {
     export [[nodiscard]] vec4 mul(vec4 v, float s) noexcept;
     export [[nodiscard]] float dot(vec4 a, vec4 b) noexcept;
 
+    export [[nodiscard]] uvec4 add(uvec4 a, uvec4 b) noexcept;
+    export [[nodiscard]] uvec4 mul(uvec4 v, std::uint32_t s) noexcept;
+    export [[nodiscard]] std::uint32_t dot(uvec4 a, uvec4 b) noexcept;
+
     export [[nodiscard]] mat4 identity_mat4() noexcept;
     export [[nodiscard]] vec4 mul(const mat4& m, vec4 v) noexcept;
     export [[nodiscard]] mat4 mul(const mat4& a, const mat4& b) noexcept;
@@ -88,6 +104,10 @@ namespace vk::math {
     export [[nodiscard]] vec4 operator+(vec4 a, vec4 b) noexcept;
     export [[nodiscard]] vec4 operator*(vec4 v, float s) noexcept;
     export [[nodiscard]] vec4 operator*(float s, vec4 v) noexcept;
+
+    export [[nodiscard]] uvec4 operator+(uvec4 a, uvec4 b) noexcept;
+    export [[nodiscard]] uvec4 operator*(uvec4 v, std::uint32_t s) noexcept;
+    export [[nodiscard]] uvec4 operator*(std::uint32_t s, uvec4 v) noexcept;
 
     export [[nodiscard]] mat4 operator*(const mat4& a, const mat4& b) noexcept;
     export [[nodiscard]] vec4 operator*(const mat4& m, vec4 v) noexcept;

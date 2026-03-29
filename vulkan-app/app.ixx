@@ -29,13 +29,6 @@ export namespace app {
         YZ = 2,
     };
 
-    struct alignas(16) uvec4 {
-        uint32_t x;
-        uint32_t y;
-        uint32_t z;
-        uint32_t w;
-    };
-
     struct GridShape {
         uint32_t nx     = 0;
         uint32_t ny     = 0;
@@ -83,8 +76,8 @@ export namespace app {
         vk::math::vec4 color_a{};
         vk::math::vec4 color_b{};
         vk::math::vec4 params0{};
-        uvec4 params1{};
-        uvec4 params2{};
+        vk::math::uvec4 params1{};
+        vk::math::uvec4 params2{};
         vk::math::vec4 params3{};
     };
 
