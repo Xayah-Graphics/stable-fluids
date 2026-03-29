@@ -157,7 +157,7 @@ namespace vk::math {
     }
 
     export template <vector_type V>
-    [[nodiscard]] auto dot(const V a, const V b) noexcept -> typename vec_traits<V>::scalar_type {
+    [[nodiscard]] auto dot(const V a, const V b) noexcept -> vec_traits<V>::scalar_type {
         typename vec_traits<V>::scalar_type out{};
         for (std::size_t i = 0; i < vec_traits<V>::lanes; ++i) out += vec_traits<V>::get(a, i) * vec_traits<V>::get(b, i);
         return out;
