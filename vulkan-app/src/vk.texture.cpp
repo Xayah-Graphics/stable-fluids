@@ -140,11 +140,6 @@ namespace vk::texture {
         cmd.pipelineBarrier2(dep);
     }
 
-    // Legacy convenience overload (single-layer)
-    static void barrier_image(const raii::CommandBuffer& cmd, Image image, ImageAspectFlags aspect, uint32_t base_mip, uint32_t mip_count, ImageLayout old_layout, ImageLayout new_layout, PipelineStageFlags2 src_stage, AccessFlags2 src_access, PipelineStageFlags2 dst_stage, AccessFlags2 dst_access) {
-        barrier_image(cmd, image, aspect, base_mip, mip_count, 0, 1, old_layout, new_layout, src_stage, src_access, dst_stage, dst_access);
-    }
-
     static bool supports_linear_blit(const raii::PhysicalDevice& pd, Format format) {
         const auto props = pd.getFormatProperties(format);
         return (props.optimalTilingFeatures & FormatFeatureFlagBits::eSampledImageFilterLinear) == FormatFeatureFlagBits::eSampledImageFilterLinear;
