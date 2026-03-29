@@ -63,8 +63,8 @@ jobs:
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE="$env:CMAKE_BUILD_TYPE" `
             -DCUDAToolkit_ROOT="$env:CUDA_PATH" `
-            -DSTABLE_FLUIDS_BUILD_BENCHMARK=ON `
-            -DSTABLE_FLUIDS_BUILD_VULKAN_APP=ON
+            -DSMOKE_BUILD_BENCHMARK=ON `
+            -DSMOKE_BUILD_VULKAN_APP=ON
 
       - name: Build
         shell: pwsh

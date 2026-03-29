@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 4.3.0)
 set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "451f2fe2-a8a2-47c3-bc32-94786d8fc91b")
 project(stable-fluids VERSION 1.0.0 LANGUAGES CXX CUDA)
 
-option(STABLE_FLUIDS_BUILD_BENCHMARK "Build benchmark applications" OFF)
-option(STABLE_FLUIDS_BUILD_VULKAN_APP "Build Vulkan sample application" OFF)
+option(SMOKE_BUILD_BENCHMARK "Build benchmark applications" OFF)
+option(SMOKE_BUILD_VULKAN_APP "Build Vulkan sample application" OFF)
 
 # ============================================================================
 # C++ Configuration
@@ -53,7 +53,7 @@ endif ()
 # ============================================================================
 # Samples
 # ============================================================================
-if (STABLE_FLUIDS_BUILD_BENCHMARK)
+if (SMOKE_BUILD_BENCHMARK)
     add_executable(stable-fluids-benchmark benchmark.cu)
     target_link_libraries(stable-fluids-benchmark PRIVATE stable-fluids CUDA::cudart)
     target_compile_options(stable-fluids-benchmark PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --expt-relaxed-constexpr>)
@@ -69,14 +69,16 @@ endif ()
 # ============================================================================
 # Vulkan Sample Application
 # ============================================================================
-if (STABLE_FLUIDS_BUILD_VULKAN_APP)
+if (SMOKE_BUILD_VULKAN_APP)
     find_package(Vulkan REQUIRED)
     set(_VULKAN_HPP_IMPL "${CMAKE_CURRENT_BINARY_DIR}/_vulkan_hpp_impl.cpp")
     file(WRITE "${_VULKAN_HPP_IMPL}" [[
 #include <vulkan/vulkan_raii.hpp>
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 ]])
-    add_subdirectory(vulkan-app/vendor/glfw)
+    if (NOT TARGET glfw)
+        add_subdirectory(vulkan-app/vendor/glfw)
+    endif ()
     # ============================================================================
     # Shader Compilation
     # ============================================================================
