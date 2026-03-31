@@ -25,28 +25,53 @@ typedef enum StableFluidsResult {
     STABLE_FLUIDS_RESULT_BACKEND_FAILURE = 2,
 } StableFluidsResult;
 
-typedef enum StableFluidsBoundaryMode {
-    STABLE_FLUIDS_BOUNDARY_FIXED_VALUE   = 0,
-    STABLE_FLUIDS_BOUNDARY_ZERO_GRADIENT = 1,
-    STABLE_FLUIDS_BOUNDARY_PERIODIC      = 2,
-} StableFluidsBoundaryMode;
+typedef enum StableFluidsFlowBoundaryType {
+    STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL   = 0,
+    STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL = 1,
+    STABLE_FLUIDS_FLOW_BOUNDARY_INFLOW         = 2,
+    STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW        = 3,
+    STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC       = 4,
+} StableFluidsFlowBoundaryType;
+
+typedef enum StableFluidsScalarBoundaryType {
+    STABLE_FLUIDS_SCALAR_BOUNDARY_FIXED_VALUE = 0,
+    STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX   = 1,
+    STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC    = 2,
+} StableFluidsScalarBoundaryType;
 
 typedef uint32_t StableFluidsScalarFieldHandle;
 typedef uint32_t StableFluidsVectorFieldHandle;
 
-typedef struct StableFluidsBoundaryFaceDesc {
+typedef struct StableFluidsFlowBoundaryFaceDesc {
+    uint32_t type;
+    float velocity_x;
+    float velocity_y;
+    float velocity_z;
+    float pressure;
+} StableFluidsFlowBoundaryFaceDesc;
+
+typedef struct StableFluidsFlowBoundaryConfig {
+    StableFluidsFlowBoundaryFaceDesc x_minus;
+    StableFluidsFlowBoundaryFaceDesc x_plus;
+    StableFluidsFlowBoundaryFaceDesc y_minus;
+    StableFluidsFlowBoundaryFaceDesc y_plus;
+    StableFluidsFlowBoundaryFaceDesc z_minus;
+    StableFluidsFlowBoundaryFaceDesc z_plus;
+} StableFluidsFlowBoundaryConfig;
+
+typedef struct StableFluidsScalarBoundaryFaceDesc {
     uint32_t type;
     float value;
-} StableFluidsBoundaryFaceDesc;
+} StableFluidsScalarBoundaryFaceDesc;
 
-typedef struct StableFluidsBoundaryConfig {
-    StableFluidsBoundaryFaceDesc x_minus;
-    StableFluidsBoundaryFaceDesc x_plus;
-    StableFluidsBoundaryFaceDesc y_minus;
-    StableFluidsBoundaryFaceDesc y_plus;
-    StableFluidsBoundaryFaceDesc z_minus;
-    StableFluidsBoundaryFaceDesc z_plus;
-} StableFluidsBoundaryConfig;
+typedef struct StableFluidsScalarBoundaryConfig {
+    StableFluidsScalarBoundaryFaceDesc x_minus;
+    StableFluidsScalarBoundaryFaceDesc x_plus;
+    StableFluidsScalarBoundaryFaceDesc y_minus;
+    StableFluidsScalarBoundaryFaceDesc y_plus;
+    StableFluidsScalarBoundaryFaceDesc z_minus;
+    StableFluidsScalarBoundaryFaceDesc z_plus;
+} StableFluidsScalarBoundaryConfig;
 
 typedef struct StableFluidsSimulationConfig {
     int32_t nx;
@@ -57,13 +82,14 @@ typedef struct StableFluidsSimulationConfig {
     float viscosity;
     int32_t diffuse_iterations;
     int32_t pressure_iterations;
-    StableFluidsBoundaryConfig boundary;
+    StableFluidsFlowBoundaryConfig flow_boundary;
 } StableFluidsSimulationConfig;
 typedef struct StableFluidsScalarFieldDesc {
     const char* name;
     float diffusion;
     float dissipation;
     float initial_value;
+    StableFluidsScalarBoundaryConfig boundary;
 } StableFluidsScalarFieldDesc;
 
 typedef enum StableFluidsVectorFieldUsage {

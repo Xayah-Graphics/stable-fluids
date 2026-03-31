@@ -190,6 +190,15 @@ namespace scene_plume {
                 .diffusion     = 0.00005f,
                 .dissipation   = 0.35f,
                 .initial_value = 0.0f,
+                .boundary =
+                    {
+                        .x_minus = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                        .x_plus  = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                        .y_minus = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX, .value = 0.0f},
+                        .y_plus  = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX, .value = 0.0f},
+                        .z_minus = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                        .z_plus  = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                    },
             },
         };
         const std::array vector_fields{

@@ -88,14 +88,14 @@ int main(int argc, char** argv) {
         .viscosity           = viscosity,
         .diffuse_iterations  = diffuse_iterations,
         .pressure_iterations = pressure_iterations,
-        .boundary =
+        .flow_boundary =
             {
-                .x_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
-                .x_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
-                .y_minus = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
-                .y_plus  = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
-                .z_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
-                .z_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                .x_minus = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                .x_plus  = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                .y_minus = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                .y_plus  = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                .z_minus = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                .z_plus  = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
             },
     };
 
@@ -105,6 +105,15 @@ int main(int argc, char** argv) {
             .diffusion     = field_diffusion,
             .dissipation   = field_dissipation,
             .initial_value = 0.0f,
+            .boundary =
+                {
+                    .x_minus = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                    .x_plus  = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                    .y_minus = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX, .value = 0.0f},
+                    .y_plus  = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX, .value = 0.0f},
+                    .z_minus = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                    .z_plus  = {.type = STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC, .value = 0.0f},
+                },
         },
     };
     const std::array vector_fields{

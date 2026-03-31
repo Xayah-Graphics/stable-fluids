@@ -40,14 +40,14 @@ export namespace scene_plume {
             .viscosity           = 0.00012f,
             .diffuse_iterations  = 24,
             .pressure_iterations = 96,
-            .boundary =
+            .flow_boundary =
                 {
-                    .x_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
-                    .x_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
-                    .y_minus = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
-                    .y_plus  = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
-                    .z_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
-                    .z_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                    .x_minus = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                    .x_plus  = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                    .y_minus = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                    .y_plus  = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                    .z_minus = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
+                    .z_plus  = {.type = STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC, .velocity_x = 0.0f, .velocity_y = 0.0f, .velocity_z = 0.0f, .pressure = 0.0f},
                 },
         };
         cudaStream_t stream_                         = nullptr;
