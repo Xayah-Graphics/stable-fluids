@@ -26,17 +26,26 @@ typedef enum StableFluidsResult {
 } StableFluidsResult;
 
 typedef enum StableFluidsBoundaryMode {
-    STABLE_FLUIDS_BOUNDARY_FIXED    = 0,
-    STABLE_FLUIDS_BOUNDARY_PERIODIC = 1,
+    STABLE_FLUIDS_BOUNDARY_FIXED_VALUE   = 0,
+    STABLE_FLUIDS_BOUNDARY_ZERO_GRADIENT = 1,
+    STABLE_FLUIDS_BOUNDARY_PERIODIC      = 2,
 } StableFluidsBoundaryMode;
 
 typedef uint32_t StableFluidsScalarFieldHandle;
 typedef uint32_t StableFluidsVectorFieldHandle;
 
+typedef struct StableFluidsBoundaryFaceDesc {
+    uint32_t type;
+    float value;
+} StableFluidsBoundaryFaceDesc;
+
 typedef struct StableFluidsBoundaryConfig {
-    uint32_t x;
-    uint32_t y;
-    uint32_t z;
+    StableFluidsBoundaryFaceDesc x_minus;
+    StableFluidsBoundaryFaceDesc x_plus;
+    StableFluidsBoundaryFaceDesc y_minus;
+    StableFluidsBoundaryFaceDesc y_plus;
+    StableFluidsBoundaryFaceDesc z_minus;
+    StableFluidsBoundaryFaceDesc z_plus;
 } StableFluidsBoundaryConfig;
 
 typedef struct StableFluidsSimulationConfig {
@@ -86,13 +95,13 @@ STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_vector_field_cuda(void
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(void* context);
 
 typedef enum StableFluidsViewKind {
-    STABLE_FLUIDS_VIEW_SCALAR_FIELD_DATA   = 0,
-    STABLE_FLUIDS_VIEW_SCALAR_FIELD_SOURCE = 1,
-    STABLE_FLUIDS_VIEW_VECTOR_FIELD        = 2,
-    STABLE_FLUIDS_VIEW_FLOW_VELOCITY       = 3,
+    STABLE_FLUIDS_VIEW_SCALAR_FIELD_DATA       = 0,
+    STABLE_FLUIDS_VIEW_SCALAR_FIELD_SOURCE     = 1,
+    STABLE_FLUIDS_VIEW_VECTOR_FIELD            = 2,
+    STABLE_FLUIDS_VIEW_FLOW_VELOCITY           = 3,
     STABLE_FLUIDS_VIEW_FLOW_VELOCITY_MAGNITUDE = 4,
-    STABLE_FLUIDS_VIEW_FLOW_PRESSURE       = 5,
-    STABLE_FLUIDS_VIEW_FLOW_DIVERGENCE     = 6,
+    STABLE_FLUIDS_VIEW_FLOW_PRESSURE           = 5,
+    STABLE_FLUIDS_VIEW_FLOW_DIVERGENCE         = 6,
 } StableFluidsViewKind;
 
 typedef enum StableFluidsViewLayout {

@@ -90,9 +90,12 @@ int main(int argc, char** argv) {
         .pressure_iterations = pressure_iterations,
         .boundary =
             {
-                .x = STABLE_FLUIDS_BOUNDARY_PERIODIC,
-                .y = STABLE_FLUIDS_BOUNDARY_FIXED,
-                .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
+                .x_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                .x_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                .y_minus = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
+                .y_plus  = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
+                .z_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                .z_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
             },
     };
 

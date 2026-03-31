@@ -26,14 +26,14 @@ namespace stable_fluids {
 
         struct DeviceBuffers {
             struct Flow {
-                float* velocity_x      = nullptr;
-                float* velocity_y      = nullptr;
-                float* velocity_z      = nullptr;
-                float* temp_velocity_x = nullptr;
-                float* temp_velocity_y = nullptr;
-                float* temp_velocity_z = nullptr;
-                float* pressure        = nullptr;
-                float* divergence      = nullptr;
+                float* velocity_x         = nullptr;
+                float* velocity_y         = nullptr;
+                float* velocity_z         = nullptr;
+                float* temp_velocity_x    = nullptr;
+                float* temp_velocity_y    = nullptr;
+                float* temp_velocity_z    = nullptr;
+                float* pressure           = nullptr;
+                float* divergence         = nullptr;
                 float* velocity_magnitude = nullptr;
             } flow;
 
@@ -61,21 +61,44 @@ namespace stable_fluids {
         return static_cast<std::uint64_t>(z) * static_cast<std::uint64_t>(sx) * static_cast<std::uint64_t>(sy) + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(sx) + static_cast<std::uint64_t>(x);
     }
 
+    __host__ __device__ bool is_valid_boundary_mode(const uint32_t mode) {
+        return mode == STABLE_FLUIDS_BOUNDARY_FIXED_VALUE || mode == STABLE_FLUIDS_BOUNDARY_ZERO_GRADIENT || mode == STABLE_FLUIDS_BOUNDARY_PERIODIC;
+    }
+
+    __host__ __device__ bool is_periodic_axis(const StableFluidsBoundaryFaceDesc minus_face, const StableFluidsBoundaryFaceDesc plus_face) {
+        return minus_face.type == STABLE_FLUIDS_BOUNDARY_PERIODIC && plus_face.type == STABLE_FLUIDS_BOUNDARY_PERIODIC;
+    }
+
     __device__ float load(const float* field, int x, int y, int z, const int nx, const int ny, const int nz, const StableFluidsBoundaryConfig boundary) {
         if (x < 0 || x >= nx) {
-            if (boundary.x != STABLE_FLUIDS_BOUNDARY_PERIODIC || nx <= 0) return 0.0f;
-            x %= nx;
-            if (x < 0) x += nx;
+            const auto face = x < 0 ? boundary.x_minus : boundary.x_plus;
+            if (is_periodic_axis(boundary.x_minus, boundary.x_plus) && nx > 0) {
+                x %= nx;
+                if (x < 0) x += nx;
+            } else if (face.type == STABLE_FLUIDS_BOUNDARY_ZERO_GRADIENT && nx > 0)
+                x = x < 0 ? 0 : nx - 1;
+            else
+                return face.value;
         }
         if (y < 0 || y >= ny) {
-            if (boundary.y != STABLE_FLUIDS_BOUNDARY_PERIODIC || ny <= 0) return 0.0f;
-            y %= ny;
-            if (y < 0) y += ny;
+            const auto face = y < 0 ? boundary.y_minus : boundary.y_plus;
+            if (is_periodic_axis(boundary.y_minus, boundary.y_plus) && ny > 0) {
+                y %= ny;
+                if (y < 0) y += ny;
+            } else if (face.type == STABLE_FLUIDS_BOUNDARY_ZERO_GRADIENT && ny > 0)
+                y = y < 0 ? 0 : ny - 1;
+            else
+                return face.value;
         }
         if (z < 0 || z >= nz) {
-            if (boundary.z != STABLE_FLUIDS_BOUNDARY_PERIODIC || nz <= 0) return 0.0f;
-            z %= nz;
-            if (z < 0) z += nz;
+            const auto face = z < 0 ? boundary.z_minus : boundary.z_plus;
+            if (is_periodic_axis(boundary.z_minus, boundary.z_plus) && nz > 0) {
+                z %= nz;
+                if (z < 0) z += nz;
+            } else if (face.type == STABLE_FLUIDS_BOUNDARY_ZERO_GRADIENT && nz > 0)
+                z = z < 0 ? 0 : nz - 1;
+            else
+                return face.value;
         }
         return field[index_3d(x, y, z, nx, ny)];
     }
@@ -84,15 +107,15 @@ namespace stable_fluids {
         const float extent_x = static_cast<float>(nx) * h;
         const float extent_y = static_cast<float>(ny) * h;
         const float extent_z = static_cast<float>(nz) * h;
-        if (boundary.x == STABLE_FLUIDS_BOUNDARY_PERIODIC) {
+        if (is_periodic_axis(boundary.x_minus, boundary.x_plus)) {
             x = extent_x <= 0.0f ? 0.0f : fmodf(x, extent_x);
             if (x < 0.0f) x += extent_x;
         }
-        if (boundary.y == STABLE_FLUIDS_BOUNDARY_PERIODIC) {
+        if (is_periodic_axis(boundary.y_minus, boundary.y_plus)) {
             y = extent_y <= 0.0f ? 0.0f : fmodf(y, extent_y);
             if (y < 0.0f) y += extent_y;
         }
-        if (boundary.z == STABLE_FLUIDS_BOUNDARY_PERIODIC) {
+        if (is_periodic_axis(boundary.z_minus, boundary.z_plus)) {
             z = extent_z <= 0.0f ? 0.0f : fmodf(z, extent_z);
             if (z < 0.0f) z += extent_z;
         }
@@ -280,14 +303,14 @@ namespace stable_fluids {
         if (context.device.flow.pressure != nullptr) cudaFree(context.device.flow.pressure);
         if (context.device.flow.divergence != nullptr) cudaFree(context.device.flow.divergence);
         if (context.device.flow.velocity_magnitude != nullptr) cudaFree(context.device.flow.velocity_magnitude);
-        context.device.flow.velocity_x      = nullptr;
-        context.device.flow.velocity_y      = nullptr;
-        context.device.flow.velocity_z      = nullptr;
-        context.device.flow.temp_velocity_x = nullptr;
-        context.device.flow.temp_velocity_y = nullptr;
-        context.device.flow.temp_velocity_z = nullptr;
-        context.device.flow.pressure        = nullptr;
-        context.device.flow.divergence      = nullptr;
+        context.device.flow.velocity_x         = nullptr;
+        context.device.flow.velocity_y         = nullptr;
+        context.device.flow.velocity_z         = nullptr;
+        context.device.flow.temp_velocity_x    = nullptr;
+        context.device.flow.temp_velocity_y    = nullptr;
+        context.device.flow.temp_velocity_z    = nullptr;
+        context.device.flow.pressure           = nullptr;
+        context.device.flow.divergence         = nullptr;
         context.device.flow.velocity_magnitude = nullptr;
         for (auto& field : context.device.scalar_fields) {
             if (field.data != nullptr) cudaFree(field.data);
@@ -346,6 +369,12 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
         }
         return dim3(block_x, block_y, block_z);
     };
+    if (!stable_fluids::is_valid_boundary_mode(context->config.boundary.x_minus.type) || !stable_fluids::is_valid_boundary_mode(context->config.boundary.x_plus.type)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if ((context->config.boundary.x_minus.type == STABLE_FLUIDS_BOUNDARY_PERIODIC) != (context->config.boundary.x_plus.type == STABLE_FLUIDS_BOUNDARY_PERIODIC)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if (!stable_fluids::is_valid_boundary_mode(context->config.boundary.y_minus.type) || !stable_fluids::is_valid_boundary_mode(context->config.boundary.y_plus.type)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if ((context->config.boundary.y_minus.type == STABLE_FLUIDS_BOUNDARY_PERIODIC) != (context->config.boundary.y_plus.type == STABLE_FLUIDS_BOUNDARY_PERIODIC)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if (!stable_fluids::is_valid_boundary_mode(context->config.boundary.z_minus.type) || !stable_fluids::is_valid_boundary_mode(context->config.boundary.z_plus.type)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if ((context->config.boundary.z_minus.type == STABLE_FLUIDS_BOUNDARY_PERIODIC) != (context->config.boundary.z_plus.type == STABLE_FLUIDS_BOUNDARY_PERIODIC)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     context->block = choose_block();
     context->cells = dim3(static_cast<unsigned>((context->config.nx + static_cast<int>(context->block.x) - 1) / static_cast<int>(context->block.x)), static_cast<unsigned>((context->config.ny + static_cast<int>(context->block.y) - 1) / static_cast<int>(context->block.y)),
         static_cast<unsigned>((context->config.nz + static_cast<int>(context->block.z) - 1) / static_cast<int>(context->block.z)));
@@ -615,15 +644,15 @@ StableFluidsResult stable_fluids_get_view_cuda(void* context, const StableFluids
     if (context == nullptr || request == nullptr || out_view == nullptr) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     *out_view     = StableFluidsView{
-            .layout               = STABLE_FLUIDS_VIEW_LAYOUT_F32_3D,
-            .nx                   = storage.config.nx,
-            .ny                   = storage.config.ny,
-            .nz                   = storage.config.nz,
-            .row_stride_bytes     = static_cast<uint64_t>(storage.config.nx) * sizeof(float),
-            .slice_stride_bytes   = static_cast<uint64_t>(storage.config.nx) * static_cast<uint64_t>(storage.config.ny) * sizeof(float),
-            .data0                = nullptr,
-            .data1                = nullptr,
-            .data2                = nullptr,
+            .layout             = STABLE_FLUIDS_VIEW_LAYOUT_F32_3D,
+            .nx                 = storage.config.nx,
+            .ny                 = storage.config.ny,
+            .nz                 = storage.config.nz,
+            .row_stride_bytes   = static_cast<uint64_t>(storage.config.nx) * sizeof(float),
+            .slice_stride_bytes = static_cast<uint64_t>(storage.config.nx) * static_cast<uint64_t>(storage.config.ny) * sizeof(float),
+            .data0              = nullptr,
+            .data1              = nullptr,
+            .data2              = nullptr,
     };
     auto sync_consumer_stream = [&]() {
         if (request->consumer_stream == nullptr) return STABLE_FLUIDS_RESULT_OK;

@@ -42,9 +42,12 @@ export namespace scene_plume {
             .pressure_iterations = 96,
             .boundary =
                 {
-                    .x = STABLE_FLUIDS_BOUNDARY_PERIODIC,
-                    .y = STABLE_FLUIDS_BOUNDARY_FIXED,
-                    .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
+                    .x_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                    .x_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                    .y_minus = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
+                    .y_plus  = {.type = STABLE_FLUIDS_BOUNDARY_FIXED_VALUE, .value = 0.0f},
+                    .z_minus = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
+                    .z_plus  = {.type = STABLE_FLUIDS_BOUNDARY_PERIODIC, .value = 0.0f},
                 },
         };
         cudaStream_t stream_                         = nullptr;
