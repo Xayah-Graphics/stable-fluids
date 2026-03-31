@@ -172,6 +172,7 @@ namespace scene_plume {
         if (density_source_device_ != nullptr) cudaFree(density_source_device_);
         context_               = nullptr;
         density_field_         = 0;
+        force_field_           = 0;
         force_x_device_        = nullptr;
         force_y_device_        = nullptr;
         force_z_device_        = nullptr;
@@ -183,23 +184,37 @@ namespace scene_plume {
         swirl_z_mask_.clear();
         drift_mask_.clear();
 
-        const std::array fields{
-            StableFluidsFieldCreateDesc{
+        const std::array scalar_fields{
+            StableFluidsScalarFieldDesc{
                 .name          = "density",
                 .diffusion     = 0.00005f,
                 .dissipation   = 0.35f,
                 .initial_value = 0.0f,
             },
         };
-        std::array<StableFluidsFieldHandle, 1> field_handles{};
-        const StableFluidsContextCreateDesc create_desc{
-            .config      = config_,
-            .stream      = stream_,
-            .fields      = fields.data(),
-            .field_count = static_cast<uint32_t>(fields.size()),
+        const std::array vector_fields{
+            StableFluidsVectorFieldDesc{
+                .name            = "force",
+                .usage           = STABLE_FLUIDS_VECTOR_FIELD_FORCE,
+                .initial_value_x = 0.0f,
+                .initial_value_y = 0.0f,
+                .initial_value_z = 0.0f,
+            },
         };
-        check_stable(stable_fluids_create_context_cuda(&create_desc, &context_, field_handles.data(), static_cast<uint32_t>(field_handles.size())), "stable_fluids_create_context_cuda");
-        density_field_ = field_handles[0];
+        std::array<StableFluidsScalarFieldHandle, 1> scalar_field_handles{};
+        std::array<StableFluidsVectorFieldHandle, 1> vector_field_handles{};
+        const StableFluidsContextCreateDesc create_desc{
+            .config             = config_,
+            .stream             = stream_,
+            .scalar_fields      = scalar_fields.data(),
+            .scalar_field_count = static_cast<uint32_t>(scalar_fields.size()),
+            .vector_fields      = vector_fields.data(),
+            .vector_field_count = static_cast<uint32_t>(vector_fields.size()),
+        };
+        check_stable(stable_fluids_create_context_cuda(&create_desc, &context_, scalar_field_handles.data(), static_cast<uint32_t>(scalar_field_handles.size()), vector_field_handles.data(), static_cast<uint32_t>(vector_field_handles.size())),
+            "stable_fluids_create_context_cuda");
+        density_field_ = scalar_field_handles[0];
+        force_field_   = vector_field_handles[0];
 
         const auto nx           = config_.nx;
         const auto ny           = config_.ny;
@@ -274,6 +289,8 @@ namespace scene_plume {
         check_cuda(cudaMemsetAsync(force_z_device_, 0, scalar_bytes, stream_), "cudaMemsetAsync force_z_device");
         check_cuda(cudaMemcpyAsync(force_y_device_, force_y_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_y_device");
         check_cuda(cudaMemcpyAsync(density_source_device_, density_source_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync density_source_device");
+        check_stable(stable_fluids_update_vector_field_cuda(context_, force_field_, force_x_device_, force_y_device_, force_z_device_), "stable_fluids_update_vector_field_cuda");
+        check_stable(stable_fluids_update_scalar_field_source_cuda(context_, density_field_, density_source_device_), "stable_fluids_update_scalar_field_source_cuda");
         animation_step_ = 0;
         info_           = {
                       .grid              = grid_,
@@ -294,10 +311,6 @@ namespace scene_plume {
         };
         if (sim_steps <= 0) return;
         const auto scalar_bytes = force_x_host_.size() * sizeof(float);
-        const StableFluidsFieldSourceDesc field_source{
-            .field  = density_field_,
-            .values = density_source_device_,
-        };
 
         for (int step_index = 0; step_index < sim_steps; ++step_index) {
             const float phase   = static_cast<float>(animation_step_) * 0.045f;
@@ -312,14 +325,8 @@ namespace scene_plume {
             const auto begin = std::chrono::steady_clock::now();
             check_cuda(cudaMemcpyAsync(force_x_device_, force_x_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_x_device");
             check_cuda(cudaMemcpyAsync(force_z_device_, force_z_host_.data(), scalar_bytes, cudaMemcpyHostToDevice, stream_), "cudaMemcpyAsync force_z_device");
-            const StableFluidsStepDesc step_desc{
-                .force_x            = force_x_device_,
-                .force_y            = force_y_device_,
-                .force_z            = force_z_device_,
-                .field_sources      = &field_source,
-                .field_source_count = 1,
-            };
-            check_stable(stable_fluids_step_cuda(context_, &step_desc), "stable_fluids_step_cuda");
+            check_stable(stable_fluids_update_vector_field_cuda(context_, force_field_, force_x_device_, force_y_device_, force_z_device_), "stable_fluids_update_vector_field_cuda");
+            check_stable(stable_fluids_step_cuda(context_), "stable_fluids_step_cuda");
             info_.last_step_call_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
             ++info_.step_count;
             ++animation_step_;

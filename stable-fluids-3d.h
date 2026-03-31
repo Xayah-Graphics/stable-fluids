@@ -30,7 +30,8 @@ typedef enum StableFluidsBoundaryMode {
     STABLE_FLUIDS_BOUNDARY_PERIODIC = 1,
 } StableFluidsBoundaryMode;
 
-typedef uint32_t StableFluidsFieldHandle;
+typedef uint32_t StableFluidsScalarFieldHandle;
+typedef uint32_t StableFluidsVectorFieldHandle;
 
 typedef struct StableFluidsBoundaryConfig {
     uint32_t x;
@@ -49,35 +50,40 @@ typedef struct StableFluidsSimulationConfig {
     int32_t pressure_iterations;
     StableFluidsBoundaryConfig boundary;
 } StableFluidsSimulationConfig;
-typedef struct StableFluidsFieldCreateDesc {
+typedef struct StableFluidsScalarFieldDesc {
     const char* name;
     float diffusion;
     float dissipation;
     float initial_value;
-} StableFluidsFieldCreateDesc;
+} StableFluidsScalarFieldDesc;
+
+typedef enum StableFluidsVectorFieldUsage {
+    STABLE_FLUIDS_VECTOR_FIELD_FORCE = 0,
+} StableFluidsVectorFieldUsage;
+
+typedef struct StableFluidsVectorFieldDesc {
+    const char* name;
+    StableFluidsVectorFieldUsage usage;
+    float initial_value_x;
+    float initial_value_y;
+    float initial_value_z;
+} StableFluidsVectorFieldDesc;
+
 typedef struct StableFluidsContextCreateDesc {
     StableFluidsSimulationConfig config;
     void* stream;
-    const StableFluidsFieldCreateDesc* fields;
-    uint32_t field_count;
+    const StableFluidsScalarFieldDesc* scalar_fields;
+    uint32_t scalar_field_count;
+    const StableFluidsVectorFieldDesc* vector_fields;
+    uint32_t vector_field_count;
 } StableFluidsContextCreateDesc;
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, void** out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, void** out_context, StableFluidsScalarFieldHandle* out_scalar_field_handles, uint32_t out_scalar_field_handle_capacity, StableFluidsVectorFieldHandle* out_vector_field_handles, uint32_t out_vector_field_handle_capacity);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(void* context);
 
-
-typedef struct StableFluidsFieldSourceDesc {
-    StableFluidsFieldHandle field;
-    const float* values;
-} StableFluidsFieldSourceDesc;
-
-typedef struct StableFluidsStepDesc {
-    const float* force_x;
-    const float* force_y;
-    const float* force_z;
-    const StableFluidsFieldSourceDesc* field_sources;
-    uint32_t field_source_count;
-} StableFluidsStepDesc;
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(void* context, const StableFluidsStepDesc* desc);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_scalar_field_cuda(void* context, StableFluidsScalarFieldHandle field, const float* values);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_scalar_field_source_cuda(void* context, StableFluidsScalarFieldHandle field, const float* values);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_vector_field_cuda(void* context, StableFluidsVectorFieldHandle field, const float* values_x, const float* values_y, const float* values_z);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(void* context);
 
 
 typedef enum StableFluidsExportKind {
@@ -89,7 +95,7 @@ typedef enum StableFluidsExportKind {
 } StableFluidsExportKind;
 typedef struct StableFluidsExportDesc {
     uint32_t kind;
-    StableFluidsFieldHandle field;
+    StableFluidsScalarFieldHandle field;
 } StableFluidsExportDesc;
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_cuda(void* context, const StableFluidsExportDesc* desc, void* destination);
 

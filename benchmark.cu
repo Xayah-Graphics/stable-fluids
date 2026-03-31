@@ -96,15 +96,25 @@ int main(int argc, char** argv) {
             },
     };
 
-    const std::array fields{
-        StableFluidsFieldCreateDesc{
+    const std::array scalar_fields{
+        StableFluidsScalarFieldDesc{
             .name          = "density",
             .diffusion     = field_diffusion,
             .dissipation   = field_dissipation,
             .initial_value = 0.0f,
         },
     };
-    std::array<StableFluidsFieldHandle, 1> field_handles{};
+    const std::array vector_fields{
+        StableFluidsVectorFieldDesc{
+            .name            = "force",
+            .usage           = STABLE_FLUIDS_VECTOR_FIELD_FORCE,
+            .initial_value_x = 0.0f,
+            .initial_value_y = 0.0f,
+            .initial_value_z = 0.0f,
+        },
+    };
+    std::array<StableFluidsScalarFieldHandle, 1> scalar_field_handles{};
+    std::array<StableFluidsVectorFieldHandle, 1> vector_field_handles{};
 
     const auto cell_count  = static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny) * static_cast<std::size_t>(nz);
     const auto scalar_bytes = cell_count * sizeof(float);
@@ -139,12 +149,15 @@ int main(int argc, char** argv) {
 
     void* context = nullptr;
     const StableFluidsContextCreateDesc create_desc{
-        .config      = config,
-        .stream      = stream,
-        .fields      = fields.data(),
-        .field_count = static_cast<uint32_t>(fields.size()),
+        .config             = config,
+        .stream             = stream,
+        .scalar_fields      = scalar_fields.data(),
+        .scalar_field_count = static_cast<uint32_t>(scalar_fields.size()),
+        .vector_fields      = vector_fields.data(),
+        .vector_field_count = static_cast<uint32_t>(vector_fields.size()),
     };
-    if (!check_stable(stable_fluids_create_context_cuda(&create_desc, &context, field_handles.data(), static_cast<uint32_t>(field_handles.size())), "stable_fluids_create_context_cuda")) {
+    if (!check_stable(stable_fluids_create_context_cuda(&create_desc, &context, scalar_field_handles.data(), static_cast<uint32_t>(scalar_field_handles.size()), vector_field_handles.data(), static_cast<uint32_t>(vector_field_handles.size())),
+            "stable_fluids_create_context_cuda")) {
         cudaStreamDestroy(stream);
         return EXIT_FAILURE;
     }
@@ -165,17 +178,8 @@ int main(int argc, char** argv) {
     if (!check_cuda(cudaMemcpyAsync(force_z_device, force_z_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync force_z")) return EXIT_FAILURE;
     if (!check_cuda(cudaMemcpyAsync(density_source_device, density_source_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync density_source")) return EXIT_FAILURE;
 
-    const StableFluidsFieldSourceDesc field_source{
-        .field  = field_handles[0],
-        .values = density_source_device,
-    };
-    const StableFluidsStepDesc step_desc{
-        .force_x            = force_x_device,
-        .force_y            = force_y_device,
-        .force_z            = force_z_device,
-        .field_sources      = &field_source,
-        .field_source_count = 1,
-    };
+    if (!check_stable(stable_fluids_update_vector_field_cuda(context, vector_field_handles[0], force_x_device, force_y_device, force_z_device), "stable_fluids_update_vector_field_cuda")) return EXIT_FAILURE;
+    if (!check_stable(stable_fluids_update_scalar_field_source_cuda(context, scalar_field_handles[0], density_source_device), "stable_fluids_update_scalar_field_source_cuda")) return EXIT_FAILURE;
 
     cudaEvent_t step_begin = nullptr;
     cudaEvent_t step_end   = nullptr;
@@ -185,7 +189,7 @@ int main(int argc, char** argv) {
     {
         nvtx3::scoped_range range("benchmark.warmup");
         for (int step = 0; step < warmup_steps; ++step) {
-            if (!check_stable(stable_fluids_step_cuda(context, &step_desc), "stable_fluids_step_cuda warmup")) return EXIT_FAILURE;
+            if (!check_stable(stable_fluids_step_cuda(context), "stable_fluids_step_cuda warmup")) return EXIT_FAILURE;
         }
         if (!check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize warmup")) return EXIT_FAILURE;
     }
@@ -195,7 +199,7 @@ int main(int argc, char** argv) {
         nvtx3::scoped_range range("benchmark.measure");
         if (!check_cuda(cudaEventRecord(step_begin, stream), "cudaEventRecord step_begin")) return EXIT_FAILURE;
         for (int step = 0; step < benchmark_steps; ++step) {
-            if (!check_stable(stable_fluids_step_cuda(context, &step_desc), "stable_fluids_step_cuda")) return EXIT_FAILURE;
+            if (!check_stable(stable_fluids_step_cuda(context), "stable_fluids_step_cuda")) return EXIT_FAILURE;
         }
         if (!check_cuda(cudaEventRecord(step_end, stream), "cudaEventRecord step_end")) return EXIT_FAILURE;
         if (!check_cuda(cudaEventSynchronize(step_end), "cudaEventSynchronize step_end")) return EXIT_FAILURE;
@@ -207,7 +211,7 @@ int main(int argc, char** argv) {
         nvtx3::scoped_range range("benchmark.export");
         const StableFluidsExportDesc export_desc{
             .kind  = STABLE_FLUIDS_EXPORT_FIELD,
-            .field = field_handles[0],
+            .field = scalar_field_handles[0],
         };
         if (!check_stable(stable_fluids_export_cuda(context, &export_desc, density_export_device), "stable_fluids_export_cuda")) return EXIT_FAILURE;
         if (!check_cuda(cudaMemcpyAsync(density_host.data(), density_export_device, scalar_bytes, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync density_export")) return EXIT_FAILURE;

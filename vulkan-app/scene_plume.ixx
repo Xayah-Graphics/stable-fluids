@@ -47,9 +47,10 @@ export namespace scene_plume {
                     .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
                 },
         };
-        cudaStream_t stream_                   = nullptr;
-        void* context_           = nullptr;
-        StableFluidsFieldHandle density_field_ = 0;
+        cudaStream_t stream_                         = nullptr;
+        void* context_                               = nullptr;
+        StableFluidsScalarFieldHandle density_field_ = 0;
+        StableFluidsVectorFieldHandle force_field_   = 0;
         app::GridShape grid_{};
         float* force_x_device_        = nullptr;
         float* force_y_device_        = nullptr;
