@@ -61,14 +61,6 @@ namespace stable_fluids {
         return static_cast<std::uint64_t>(z) * static_cast<std::uint64_t>(sx) * static_cast<std::uint64_t>(sy) + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(sx) + static_cast<std::uint64_t>(x);
     }
 
-    bool is_valid_flow_boundary_type(const uint32_t type) {
-        return type == STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL || type == STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL || type == STABLE_FLUIDS_FLOW_BOUNDARY_INFLOW || type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW || type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC;
-    }
-
-    bool is_valid_scalar_boundary_type(const uint32_t type) {
-        return type == STABLE_FLUIDS_SCALAR_BOUNDARY_FIXED_VALUE || type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX || type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC;
-    }
-
     __device__ float load_scalar(const float* field, int x, int y, int z, const int nx, const int ny, const int nz, const StableFluidsScalarBoundaryConfig boundary) {
         if (x < 0 || x >= nx) {
             const auto [type, value] = x < 0 ? boundary.x_minus : boundary.x_plus;
@@ -303,9 +295,9 @@ namespace stable_fluids {
     }
 
     __device__ float3 trace_particle_rk2(const float x, const float y, const float z, const float* velocity_x, const float* velocity_y, const float* velocity_z, const float dt, const int nx, const int ny, const int nz, const float h, const StableFluidsFlowBoundaryConfig boundary) {
-        const auto [v0_x, v0_y, v0_z] = sample_velocity(velocity_x, velocity_y, velocity_z, x, y, z, nx, ny, nz, h, boundary);
-        const auto [mid_x, mid_y, mid_z]        = make_float3(x - 0.5f * dt * v0_x, y - 0.5f * dt * v0_y, z - 0.5f * dt * v0_z);
-        const auto [v1_x, v1_y, v1_z] = sample_velocity(velocity_x, velocity_y, velocity_z, mid_x, mid_y, mid_z, nx, ny, nz, h, boundary);
+        const auto [v0_x, v0_y, v0_z]    = sample_velocity(velocity_x, velocity_y, velocity_z, x, y, z, nx, ny, nz, h, boundary);
+        const auto [mid_x, mid_y, mid_z] = make_float3(x - 0.5f * dt * v0_x, y - 0.5f * dt * v0_y, z - 0.5f * dt * v0_z);
+        const auto [v1_x, v1_y, v1_z]    = sample_velocity(velocity_x, velocity_y, velocity_z, mid_x, mid_y, mid_z, nx, ny, nz, h, boundary);
         return make_float3(x - dt * v1_x, y - dt * v1_y, z - dt * v1_z);
     }
 
@@ -526,11 +518,13 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
         return dim3(block_x, block_y, block_z);
     };
     auto validate_flow_axis = [&](const StableFluidsFlowBoundaryFaceDesc minus_face, const StableFluidsFlowBoundaryFaceDesc plus_face) {
-        if (!stable_fluids::is_valid_flow_boundary_type(minus_face.type) || !stable_fluids::is_valid_flow_boundary_type(plus_face.type)) return false;
+        if (!(minus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL || minus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL || minus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW || minus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC)) return false;
+        if (!(plus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL || plus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL || plus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW || plus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC)) return false;
         return (minus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC) == (plus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC);
     };
     auto validate_scalar_axis = [&](const StableFluidsScalarBoundaryFaceDesc minus_face, const StableFluidsScalarBoundaryFaceDesc plus_face) {
-        if (!stable_fluids::is_valid_scalar_boundary_type(minus_face.type) || !stable_fluids::is_valid_scalar_boundary_type(plus_face.type)) return false;
+        if (!(minus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_FIXED_VALUE || minus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX || minus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC)) return false;
+        if (!(plus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_FIXED_VALUE || plus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX || plus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC)) return false;
         return (minus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC) == (plus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC);
     };
     if (!validate_flow_axis(context->config.flow_boundary.x_minus, context->config.flow_boundary.x_plus)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
@@ -790,7 +784,7 @@ StableFluidsResult stable_fluids_destroy_context_cuda(void* context) {
 StableFluidsResult stable_fluids_update_scalar_field_cuda(void* context, const StableFluidsScalarFieldHandle field, const float* values) {
     nvtx3::scoped_range range("stable.update_scalar_field");
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
-    if (field > storage.device.scalar_fields.size()) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if (field == 0 || field > storage.device.scalar_fields.size()) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     auto& scalar_field = storage.device.scalar_fields[static_cast<std::size_t>(field - 1u)];
     if (values == nullptr) return cudaMemsetAsync(scalar_field.data, 0, storage.bytes, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     return cudaMemcpyAsync(scalar_field.data, values, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
@@ -799,7 +793,7 @@ StableFluidsResult stable_fluids_update_scalar_field_cuda(void* context, const S
 StableFluidsResult stable_fluids_update_scalar_field_source_cuda(void* context, const StableFluidsScalarFieldHandle field, const float* values) {
     nvtx3::scoped_range range("stable.update_scalar_field_source");
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
-    if (field > storage.device.scalar_fields.size()) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if (field == 0 || field > storage.device.scalar_fields.size()) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     auto& scalar_field = storage.device.scalar_fields[static_cast<std::size_t>(field - 1u)];
     if (values == nullptr) return cudaMemsetAsync(scalar_field.source, 0, storage.bytes, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     return cudaMemcpyAsync(scalar_field.source, values, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
@@ -808,7 +802,7 @@ StableFluidsResult stable_fluids_update_scalar_field_source_cuda(void* context, 
 StableFluidsResult stable_fluids_update_vector_field_cuda(void* context, const StableFluidsVectorFieldHandle field, const float* values_x, const float* values_y, const float* values_z) {
     nvtx3::scoped_range range("stable.update_vector_field");
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
-    if (field > storage.device.vector_fields.size()) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if (field == 0 || field > storage.device.vector_fields.size()) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     auto& vector_field  = storage.device.vector_fields[static_cast<std::size_t>(field - 1u)];
     auto copy_component = [&](float* const destination, const float* const source) {
         if (source == nullptr) return cudaMemsetAsync(destination, 0, storage.bytes, storage.stream);

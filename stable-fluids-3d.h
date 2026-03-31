@@ -28,9 +28,8 @@ typedef enum StableFluidsResult {
 typedef enum StableFluidsFlowBoundaryType {
     STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL   = 0,
     STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL = 1,
-    STABLE_FLUIDS_FLOW_BOUNDARY_INFLOW         = 2,
-    STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW        = 3,
-    STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC       = 4,
+    STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW        = 2,
+    STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC       = 3,
 } StableFluidsFlowBoundaryType;
 
 typedef enum StableFluidsScalarBoundaryType {
