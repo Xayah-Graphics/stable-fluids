@@ -28,7 +28,7 @@ export namespace scene_plume {
         void rebuild();
         void step(int sim_steps);
         void export_field(uint32_t field_index, void* device_destination) const;
-        void export_velocity(void* device_destination, float* host_destination) const;
+        void export_velocity(float* host_destination) const;
 
     private:
         StableFluidsSimulationConfig config_{

@@ -14,7 +14,7 @@ namespace scene_plume {
 
         struct PlumeFieldInfo {
             app::FieldInfo view{};
-            uint32_t export_kind   = STABLE_FLUIDS_EXPORT_FIELD;
+            uint32_t view_kind     = STABLE_FLUIDS_VIEW_SCALAR_FIELD_DATA;
             bool use_density_field = false;
         };
 
@@ -37,7 +37,7 @@ namespace scene_plume {
                                 .scalar_high_b  = 0.84f,
                             },
                     },
-                .export_kind       = STABLE_FLUIDS_EXPORT_FIELD,
+                .view_kind         = STABLE_FLUIDS_VIEW_SCALAR_FIELD_DATA,
                 .use_density_field = true,
             },
             PlumeFieldInfo{
@@ -58,7 +58,7 @@ namespace scene_plume {
                                 .scalar_high_b  = 1.00f,
                             },
                     },
-                .export_kind = STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE,
+                .view_kind = STABLE_FLUIDS_VIEW_FLOW_VELOCITY_MAGNITUDE,
             },
             PlumeFieldInfo{
                 .view =
@@ -78,7 +78,7 @@ namespace scene_plume {
                                 .scalar_high_b  = 0.18f,
                             },
                     },
-                .export_kind = STABLE_FLUIDS_EXPORT_PRESSURE,
+                .view_kind = STABLE_FLUIDS_VIEW_FLOW_PRESSURE,
             },
             PlumeFieldInfo{
                 .view =
@@ -98,7 +98,7 @@ namespace scene_plume {
                                 .scalar_high_b  = 0.22f,
                             },
                     },
-                .export_kind = STABLE_FLUIDS_EXPORT_DIVERGENCE,
+                .view_kind = STABLE_FLUIDS_VIEW_FLOW_DIVERGENCE,
             },
         };
         constexpr auto field_views = [] {
@@ -334,19 +334,6 @@ namespace scene_plume {
     }
 
     void Scene::export_field(const uint32_t field_index, void* const device_destination) const {
-        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
-            if (code == STABLE_FLUIDS_RESULT_OK) return;
-            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
-        };
-        const auto& field = field_catalog_storage[(std::min) (static_cast<size_t>(field_index), field_catalog_storage.size() - 1)];
-        const StableFluidsExportDesc export_desc{
-            .kind  = field.export_kind,
-            .field = field.use_density_field ? density_field_ : 0u,
-        };
-        check_stable(stable_fluids_export_cuda(context_, &export_desc, device_destination), "stable_fluids_export_cuda");
-    }
-
-    void Scene::export_velocity(void* const device_destination, float* const host_destination) const {
         auto check_cuda = [](const cudaError_t status, const std::string_view what) {
             if (status == cudaSuccess) return;
             throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
@@ -355,13 +342,41 @@ namespace scene_plume {
             if (code == STABLE_FLUIDS_RESULT_OK) return;
             throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
         };
-        const StableFluidsExportDesc export_desc{
-            .kind = STABLE_FLUIDS_EXPORT_VELOCITY,
+        const auto& field = field_catalog_storage[(std::min) (static_cast<size_t>(field_index), field_catalog_storage.size() - 1)];
+        StableFluidsView view{};
+        const StableFluidsViewRequest request{
+            .kind            = field.view_kind,
+            .scalar_field    = field.use_density_field ? density_field_ : 0u,
+            .vector_field    = 0u,
+            .consumer_stream = stream_,
         };
-        check_stable(stable_fluids_export_cuda(context_, &export_desc, device_destination), "stable_fluids_export_cuda");
+        check_stable(stable_fluids_get_view_cuda(context_, &request, &view), "stable_fluids_get_view_cuda");
+        check_cuda(cudaMemcpyAsync(device_destination, view.data0, static_cast<size_t>(grid_.nx) * static_cast<size_t>(grid_.ny) * static_cast<size_t>(grid_.nz) * sizeof(float), cudaMemcpyDeviceToDevice, stream_), "cudaMemcpyAsync field view");
+    }
+
+    void Scene::export_velocity(float* const host_destination) const {
+        auto check_cuda = [](const cudaError_t status, const std::string_view what) {
+            if (status == cudaSuccess) return;
+            throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(status));
+        };
+        auto check_stable = [](const StableFluidsResult code, const std::string_view what) {
+            if (code == STABLE_FLUIDS_RESULT_OK) return;
+            throw std::runtime_error(std::string(what) + " failed (" + std::to_string(static_cast<int>(code)) + ")");
+        };
         if (host_destination == nullptr) return;
-        const auto velocity_bytes = static_cast<size_t>(grid_.nx) * static_cast<size_t>(grid_.ny) * static_cast<size_t>(grid_.nz) * 3u * sizeof(float);
-        check_cuda(cudaMemcpyAsync(host_destination, device_destination, velocity_bytes, cudaMemcpyDeviceToHost, stream_), "cudaMemcpyAsync velocity snapshot");
+        StableFluidsView view{};
+        const StableFluidsViewRequest request{
+            .kind            = STABLE_FLUIDS_VIEW_FLOW_VELOCITY,
+            .scalar_field    = 0u,
+            .vector_field    = 0u,
+            .consumer_stream = stream_,
+        };
+        check_stable(stable_fluids_get_view_cuda(context_, &request, &view), "stable_fluids_get_view_cuda");
+        const auto cell_count   = static_cast<size_t>(grid_.nx) * static_cast<size_t>(grid_.ny) * static_cast<size_t>(grid_.nz);
+        const auto scalar_bytes = static_cast<size_t>(grid_.nx) * static_cast<size_t>(grid_.ny) * static_cast<size_t>(grid_.nz) * sizeof(float);
+        check_cuda(cudaMemcpyAsync(host_destination, view.data0, scalar_bytes, cudaMemcpyDeviceToHost, stream_), "cudaMemcpyAsync velocity_x snapshot");
+        check_cuda(cudaMemcpyAsync(host_destination + cell_count, view.data1, scalar_bytes, cudaMemcpyDeviceToHost, stream_), "cudaMemcpyAsync velocity_y snapshot");
+        check_cuda(cudaMemcpyAsync(host_destination + cell_count * 2u, view.data2, scalar_bytes, cudaMemcpyDeviceToHost, stream_), "cudaMemcpyAsync velocity_z snapshot");
     }
 
 } // namespace scene_plume

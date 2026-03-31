@@ -148,7 +148,6 @@ export namespace app {
         cudaExternalMemory_t external_memory       = nullptr;
         cudaExternalSemaphore_t external_semaphore = nullptr;
         void* field_cuda_ptr                       = nullptr;
-        void* velocity_cuda_ptr                    = nullptr;
         std::vector<float> velocity_host{};
         uint64_t ready_generation        = 0;
         uint64_t last_used_submit_serial = 0;
@@ -228,7 +227,7 @@ export namespace app {
         { scene.rebuild() } -> std::same_as<void>;
         { scene.step(sim_steps) } -> std::same_as<void>;
         { const_scene.export_field(field_index, device_destination) } -> std::same_as<void>;
-        { const_scene.export_velocity(device_destination, host_destination) } -> std::same_as<void>;
+        { const_scene.export_velocity(host_destination) } -> std::same_as<void>;
         { const_scene.stream() } -> std::same_as<cudaStream_t>;
     };
 
@@ -261,13 +260,13 @@ export namespace app {
         auto& slot             = data.capture.slots.at(static_cast<size_t>(slot_index));
         const auto field_index = static_cast<uint32_t>(state.selected_field);
         scene.export_field(field_index, slot.field_cuda_ptr);
-        if (state.render.show_velocity_plane && slot.velocity_cuda_ptr != nullptr && !slot.velocity_host.empty()) scene.export_velocity(slot.velocity_cuda_ptr, slot.velocity_host.data());
+        if (state.render.show_velocity_plane && !slot.velocity_host.empty()) scene.export_velocity(slot.velocity_host.data());
         cudaExternalSemaphoreSignalParams signal_params{};
         signal_params.params.fence.value = data.capture.generation + 1;
         check_cuda(cudaSignalExternalSemaphoresAsync(&slot.external_semaphore, &signal_params, 1, scene.stream()), "cudaSignalExternalSemaphoresAsync");
         check_cuda(cudaStreamSynchronize(scene.stream()), "cudaStreamSynchronize");
         slot.ready_generation    = data.capture.generation + 1;
-        slot.has_velocity_host   = state.render.show_velocity_plane && slot.velocity_cuda_ptr != nullptr && !slot.velocity_host.empty();
+        slot.has_velocity_host   = state.render.show_velocity_plane && !slot.velocity_host.empty();
         data.capture.generation  = slot.ready_generation;
         data.capture.active_slot = slot_index;
         return true;

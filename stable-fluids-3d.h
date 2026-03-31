@@ -85,19 +85,41 @@ STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_scalar_field_source_cu
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_update_vector_field_cuda(void* context, StableFluidsVectorFieldHandle field, const float* values_x, const float* values_y, const float* values_z);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(void* context);
 
+typedef enum StableFluidsViewKind {
+    STABLE_FLUIDS_VIEW_SCALAR_FIELD_DATA   = 0,
+    STABLE_FLUIDS_VIEW_SCALAR_FIELD_SOURCE = 1,
+    STABLE_FLUIDS_VIEW_VECTOR_FIELD        = 2,
+    STABLE_FLUIDS_VIEW_FLOW_VELOCITY       = 3,
+    STABLE_FLUIDS_VIEW_FLOW_VELOCITY_MAGNITUDE = 4,
+    STABLE_FLUIDS_VIEW_FLOW_PRESSURE       = 5,
+    STABLE_FLUIDS_VIEW_FLOW_DIVERGENCE     = 6,
+} StableFluidsViewKind;
 
-typedef enum StableFluidsExportKind {
-    STABLE_FLUIDS_EXPORT_FIELD              = 0,
-    STABLE_FLUIDS_EXPORT_VELOCITY           = 1,
-    STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE = 2,
-    STABLE_FLUIDS_EXPORT_PRESSURE           = 3,
-    STABLE_FLUIDS_EXPORT_DIVERGENCE         = 4,
-} StableFluidsExportKind;
-typedef struct StableFluidsExportDesc {
+typedef enum StableFluidsViewLayout {
+    STABLE_FLUIDS_VIEW_LAYOUT_F32_3D      = 0,
+    STABLE_FLUIDS_VIEW_LAYOUT_F32_3D_SOA3 = 1,
+} StableFluidsViewLayout;
+
+typedef struct StableFluidsViewRequest {
     uint32_t kind;
-    StableFluidsScalarFieldHandle field;
-} StableFluidsExportDesc;
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_cuda(void* context, const StableFluidsExportDesc* desc, void* destination);
+    StableFluidsScalarFieldHandle scalar_field;
+    StableFluidsVectorFieldHandle vector_field;
+    void* consumer_stream;
+} StableFluidsViewRequest;
+
+typedef struct StableFluidsView {
+    uint32_t layout;
+    int32_t nx;
+    int32_t ny;
+    int32_t nz;
+    uint64_t row_stride_bytes;
+    uint64_t slice_stride_bytes;
+    const float* data0;
+    const float* data1;
+    const float* data2;
+} StableFluidsView;
+
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_get_view_cuda(void* context, const StableFluidsViewRequest* request, StableFluidsView* out_view);
 
 #ifdef __cplusplus
 }

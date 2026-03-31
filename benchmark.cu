@@ -166,12 +166,10 @@ int main(int argc, char** argv) {
     float* force_y_device        = nullptr;
     float* force_z_device        = nullptr;
     float* density_source_device = nullptr;
-    float* density_export_device = nullptr;
     if (!check_cuda(cudaMalloc(reinterpret_cast<void**>(&force_x_device), scalar_bytes), "cudaMalloc force_x_device")) return EXIT_FAILURE;
     if (!check_cuda(cudaMalloc(reinterpret_cast<void**>(&force_y_device), scalar_bytes), "cudaMalloc force_y_device")) return EXIT_FAILURE;
     if (!check_cuda(cudaMalloc(reinterpret_cast<void**>(&force_z_device), scalar_bytes), "cudaMalloc force_z_device")) return EXIT_FAILURE;
     if (!check_cuda(cudaMalloc(reinterpret_cast<void**>(&density_source_device), scalar_bytes), "cudaMalloc density_source_device")) return EXIT_FAILURE;
-    if (!check_cuda(cudaMalloc(reinterpret_cast<void**>(&density_export_device), scalar_bytes), "cudaMalloc density_export_device")) return EXIT_FAILURE;
 
     if (!check_cuda(cudaMemcpyAsync(force_x_device, force_x_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync force_x")) return EXIT_FAILURE;
     if (!check_cuda(cudaMemcpyAsync(force_y_device, force_y_host.data(), scalar_bytes, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync force_y")) return EXIT_FAILURE;
@@ -209,12 +207,15 @@ int main(int argc, char** argv) {
     std::vector<float> density_host(cell_count, 0.0f);
     {
         nvtx3::scoped_range range("benchmark.export");
-        const StableFluidsExportDesc export_desc{
-            .kind  = STABLE_FLUIDS_EXPORT_FIELD,
-            .field = scalar_field_handles[0],
+        StableFluidsView view{};
+        const StableFluidsViewRequest request{
+            .kind            = STABLE_FLUIDS_VIEW_SCALAR_FIELD_DATA,
+            .scalar_field    = scalar_field_handles[0],
+            .vector_field    = 0,
+            .consumer_stream = stream,
         };
-        if (!check_stable(stable_fluids_export_cuda(context, &export_desc, density_export_device), "stable_fluids_export_cuda")) return EXIT_FAILURE;
-        if (!check_cuda(cudaMemcpyAsync(density_host.data(), density_export_device, scalar_bytes, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync density_export")) return EXIT_FAILURE;
+        if (!check_stable(stable_fluids_get_view_cuda(context, &request, &view), "stable_fluids_get_view_cuda")) return EXIT_FAILURE;
+        if (!check_cuda(cudaMemcpyAsync(density_host.data(), view.data0, scalar_bytes, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync density_view")) return EXIT_FAILURE;
         if (!check_cuda(cudaStreamSynchronize(stream), "cudaStreamSynchronize export")) return EXIT_FAILURE;
     }
 
@@ -244,7 +245,6 @@ int main(int argc, char** argv) {
 
     cudaEventDestroy(step_end);
     cudaEventDestroy(step_begin);
-    cudaFree(density_export_device);
     cudaFree(density_source_device);
     cudaFree(force_z_device);
     cudaFree(force_y_device);

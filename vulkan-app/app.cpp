@@ -688,7 +688,6 @@ namespace app {
     void destroy_runtime_data(AppData& data) {
         for (auto& slot : data.capture.slots) {
             if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
-            if (slot.velocity_cuda_ptr != nullptr) cudaFree(slot.velocity_cuda_ptr);
             if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
             if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
             slot = {};
@@ -740,7 +739,6 @@ namespace app {
         renderer.vk_context().device.waitIdle();
         for (auto& slot : data.capture.slots) {
             if (slot.field_cuda_ptr != nullptr) cudaFree(slot.field_cuda_ptr);
-            if (slot.velocity_cuda_ptr != nullptr) cudaFree(slot.velocity_cuda_ptr);
             if (slot.external_semaphore != nullptr) cudaDestroyExternalSemaphore(slot.external_semaphore);
             if (slot.external_memory != nullptr) cudaDestroyExternalMemory(slot.external_memory);
             slot = {};
@@ -871,10 +869,7 @@ namespace app {
                 .size   = field_bytes,
             };
             check_cuda(cudaExternalMemoryGetMappedBuffer(&slot.field_cuda_ptr, slot.external_memory, &buffer_desc), "cudaExternalMemoryGetMappedBuffer");
-            if (with_velocity_plane) {
-                check_cuda(cudaMalloc(&slot.velocity_cuda_ptr, velocity_bytes), "cudaMalloc velocity snapshot");
-                slot.velocity_host.resize(static_cast<size_t>(velocity_bytes / sizeof(float)));
-            }
+            if (with_velocity_plane) slot.velocity_host.resize(static_cast<size_t>(velocity_bytes / sizeof(float)));
 
             vk::DescriptorBufferInfo field_info{
                 .buffer = *slot.buffer,
