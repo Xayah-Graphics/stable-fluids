@@ -38,13 +38,6 @@ typedef struct StableFluidsBoundaryConfig {
     uint32_t z;
 } StableFluidsBoundaryConfig;
 
-typedef struct StableFluidsFieldCreateDesc {
-    const char* name;
-    float diffusion;
-    float dissipation;
-    float initial_value;
-} StableFluidsFieldCreateDesc;
-
 typedef struct StableFluidsSimulationConfig {
     int32_t nx;
     int32_t ny;
@@ -59,13 +52,21 @@ typedef struct StableFluidsSimulationConfig {
     int32_t block_y;
     int32_t block_z;
 } StableFluidsSimulationConfig;
-
+typedef struct StableFluidsFieldCreateDesc {
+    const char* name;
+    float diffusion;
+    float dissipation;
+    float initial_value;
+} StableFluidsFieldCreateDesc;
 typedef struct StableFluidsContextCreateDesc {
     StableFluidsSimulationConfig config;
     void* stream;
     const StableFluidsFieldCreateDesc* fields;
     uint32_t field_count;
 } StableFluidsContextCreateDesc;
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, void** out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(void* context);
+
 
 typedef struct StableFluidsFieldSourceDesc {
     StableFluidsFieldHandle field;
@@ -79,10 +80,6 @@ typedef struct StableFluidsStepDesc {
     const StableFluidsFieldSourceDesc* field_sources;
     uint32_t field_source_count;
 } StableFluidsStepDesc;
-
-
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, void** out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(void* context);
 STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(void* context, const StableFluidsStepDesc* desc);
 
 
