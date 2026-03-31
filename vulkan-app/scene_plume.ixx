@@ -46,9 +46,6 @@ export namespace scene_plume {
                     .y = STABLE_FLUIDS_BOUNDARY_FIXED,
                     .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
                 },
-            .block_x = 8,
-            .block_y = 8,
-            .block_z = 4,
         };
         cudaStream_t stream_                   = nullptr;
         void* context_           = nullptr;

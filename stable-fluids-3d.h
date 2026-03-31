@@ -48,9 +48,6 @@ typedef struct StableFluidsSimulationConfig {
     int32_t diffuse_iterations;
     int32_t pressure_iterations;
     StableFluidsBoundaryConfig boundary;
-    int32_t block_x;
-    int32_t block_y;
-    int32_t block_z;
 } StableFluidsSimulationConfig;
 typedef struct StableFluidsFieldCreateDesc {
     const char* name;

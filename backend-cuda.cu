@@ -4,6 +4,7 @@
 #include <cuda_runtime.h>
 #include <memory>
 #include <new>
+#include <ostream>
 #include <vector>
 
 #include <nvtx3/nvtx3.hpp>
@@ -302,7 +303,33 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
     context->stream     = static_cast<cudaStream_t>(desc->stream);
     context->cell_count = static_cast<std::uint64_t>(context->config.nx) * static_cast<std::uint64_t>(context->config.ny) * static_cast<std::uint64_t>(context->config.nz);
     context->bytes      = context->cell_count * sizeof(float);
-    context->block      = dim3(static_cast<unsigned>((std::max) (context->config.block_x, 1)), static_cast<unsigned>((std::max) (context->config.block_y, 1)), static_cast<unsigned>((std::max) (context->config.block_z, 1)));
+    auto choose_block = [&]() {
+        int min_grid_size = 0;
+        int block_size    = 0;
+        if (cudaOccupancyMaxPotentialBlockSize(&min_grid_size, &block_size, stable_fluids::advect_component_kernel, 0, 0) != cudaSuccess) return dim3(8u, 8u, 4u);
+        if (block_size <= 0) return dim3(8u, 8u, 4u);
+        unsigned block_z = block_size >= 256 ? 4u : block_size >= 128 ? 2u : 1u;
+        unsigned block_y = block_size / static_cast<int>(block_z) >= 64 ? 8u : block_size / static_cast<int>(block_z) >= 32 ? 4u : 2u;
+        unsigned block_x = static_cast<unsigned>((std::max) (block_size / static_cast<int>(block_y * block_z), 1));
+        if (block_x > 16u) block_x = 16u;
+        while (block_x * block_y * block_z > static_cast<unsigned>(block_size)) {
+            if (block_x >= block_y && block_x > 1u) {
+                --block_x;
+                continue;
+            }
+            if (block_y >= block_z && block_y > 1u) {
+                --block_y;
+                continue;
+            }
+            if (block_z > 1u) {
+                --block_z;
+                continue;
+            }
+            break;
+        }
+        return dim3(block_x, block_y, block_z);
+    };
+    context->block = choose_block();
     context->cells      = dim3(static_cast<unsigned>((context->config.nx + static_cast<int>(context->block.x) - 1) / static_cast<int>(context->block.x)), static_cast<unsigned>((context->config.ny + static_cast<int>(context->block.y) - 1) / static_cast<int>(context->block.y)),
              static_cast<unsigned>((context->config.nz + static_cast<int>(context->block.z) - 1) / static_cast<int>(context->block.z)));
     if (context->stream == nullptr) {

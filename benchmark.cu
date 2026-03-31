@@ -94,9 +94,6 @@ int main(int argc, char** argv) {
                 .y = STABLE_FLUIDS_BOUNDARY_FIXED,
                 .z = STABLE_FLUIDS_BOUNDARY_PERIODIC,
             },
-        .block_x = 8,
-        .block_y = 8,
-        .block_z = 4,
     };
 
     const std::array fields{
