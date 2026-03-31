@@ -1,6 +1,7 @@
 #include "stable-fluids-3d.h"
 #include <algorithm>
 #include <array>
+#include <cuda/std/algorithm>
 #include <cuda_runtime.h>
 #include <memory>
 #include <new>
@@ -69,31 +70,10 @@ namespace stable_fluids {
         return type == STABLE_FLUIDS_SCALAR_BOUNDARY_FIXED_VALUE || type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX || type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC;
     }
 
-    __host__ __device__ bool is_periodic_flow_axis(const StableFluidsFlowBoundaryFaceDesc minus_face, const StableFluidsFlowBoundaryFaceDesc plus_face) {
-        return minus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && plus_face.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC;
-    }
-
-    __host__ __device__ bool is_periodic_scalar_axis(const StableFluidsScalarBoundaryFaceDesc minus_face, const StableFluidsScalarBoundaryFaceDesc plus_face) {
-        return minus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && plus_face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC;
-    }
-
-    __device__ int clamp_index(const int value, const int size) {
-        if (size <= 0) return 0;
-        if (value < 0) return 0;
-        if (value >= size) return size - 1;
-        return value;
-    }
-
-    __device__ float boundary_velocity_component(const StableFluidsFlowBoundaryFaceDesc face, const int component_axis) {
-        if (component_axis == 0) return face.velocity_x;
-        if (component_axis == 1) return face.velocity_y;
-        return face.velocity_z;
-    }
-
     __device__ float load_scalar(const float* field, int x, int y, int z, const int nx, const int ny, const int nz, const StableFluidsScalarBoundaryConfig boundary) {
         if (x < 0 || x >= nx) {
             const auto face = x < 0 ? boundary.x_minus : boundary.x_plus;
-            if (is_periodic_scalar_axis(boundary.x_minus, boundary.x_plus) && nx > 0) {
+            if (boundary.x_minus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && boundary.x_plus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && nx > 0) {
                 x %= nx;
                 if (x < 0) x += nx;
             } else if (face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX && nx > 0)
@@ -103,7 +83,7 @@ namespace stable_fluids {
         }
         if (y < 0 || y >= ny) {
             const auto face = y < 0 ? boundary.y_minus : boundary.y_plus;
-            if (is_periodic_scalar_axis(boundary.y_minus, boundary.y_plus) && ny > 0) {
+            if (boundary.y_minus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && boundary.y_plus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && ny > 0) {
                 y %= ny;
                 if (y < 0) y += ny;
             } else if (face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX && ny > 0)
@@ -113,7 +93,7 @@ namespace stable_fluids {
         }
         if (z < 0 || z >= nz) {
             const auto face = z < 0 ? boundary.z_minus : boundary.z_plus;
-            if (is_periodic_scalar_axis(boundary.z_minus, boundary.z_plus) && nz > 0) {
+            if (boundary.z_minus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && boundary.z_plus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && nz > 0) {
                 z %= nz;
                 if (z < 0) z += nz;
             } else if (face.type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX && nz > 0)
@@ -127,7 +107,7 @@ namespace stable_fluids {
     __device__ float load_pressure(const float* field, int x, int y, int z, const int nx, const int ny, const int nz, const StableFluidsFlowBoundaryConfig boundary) {
         if (x < 0 || x >= nx) {
             const auto face = x < 0 ? boundary.x_minus : boundary.x_plus;
-            if (is_periodic_flow_axis(boundary.x_minus, boundary.x_plus) && nx > 0) {
+            if (boundary.x_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.x_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && nx > 0) {
                 x %= nx;
                 if (x < 0) x += nx;
             } else if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW)
@@ -137,7 +117,7 @@ namespace stable_fluids {
         }
         if (y < 0 || y >= ny) {
             const auto face = y < 0 ? boundary.y_minus : boundary.y_plus;
-            if (is_periodic_flow_axis(boundary.y_minus, boundary.y_plus) && ny > 0) {
+            if (boundary.y_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.y_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && ny > 0) {
                 y %= ny;
                 if (y < 0) y += ny;
             } else if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW)
@@ -147,7 +127,7 @@ namespace stable_fluids {
         }
         if (z < 0 || z >= nz) {
             const auto face = z < 0 ? boundary.z_minus : boundary.z_plus;
-            if (is_periodic_flow_axis(boundary.z_minus, boundary.z_plus) && nz > 0) {
+            if (boundary.z_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.z_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && nz > 0) {
                 z %= nz;
                 if (z < 0) z += nz;
             } else if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW)
@@ -161,12 +141,18 @@ namespace stable_fluids {
     __device__ float load_velocity_component(const float* field, const int component_axis, int x, int y, int z, const int nx, const int ny, const int nz, const StableFluidsFlowBoundaryConfig boundary) {
         if (x < 0 || x >= nx) {
             const auto face = x < 0 ? boundary.x_minus : boundary.x_plus;
-            if (is_periodic_flow_axis(boundary.x_minus, boundary.x_plus) && nx > 0) {
+            if (boundary.x_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.x_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && nx > 0) {
                 x %= nx;
                 if (x < 0) x += nx;
             } else {
-                const float interior = field[index_3d(x < 0 ? 0 : nx - 1, clamp_index(y, ny), clamp_index(z, nz), nx, ny)];
-                const float prescribed = boundary_velocity_component(face, component_axis);
+                const float interior = field[index_3d(x < 0 ? 0 : nx - 1, cuda::std::clamp(y, 0, ny - 1), cuda::std::clamp(z, 0, nz - 1), nx, ny)];
+                float prescribed     = 0.0f;
+                switch (component_axis) {
+                case 0: prescribed = face.velocity_x; break;
+                case 1: prescribed = face.velocity_y; break;
+                case 2: prescribed = face.velocity_z; break;
+                default: asm("trap;");
+                }
                 if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW) return interior;
                 if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL && component_axis != 0) return interior;
                 return 2.0f * prescribed - interior;
@@ -174,12 +160,18 @@ namespace stable_fluids {
         }
         if (y < 0 || y >= ny) {
             const auto face = y < 0 ? boundary.y_minus : boundary.y_plus;
-            if (is_periodic_flow_axis(boundary.y_minus, boundary.y_plus) && ny > 0) {
+            if (boundary.y_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.y_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && ny > 0) {
                 y %= ny;
                 if (y < 0) y += ny;
             } else {
-                const float interior = field[index_3d(clamp_index(x, nx), y < 0 ? 0 : ny - 1, clamp_index(z, nz), nx, ny)];
-                const float prescribed = boundary_velocity_component(face, component_axis);
+                const float interior = field[index_3d(cuda::std::clamp(x, 0, nx - 1), y < 0 ? 0 : ny - 1, cuda::std::clamp(z, 0, nz - 1), nx, ny)];
+                float prescribed     = 0.0f;
+                switch (component_axis) {
+                case 0: prescribed = face.velocity_x; break;
+                case 1: prescribed = face.velocity_y; break;
+                case 2: prescribed = face.velocity_z; break;
+                default: asm("trap;");
+                }
                 if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW) return interior;
                 if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL && component_axis != 1) return interior;
                 return 2.0f * prescribed - interior;
@@ -187,12 +179,18 @@ namespace stable_fluids {
         }
         if (z < 0 || z >= nz) {
             const auto face = z < 0 ? boundary.z_minus : boundary.z_plus;
-            if (is_periodic_flow_axis(boundary.z_minus, boundary.z_plus) && nz > 0) {
+            if (boundary.z_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.z_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && nz > 0) {
                 z %= nz;
                 if (z < 0) z += nz;
             } else {
-                const float interior = field[index_3d(clamp_index(x, nx), clamp_index(y, ny), z < 0 ? 0 : nz - 1, nx, ny)];
-                const float prescribed = boundary_velocity_component(face, component_axis);
+                const float interior = field[index_3d(cuda::std::clamp(x, 0, nx - 1), cuda::std::clamp(y, 0, ny - 1), z < 0 ? 0 : nz - 1, nx, ny)];
+                float prescribed     = 0.0f;
+                switch (component_axis) {
+                case 0: prescribed = face.velocity_x; break;
+                case 1: prescribed = face.velocity_y; break;
+                case 2: prescribed = face.velocity_z; break;
+                default: asm("trap;");
+                }
                 if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW) return interior;
                 if (face.type == STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL && component_axis != 2) return interior;
                 return 2.0f * prescribed - interior;
@@ -205,15 +203,15 @@ namespace stable_fluids {
         const float extent_x = static_cast<float>(nx) * h;
         const float extent_y = static_cast<float>(ny) * h;
         const float extent_z = static_cast<float>(nz) * h;
-        if (is_periodic_scalar_axis(boundary.x_minus, boundary.x_plus)) {
+        if (boundary.x_minus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && boundary.x_plus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC) {
             x = extent_x <= 0.0f ? 0.0f : fmodf(x, extent_x);
             if (x < 0.0f) x += extent_x;
         }
-        if (is_periodic_scalar_axis(boundary.y_minus, boundary.y_plus)) {
+        if (boundary.y_minus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && boundary.y_plus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC) {
             y = extent_y <= 0.0f ? 0.0f : fmodf(y, extent_y);
             if (y < 0.0f) y += extent_y;
         }
-        if (is_periodic_scalar_axis(boundary.z_minus, boundary.z_plus)) {
+        if (boundary.z_minus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC && boundary.z_plus.type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC) {
             z = extent_z <= 0.0f ? 0.0f : fmodf(z, extent_z);
             if (z < 0.0f) z += extent_z;
         }
@@ -255,15 +253,15 @@ namespace stable_fluids {
         const float extent_x = static_cast<float>(nx) * h;
         const float extent_y = static_cast<float>(ny) * h;
         const float extent_z = static_cast<float>(nz) * h;
-        if (is_periodic_flow_axis(boundary.x_minus, boundary.x_plus)) {
+        if (boundary.x_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.x_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC) {
             x = extent_x <= 0.0f ? 0.0f : fmodf(x, extent_x);
             if (x < 0.0f) x += extent_x;
         }
-        if (is_periodic_flow_axis(boundary.y_minus, boundary.y_plus)) {
+        if (boundary.y_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.y_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC) {
             y = extent_y <= 0.0f ? 0.0f : fmodf(y, extent_y);
             if (y < 0.0f) y += extent_y;
         }
-        if (is_periodic_flow_axis(boundary.z_minus, boundary.z_plus)) {
+        if (boundary.z_minus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC && boundary.z_plus.type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC) {
             z = extent_z <= 0.0f ? 0.0f : fmodf(z, extent_z);
             if (z < 0.0f) z += extent_z;
         }
@@ -345,10 +343,10 @@ namespace stable_fluids {
         const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
-        const float px = (static_cast<float>(x) + 0.5f) * h;
-        const float py = (static_cast<float>(y) + 0.5f) * h;
-        const float pz = (static_cast<float>(z) + 0.5f) * h;
-        const float3 traced = trace_particle_rk2(px, py, pz, velocity_x, velocity_y, velocity_z, dt, nx, ny, nz, h, boundary);
+        const float px                         = (static_cast<float>(x) + 0.5f) * h;
+        const float py                         = (static_cast<float>(y) + 0.5f) * h;
+        const float pz                         = (static_cast<float>(z) + 0.5f) * h;
+        const float3 traced                    = trace_particle_rk2(px, py, pz, velocity_x, velocity_y, velocity_z, dt, nx, ny, nz, h, boundary);
         destination[index_3d(x, y, z, nx, ny)] = sample_velocity_linear(source, component_axis, traced.x, traced.y, traced.z, nx, ny, nz, h, boundary);
     }
 
@@ -357,10 +355,10 @@ namespace stable_fluids {
         const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
-        const float px = (static_cast<float>(x) + 0.5f) * h;
-        const float py = (static_cast<float>(y) + 0.5f) * h;
-        const float pz = (static_cast<float>(z) + 0.5f) * h;
-        const float3 traced = trace_particle_rk2(px, py, pz, velocity_x, velocity_y, velocity_z, dt, nx, ny, nz, h, flow_boundary);
+        const float px                         = (static_cast<float>(x) + 0.5f) * h;
+        const float py                         = (static_cast<float>(y) + 0.5f) * h;
+        const float pz                         = (static_cast<float>(z) + 0.5f) * h;
+        const float3 traced                    = trace_particle_rk2(px, py, pz, velocity_x, velocity_y, velocity_z, dt, nx, ny, nz, h, flow_boundary);
         destination[index_3d(x, y, z, nx, ny)] = sample_scalar_linear(source, traced.x, traced.y, traced.z, nx, ny, nz, h, scalar_boundary);
     }
 
@@ -370,11 +368,10 @@ namespace stable_fluids {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
         if (((x + y + z) & 1) != parity) return;
-        const float neighbors = load_velocity_component(destination, component_axis, x - 1, y, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x + 1, y, z, nx, ny, nz, boundary) +
-            load_velocity_component(destination, component_axis, x, y - 1, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y + 1, z, nx, ny, nz, boundary) +
-            load_velocity_component(destination, component_axis, x, y, z - 1, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y, z + 1, nx, ny, nz, boundary);
-        const auto index      = index_3d(x, y, z, nx, ny);
-        destination[index]    = (source[index] + alpha * neighbors) / (1.0f + 6.0f * alpha);
+        const float neighbors = load_velocity_component(destination, component_axis, x - 1, y, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x + 1, y, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y - 1, z, nx, ny, nz, boundary)
+                              + load_velocity_component(destination, component_axis, x, y + 1, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y, z - 1, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y, z + 1, nx, ny, nz, boundary);
+        const auto index   = index_3d(x, y, z, nx, ny);
+        destination[index] = (source[index] + alpha * neighbors) / (1.0f + 6.0f * alpha);
     }
 
     __global__ void diffuse_scalar_rbgs_kernel(float* destination, const float* source, const float alpha, const int parity, const int nx, const int ny, const int nz, const StableFluidsScalarBoundaryConfig boundary) {
@@ -383,11 +380,10 @@ namespace stable_fluids {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
         if (((x + y + z) & 1) != parity) return;
-        const float neighbors = load_scalar(destination, x - 1, y, z, nx, ny, nz, boundary) + load_scalar(destination, x + 1, y, z, nx, ny, nz, boundary) +
-            load_scalar(destination, x, y - 1, z, nx, ny, nz, boundary) + load_scalar(destination, x, y + 1, z, nx, ny, nz, boundary) +
-            load_scalar(destination, x, y, z - 1, nx, ny, nz, boundary) + load_scalar(destination, x, y, z + 1, nx, ny, nz, boundary);
-        const auto index      = index_3d(x, y, z, nx, ny);
-        destination[index]    = (source[index] + alpha * neighbors) / (1.0f + 6.0f * alpha);
+        const float neighbors = load_scalar(destination, x - 1, y, z, nx, ny, nz, boundary) + load_scalar(destination, x + 1, y, z, nx, ny, nz, boundary) + load_scalar(destination, x, y - 1, z, nx, ny, nz, boundary) + load_scalar(destination, x, y + 1, z, nx, ny, nz, boundary) + load_scalar(destination, x, y, z - 1, nx, ny, nz, boundary)
+                              + load_scalar(destination, x, y, z + 1, nx, ny, nz, boundary);
+        const auto index   = index_3d(x, y, z, nx, ny);
+        destination[index] = (source[index] + alpha * neighbors) / (1.0f + 6.0f * alpha);
     }
 
     __global__ void dissipate_kernel(float* destination, const float* source, const float factor, const int nx, const int ny, const int nz) {
@@ -417,11 +413,10 @@ namespace stable_fluids {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
         if (((x + y + z) & 1) != parity) return;
-        const float neighbors = load_pressure(pressure, x - 1, y, z, nx, ny, nz, boundary) + load_pressure(pressure, x + 1, y, z, nx, ny, nz, boundary) +
-            load_pressure(pressure, x, y - 1, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y + 1, z, nx, ny, nz, boundary) +
-            load_pressure(pressure, x, y, z - 1, nx, ny, nz, boundary) + load_pressure(pressure, x, y, z + 1, nx, ny, nz, boundary);
-        const auto index      = index_3d(x, y, z, nx, ny);
-        pressure[index]       = (neighbors - h2 * divergence[index]) / 6.0f;
+        const float neighbors = load_pressure(pressure, x - 1, y, z, nx, ny, nz, boundary) + load_pressure(pressure, x + 1, y, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y - 1, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y + 1, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y, z - 1, nx, ny, nz, boundary)
+                              + load_pressure(pressure, x, y, z + 1, nx, ny, nz, boundary);
+        const auto index = index_3d(x, y, z, nx, ny);
+        pressure[index]  = (neighbors - h2 * divergence[index]) / 6.0f;
     }
 
     __global__ void project_velocity_kernel(float* destination_x, float* destination_y, float* destination_z, const float* source_x, const float* source_y, const float* source_z, const float* pressure, const int nx, const int ny, const int nz, const float h, const StableFluidsFlowBoundaryConfig boundary) {
@@ -674,10 +669,10 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
             for (int iteration = 0; iteration < context->config.diffuse_iterations; ++iteration) {
                 cudaGraphNode_t parity0{};
                 cudaGraphNode_t parity1{};
-                float* destination_ptr  = destination;
-                const float* source_ptr = source;
-                int parity0_value       = 0;
-                int parity1_value       = 1;
+                float* destination_ptr   = destination;
+                const float* source_ptr  = source;
+                int parity0_value        = 0;
+                int parity1_value        = 1;
                 int component_axis_value = component_axis;
                 void* parity0_args[]{&destination_ptr, &source_ptr, &alpha, &parity0_value, &component_axis_value, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.flow_boundary};
                 void* parity1_args[]{&destination_ptr, &source_ptr, &alpha, &parity1_value, &component_axis_value, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.flow_boundary};
@@ -724,9 +719,12 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
         int velocity_x_axis = 0;
         int velocity_y_axis = 1;
         int velocity_z_axis = 2;
-        void* advect_velocity_x_args[]{&context->device.flow.temp_velocity_x, &context->device.flow.velocity_x, &velocity_x_axis, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.flow_boundary};
-        void* advect_velocity_y_args[]{&context->device.flow.temp_velocity_y, &context->device.flow.velocity_y, &velocity_y_axis, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.flow_boundary};
-        void* advect_velocity_z_args[]{&context->device.flow.temp_velocity_z, &context->device.flow.velocity_z, &velocity_z_axis, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.flow_boundary};
+        void* advect_velocity_x_args[]{
+            &context->device.flow.temp_velocity_x, &context->device.flow.velocity_x, &velocity_x_axis, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.flow_boundary};
+        void* advect_velocity_y_args[]{
+            &context->device.flow.temp_velocity_y, &context->device.flow.velocity_y, &velocity_y_axis, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.flow_boundary};
+        void* advect_velocity_z_args[]{
+            &context->device.flow.temp_velocity_z, &context->device.flow.velocity_z, &velocity_z_axis, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.flow_boundary};
         if (!add_kernel_node(advect_velocity_x, has_force_tail ? &force_tail : nullptr, has_force_tail ? 1u : 0u, reinterpret_cast<void*>(stable_fluids::advect_velocity_component_kernel), advect_velocity_x_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
         if (!add_kernel_node(advect_velocity_y, has_force_tail ? &force_tail : nullptr, has_force_tail ? 1u : 0u, reinterpret_cast<void*>(stable_fluids::advect_velocity_component_kernel), advect_velocity_y_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
         if (!add_kernel_node(advect_velocity_z, has_force_tail ? &force_tail : nullptr, has_force_tail ? 1u : 0u, reinterpret_cast<void*>(stable_fluids::advect_velocity_component_kernel), advect_velocity_z_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
