@@ -10,17 +10,6 @@
 
 namespace stable_fluids {
 
-    struct DeviceBuffers {
-        float* velocity_x      = nullptr;
-        float* velocity_y      = nullptr;
-        float* velocity_z      = nullptr;
-        float* temp_velocity_x = nullptr;
-        float* temp_velocity_y = nullptr;
-        float* temp_velocity_z = nullptr;
-        float* pressure        = nullptr;
-        float* divergence      = nullptr;
-    };
-
     struct FieldStorage {
         StableFluidsFieldCreateDesc desc{};
         float* data = nullptr;
@@ -28,9 +17,9 @@ namespace stable_fluids {
     };
 
     struct StepGraphStorage {
-        cudaGraph_t graph               = nullptr;
-        cudaGraphExec_t exec            = nullptr;
-        cudaGraphNode_t add_force       = nullptr;
+        cudaGraph_t graph         = nullptr;
+        cudaGraphExec_t exec      = nullptr;
+        cudaGraphNode_t add_force = nullptr;
         std::vector<cudaGraphNode_t> add_field_source_nodes{};
     };
 
@@ -38,7 +27,6 @@ namespace stable_fluids {
         StableFluidsSimulationConfig config{};
         std::vector<FieldStorage> fields{};
         std::vector<const float*> bound_field_sources{};
-        DeviceBuffers device{};
         StepGraphStorage step_graph{};
         cudaStream_t stream = nullptr;
         dim3 block{};
@@ -46,6 +34,17 @@ namespace stable_fluids {
         std::uint64_t cell_count = 0;
         std::size_t bytes        = 0;
         bool owns_stream         = false;
+
+        struct DeviceBuffers {
+            float* velocity_x      = nullptr;
+            float* velocity_y      = nullptr;
+            float* velocity_z      = nullptr;
+            float* temp_velocity_x = nullptr;
+            float* temp_velocity_y = nullptr;
+            float* temp_velocity_z = nullptr;
+            float* pressure        = nullptr;
+            float* divergence      = nullptr;
+        } device;
     };
 
     __host__ __device__ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, const int sy) {
@@ -436,7 +435,7 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
             if (!add_zero_node(zero_pressure_node, &divergence_node, 1, context->device.pressure)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
             cudaGraphNode_t pressure_tail = zero_pressure_node;
-            float h2                               = context->config.cell_size * context->config.cell_size;
+            float h2                      = context->config.cell_size * context->config.cell_size;
             for (int iteration = 0; iteration < context->config.pressure_iterations; ++iteration) {
                 cudaGraphNode_t parity0{};
                 cudaGraphNode_t parity1{};
