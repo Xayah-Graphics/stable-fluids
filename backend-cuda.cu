@@ -1,7 +1,6 @@
 #include "stable-fluids-3d.h"
 #include <algorithm>
 #include <array>
-#include <cuda/std/algorithm>
 #include <cuda_runtime.h>
 #include <memory>
 #include <new>
@@ -136,7 +135,7 @@ namespace stable_fluids {
                 x %= nx;
                 if (x < 0) x += nx;
             } else {
-                const float interior = field[index_3d(x < 0 ? 0 : nx - 1, cuda::std::clamp(y, 0, ny - 1), cuda::std::clamp(z, 0, nz - 1), nx, ny)];
+                const float interior = field[index_3d(x < 0 ? 0 : nx - 1, std::clamp(y, 0, ny - 1), std::clamp(z, 0, nz - 1), nx, ny)];
                 float prescribed     = 0.0f;
                 switch (component_axis) {
                 case 0: prescribed = face.velocity_x; break;
@@ -155,7 +154,7 @@ namespace stable_fluids {
                 y %= ny;
                 if (y < 0) y += ny;
             } else {
-                const float interior = field[index_3d(cuda::std::clamp(x, 0, nx - 1), y < 0 ? 0 : ny - 1, cuda::std::clamp(z, 0, nz - 1), nx, ny)];
+                const float interior = field[index_3d(std::clamp(x, 0, nx - 1), y < 0 ? 0 : ny - 1, std::clamp(z, 0, nz - 1), nx, ny)];
                 float prescribed     = 0.0f;
                 switch (component_axis) {
                 case 0: prescribed = face.velocity_x; break;
@@ -174,7 +173,7 @@ namespace stable_fluids {
                 z %= nz;
                 if (z < 0) z += nz;
             } else {
-                const float interior = field[index_3d(cuda::std::clamp(x, 0, nx - 1), cuda::std::clamp(y, 0, ny - 1), z < 0 ? 0 : nz - 1, nx, ny)];
+                const float interior = field[index_3d(std::clamp(x, 0, nx - 1), std::clamp(y, 0, ny - 1), z < 0 ? 0 : nz - 1, nx, ny)];
                 float prescribed     = 0.0f;
                 switch (component_axis) {
                 case 0: prescribed = face.velocity_x; break;
