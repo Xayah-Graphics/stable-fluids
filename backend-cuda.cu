@@ -9,25 +9,9 @@
 #include <nvtx3/nvtx3.hpp>
 
 namespace stable_fluids {
-
-    struct FieldStorage {
-        StableFluidsFieldCreateDesc desc{};
-        float* data = nullptr;
-        float* temp = nullptr;
-    };
-
-    struct StepGraphStorage {
-        cudaGraph_t graph         = nullptr;
-        cudaGraphExec_t exec      = nullptr;
-        cudaGraphNode_t add_force = nullptr;
-        std::vector<cudaGraphNode_t> add_field_source_nodes{};
-    };
-
     struct ContextStorage {
         StableFluidsSimulationConfig config{};
-        std::vector<FieldStorage> fields{};
         std::vector<const float*> bound_field_sources{};
-        StepGraphStorage step_graph{};
         cudaStream_t stream = nullptr;
         dim3 block{};
         dim3 cells{};
@@ -35,15 +19,33 @@ namespace stable_fluids {
         std::size_t bytes        = 0;
         bool owns_stream         = false;
 
+        struct StepGraphStorage {
+            cudaGraph_t graph         = nullptr;
+            cudaGraphExec_t exec      = nullptr;
+            cudaGraphNode_t add_force = nullptr;
+            std::vector<cudaGraphNode_t> add_field_source_nodes{};
+        } step_graph{};
+
         struct DeviceBuffers {
-            float* velocity_x      = nullptr;
-            float* velocity_y      = nullptr;
-            float* velocity_z      = nullptr;
-            float* temp_velocity_x = nullptr;
-            float* temp_velocity_y = nullptr;
-            float* temp_velocity_z = nullptr;
-            float* pressure        = nullptr;
-            float* divergence      = nullptr;
+            struct Flow {
+                float* velocity_x      = nullptr;
+                float* velocity_y      = nullptr;
+                float* velocity_z      = nullptr;
+                float* temp_velocity_x = nullptr;
+                float* temp_velocity_y = nullptr;
+                float* temp_velocity_z = nullptr;
+                float* pressure        = nullptr;
+                float* divergence      = nullptr;
+            } flow;
+
+            struct ScalarFields {
+                StableFluidsFieldCreateDesc desc{};
+                float* data = nullptr;
+                float* temp = nullptr;
+            };
+
+            std::vector<ScalarFields> scalar_fields{};
+
         } device;
     };
 
@@ -263,23 +265,23 @@ namespace stable_fluids {
     }
 
     void destroy_context_buffers(ContextStorage& context) {
-        if (context.device.velocity_x != nullptr) cudaFree(context.device.velocity_x);
-        if (context.device.velocity_y != nullptr) cudaFree(context.device.velocity_y);
-        if (context.device.velocity_z != nullptr) cudaFree(context.device.velocity_z);
-        if (context.device.temp_velocity_x != nullptr) cudaFree(context.device.temp_velocity_x);
-        if (context.device.temp_velocity_y != nullptr) cudaFree(context.device.temp_velocity_y);
-        if (context.device.temp_velocity_z != nullptr) cudaFree(context.device.temp_velocity_z);
-        if (context.device.pressure != nullptr) cudaFree(context.device.pressure);
-        if (context.device.divergence != nullptr) cudaFree(context.device.divergence);
-        context.device.velocity_x      = nullptr;
-        context.device.velocity_y      = nullptr;
-        context.device.velocity_z      = nullptr;
-        context.device.temp_velocity_x = nullptr;
-        context.device.temp_velocity_y = nullptr;
-        context.device.temp_velocity_z = nullptr;
-        context.device.pressure        = nullptr;
-        context.device.divergence      = nullptr;
-        for (auto& field : context.fields) {
+        if (context.device.flow.velocity_x != nullptr) cudaFree(context.device.flow.velocity_x);
+        if (context.device.flow.velocity_y != nullptr) cudaFree(context.device.flow.velocity_y);
+        if (context.device.flow.velocity_z != nullptr) cudaFree(context.device.flow.velocity_z);
+        if (context.device.flow.temp_velocity_x != nullptr) cudaFree(context.device.flow.temp_velocity_x);
+        if (context.device.flow.temp_velocity_y != nullptr) cudaFree(context.device.flow.temp_velocity_y);
+        if (context.device.flow.temp_velocity_z != nullptr) cudaFree(context.device.flow.temp_velocity_z);
+        if (context.device.flow.pressure != nullptr) cudaFree(context.device.flow.pressure);
+        if (context.device.flow.divergence != nullptr) cudaFree(context.device.flow.divergence);
+        context.device.flow.velocity_x      = nullptr;
+        context.device.flow.velocity_y      = nullptr;
+        context.device.flow.velocity_z      = nullptr;
+        context.device.flow.temp_velocity_x = nullptr;
+        context.device.flow.temp_velocity_y = nullptr;
+        context.device.flow.temp_velocity_z = nullptr;
+        context.device.flow.pressure        = nullptr;
+        context.device.flow.divergence      = nullptr;
+        for (auto& field : context.device.scalar_fields) {
             if (field.data != nullptr) cudaFree(field.data);
             if (field.temp != nullptr) cudaFree(field.temp);
             field.data = nullptr;
@@ -308,10 +310,10 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
         context->owns_stream = true;
     }
 
-    context->fields.reserve(desc->field_count);
+    context->device.scalar_fields.reserve(desc->field_count);
     context->bound_field_sources.resize(desc->field_count);
     for (uint32_t index = 0; index < desc->field_count; ++index) {
-        context->fields.push_back(stable_fluids::FieldStorage{
+        context->device.scalar_fields.push_back(stable_fluids::ContextStorage::DeviceBuffers::ScalarFields{
             .desc = desc->fields[index],
         });
         if (index < out_field_handle_capacity) out_field_handles[index] = index + 1u;
@@ -326,15 +328,15 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
 
     {
         nvtx3::scoped_range alloc_range("stable.create_context.alloc");
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.velocity_x), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.velocity_y), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.velocity_z), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.temp_velocity_x), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.temp_velocity_y), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.temp_velocity_z), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.pressure), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        if (cudaMalloc(reinterpret_cast<void**>(&context->device.divergence), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
-        for (auto& field : context->fields) {
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.velocity_x), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.velocity_y), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.velocity_z), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.temp_velocity_x), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.temp_velocity_y), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.temp_velocity_z), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.pressure), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        if (cudaMalloc(reinterpret_cast<void**>(&context->device.flow.divergence), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
+        for (auto& field : context->device.scalar_fields) {
             if (cudaMalloc(reinterpret_cast<void**>(&field.data), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
             if (cudaMalloc(reinterpret_cast<void**>(&field.temp), context->bytes) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_OUT_OF_MEMORY);
         }
@@ -342,12 +344,12 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
 
     {
         nvtx3::scoped_range init_range("stable.create_context.init");
-        if (cudaMemsetAsync(context->device.velocity_x, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        if (cudaMemsetAsync(context->device.velocity_y, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        if (cudaMemsetAsync(context->device.velocity_z, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        if (cudaMemsetAsync(context->device.pressure, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        if (cudaMemsetAsync(context->device.divergence, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        for (auto& field : context->fields) {
+        if (cudaMemsetAsync(context->device.flow.velocity_x, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+        if (cudaMemsetAsync(context->device.flow.velocity_y, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+        if (cudaMemsetAsync(context->device.flow.velocity_z, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+        if (cudaMemsetAsync(context->device.flow.pressure, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+        if (cudaMemsetAsync(context->device.flow.divergence, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+        for (auto& field : context->device.scalar_fields) {
             stable_fluids::fill_kernel<<<context->cells, context->block, 0, context->stream>>>(field.data, field.desc.initial_value, context->config.nx, context->config.ny, context->config.nz);
             if (cudaGetLastError() != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
         }
@@ -356,7 +358,7 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
     {
         nvtx3::scoped_range graph_range("stable.create_context.graph");
         if (cudaGraphCreate(&context->step_graph.graph, 0) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        context->step_graph.add_field_source_nodes.resize(context->fields.size());
+        context->step_graph.add_field_source_nodes.resize(context->device.scalar_fields.size());
 
         auto add_kernel_node = [&](cudaGraphNode_t& node, const cudaGraphNode_t* dependencies, const std::size_t dependency_count, void* const func, void** const args) {
             cudaKernelNodeParams params{
@@ -408,31 +410,31 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
             const float* force_x = nullptr;
             const float* force_y = nullptr;
             const float* force_z = nullptr;
-            void* add_force_args[]{&context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, reinterpret_cast<void*>(&force_x), reinterpret_cast<void*>(&force_y), reinterpret_cast<void*>(&force_z), &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz};
+            void* add_force_args[]{&context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, reinterpret_cast<void*>(&force_x), reinterpret_cast<void*>(&force_y), reinterpret_cast<void*>(&force_z), &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz};
             if (!add_kernel_node(add_force_node, nullptr, 0, reinterpret_cast<void*>(stable_fluids::add_force_kernel), add_force_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
             context->step_graph.add_force = add_force_node;
 
             cudaGraphNode_t advect_velocity_x{};
             cudaGraphNode_t advect_velocity_y{};
             cudaGraphNode_t advect_velocity_z{};
-            void* advect_velocity_x_args[]{&context->device.temp_velocity_x, &context->device.velocity_x, &context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
-            void* advect_velocity_y_args[]{&context->device.temp_velocity_y, &context->device.velocity_y, &context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
-            void* advect_velocity_z_args[]{&context->device.temp_velocity_z, &context->device.velocity_z, &context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
+            void* advect_velocity_x_args[]{&context->device.flow.temp_velocity_x, &context->device.flow.velocity_x, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
+            void* advect_velocity_y_args[]{&context->device.flow.temp_velocity_y, &context->device.flow.velocity_y, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
+            void* advect_velocity_z_args[]{&context->device.flow.temp_velocity_z, &context->device.flow.velocity_z, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
             if (!add_kernel_node(advect_velocity_x, &add_force_node, 1, reinterpret_cast<void*>(stable_fluids::advect_component_kernel), advect_velocity_x_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
             if (!add_kernel_node(advect_velocity_y, &add_force_node, 1, reinterpret_cast<void*>(stable_fluids::advect_component_kernel), advect_velocity_y_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
             if (!add_kernel_node(advect_velocity_z, &add_force_node, 1, reinterpret_cast<void*>(stable_fluids::advect_component_kernel), advect_velocity_z_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
             std::array<cudaGraphNode_t, 3> diffuse_velocity_tails{};
-            if (!add_diffuse_chain(diffuse_velocity_tails[0], context->device.velocity_x, context->device.temp_velocity_x, context->config.viscosity, &advect_velocity_x, 1)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-            if (!add_diffuse_chain(diffuse_velocity_tails[1], context->device.velocity_y, context->device.temp_velocity_y, context->config.viscosity, &advect_velocity_y, 1)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-            if (!add_diffuse_chain(diffuse_velocity_tails[2], context->device.velocity_z, context->device.temp_velocity_z, context->config.viscosity, &advect_velocity_z, 1)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+            if (!add_diffuse_chain(diffuse_velocity_tails[0], context->device.flow.velocity_x, context->device.flow.temp_velocity_x, context->config.viscosity, &advect_velocity_x, 1)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+            if (!add_diffuse_chain(diffuse_velocity_tails[1], context->device.flow.velocity_y, context->device.flow.temp_velocity_y, context->config.viscosity, &advect_velocity_y, 1)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+            if (!add_diffuse_chain(diffuse_velocity_tails[2], context->device.flow.velocity_z, context->device.flow.temp_velocity_z, context->config.viscosity, &advect_velocity_z, 1)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
             cudaGraphNode_t divergence_node{};
-            void* divergence_args[]{&context->device.divergence, &context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
+            void* divergence_args[]{&context->device.flow.divergence, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
             if (!add_kernel_node(divergence_node, diffuse_velocity_tails.data(), diffuse_velocity_tails.size(), reinterpret_cast<void*>(stable_fluids::compute_divergence_kernel), divergence_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
             cudaGraphNode_t zero_pressure_node{};
-            if (!add_zero_node(zero_pressure_node, &divergence_node, 1, context->device.pressure)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+            if (!add_zero_node(zero_pressure_node, &divergence_node, 1, context->device.flow.pressure)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
             cudaGraphNode_t pressure_tail = zero_pressure_node;
             float h2                      = context->config.cell_size * context->config.cell_size;
@@ -441,23 +443,23 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
                 cudaGraphNode_t parity1{};
                 int parity0_value = 0;
                 int parity1_value = 1;
-                void* parity0_args[]{&context->device.pressure, &context->device.divergence, &parity0_value, &context->config.nx, &context->config.ny, &context->config.nz, &h2, &context->config.boundary};
-                void* parity1_args[]{&context->device.pressure, &context->device.divergence, &parity1_value, &context->config.nx, &context->config.ny, &context->config.nz, &h2, &context->config.boundary};
+                void* parity0_args[]{&context->device.flow.pressure, &context->device.flow.divergence, &parity0_value, &context->config.nx, &context->config.ny, &context->config.nz, &h2, &context->config.boundary};
+                void* parity1_args[]{&context->device.flow.pressure, &context->device.flow.divergence, &parity1_value, &context->config.nx, &context->config.ny, &context->config.nz, &h2, &context->config.boundary};
                 if (!add_kernel_node(parity0, &pressure_tail, 1, reinterpret_cast<void*>(stable_fluids::pressure_rbgs_kernel), parity0_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
                 if (!add_kernel_node(parity1, &parity0, 1, reinterpret_cast<void*>(stable_fluids::pressure_rbgs_kernel), parity1_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
                 pressure_tail = parity1;
             }
 
             cudaGraphNode_t project_velocity_node{};
-            void* project_velocity_args[]{
-                &context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, &context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, &context->device.pressure, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
+            void* project_velocity_args[]{&context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->device.flow.pressure, &context->config.nx, &context->config.ny, &context->config.nz,
+                &context->config.cell_size, &context->config.boundary};
             if (!add_kernel_node(project_velocity_node, &pressure_tail, 1, reinterpret_cast<void*>(stable_fluids::project_velocity_kernel), project_velocity_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
             cudaGraphNode_t final_divergence_node{};
             if (!add_kernel_node(final_divergence_node, &project_velocity_node, 1, reinterpret_cast<void*>(stable_fluids::compute_divergence_kernel), divergence_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
-            for (std::size_t field_index = 0; field_index < context->fields.size(); ++field_index) {
-                auto& field = context->fields[field_index];
+            for (std::size_t field_index = 0; field_index < context->device.scalar_fields.size(); ++field_index) {
+                auto& field = context->device.scalar_fields[field_index];
                 cudaGraphNode_t add_field_source_node{};
                 const float* source = nullptr;
                 void* add_field_source_args[]{&field.data, reinterpret_cast<void*>(&source), &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz};
@@ -465,7 +467,7 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
                 context->step_graph.add_field_source_nodes[field_index] = add_field_source_node;
 
                 cudaGraphNode_t advect_field_node{};
-                void* advect_field_args[]{&field.temp, &field.data, &context->device.velocity_x, &context->device.velocity_y, &context->device.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
+                void* advect_field_args[]{&field.temp, &field.data, &context->device.flow.velocity_x, &context->device.flow.velocity_y, &context->device.flow.velocity_z, &context->config.dt, &context->config.nx, &context->config.ny, &context->config.nz, &context->config.cell_size, &context->config.boundary};
                 if (!add_kernel_node(advect_field_node, &add_field_source_node, 1, reinterpret_cast<void*>(stable_fluids::advect_component_kernel), advect_field_args)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
                 cudaGraphNode_t field_tail{};
@@ -514,13 +516,13 @@ StableFluidsResult stable_fluids_step_cuda(void* context, const StableFluidsStep
         if (desc != nullptr) {
             for (uint32_t source_index = 0; source_index < desc->field_source_count; ++source_index) {
                 const auto handle = desc->field_sources[source_index].field;
-                if (handle == 0 || handle > storage.fields.size()) continue;
+                if (handle == 0 || handle > storage.device.scalar_fields.size()) continue;
                 auto& bound_source = storage.bound_field_sources[static_cast<std::size_t>(handle - 1u)];
                 if (bound_source == nullptr) bound_source = desc->field_sources[source_index].values;
             }
         }
         if (storage.step_graph.add_force != nullptr) {
-            void* add_force_args[]{&storage.device.velocity_x, &storage.device.velocity_y, &storage.device.velocity_z, reinterpret_cast<void*>(&force_x), reinterpret_cast<void*>(&force_y), reinterpret_cast<void*>(&force_z), &storage.config.dt, &storage.config.nx, &storage.config.ny, &storage.config.nz};
+            void* add_force_args[]{&storage.device.flow.velocity_x, &storage.device.flow.velocity_y, &storage.device.flow.velocity_z, reinterpret_cast<void*>(&force_x), reinterpret_cast<void*>(&force_y), reinterpret_cast<void*>(&force_z), &storage.config.dt, &storage.config.nx, &storage.config.ny, &storage.config.nz};
             cudaKernelNodeParams params{
                 .func           = reinterpret_cast<void*>(stable_fluids::add_force_kernel),
                 .gridDim        = storage.cells,
@@ -531,10 +533,10 @@ StableFluidsResult stable_fluids_step_cuda(void* context, const StableFluidsStep
             };
             if (cudaGraphExecKernelNodeSetParams(storage.step_graph.exec, storage.step_graph.add_force, &params) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
         }
-        for (std::size_t field_index = 0; field_index < storage.fields.size(); ++field_index) {
+        for (std::size_t field_index = 0; field_index < storage.device.scalar_fields.size(); ++field_index) {
             const auto node = storage.step_graph.add_field_source_nodes[field_index];
             if (node == nullptr) continue;
-            auto& field               = storage.fields[field_index];
+            auto& field               = storage.device.scalar_fields[field_index];
             const float* field_source = storage.bound_field_sources[field_index];
             void* add_field_source_args[]{&field.data, reinterpret_cast<void*>(&field_source), &storage.config.dt, &storage.config.nx, &storage.config.ny, &storage.config.nz};
             cudaKernelNodeParams params{
@@ -562,17 +564,17 @@ StableFluidsResult stable_fluids_export_cuda(void* context, const StableFluidsEx
     switch (desc->kind) {
     case STABLE_FLUIDS_EXPORT_FIELD:
         {
-            const auto* field = &storage.fields[static_cast<std::size_t>(desc->field - 1u)];
+            const auto* field = &storage.device.scalar_fields[static_cast<std::size_t>(desc->field - 1u)];
             return cudaMemcpyAsync(destination, field->data, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
         }
     case STABLE_FLUIDS_EXPORT_VELOCITY:
-        stable_fluids::pack_velocity_kernel<<<storage.cells, storage.block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.velocity_x, storage.device.velocity_y, storage.device.velocity_z, storage.config.nx, storage.config.ny, storage.config.nz);
+        stable_fluids::pack_velocity_kernel<<<storage.cells, storage.block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.flow.velocity_x, storage.device.flow.velocity_y, storage.device.flow.velocity_z, storage.config.nx, storage.config.ny, storage.config.nz);
         return cudaGetLastError() == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     case STABLE_FLUIDS_EXPORT_VELOCITY_MAGNITUDE:
-        stable_fluids::velocity_magnitude_kernel<<<storage.cells, storage.block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.velocity_x, storage.device.velocity_y, storage.device.velocity_z, storage.config.nx, storage.config.ny, storage.config.nz);
+        stable_fluids::velocity_magnitude_kernel<<<storage.cells, storage.block, 0, storage.stream>>>(static_cast<float*>(destination), storage.device.flow.velocity_x, storage.device.flow.velocity_y, storage.device.flow.velocity_z, storage.config.nx, storage.config.ny, storage.config.nz);
         return cudaGetLastError() == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
-    case STABLE_FLUIDS_EXPORT_PRESSURE: return cudaMemcpyAsync(destination, storage.device.pressure, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
-    case STABLE_FLUIDS_EXPORT_DIVERGENCE: return cudaMemcpyAsync(destination, storage.device.divergence, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    case STABLE_FLUIDS_EXPORT_PRESSURE: return cudaMemcpyAsync(destination, storage.device.flow.pressure, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    case STABLE_FLUIDS_EXPORT_DIVERGENCE: return cudaMemcpyAsync(destination, storage.device.flow.divergence, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream) == cudaSuccess ? STABLE_FLUIDS_RESULT_OK : STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     default: return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     }
 }
