@@ -290,14 +290,12 @@ namespace stable_fluids {
 
 } // namespace stable_fluids
 
-struct StableFluidsContext_t : stable_fluids::ContextStorage {};
-
 extern "C" {
 
-StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context, StableFluidsFieldHandle* out_field_handles, const uint32_t out_field_handle_capacity) {
+StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, void** out_context, StableFluidsFieldHandle* out_field_handles, const uint32_t out_field_handle_capacity) {
     nvtx3::scoped_range range("stable.create_context");
     *out_context = nullptr;
-    std::unique_ptr<StableFluidsContext_t> context{new (std::nothrow) StableFluidsContext_t{}};
+    std::unique_ptr<stable_fluids::ContextStorage> context{new (std::nothrow) stable_fluids::ContextStorage{}};
     if (!context) return STABLE_FLUIDS_RESULT_OUT_OF_MEMORY;
     context->config     = desc->config;
     context->stream     = static_cast<cudaStream_t>(desc->stream);
@@ -492,18 +490,18 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
     return STABLE_FLUIDS_RESULT_OK;
 }
 
-StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context) {
+StableFluidsResult stable_fluids_destroy_context_cuda(void* context) {
     nvtx3::scoped_range range("stable.destroy_context");
     auto* storage = static_cast<stable_fluids::ContextStorage*>(context);
     cudaStreamSynchronize(storage->stream);
     stable_fluids::destroy_context_graph(*storage);
     stable_fluids::destroy_context_buffers(*storage);
     if (storage->owns_stream && storage->stream != nullptr) cudaStreamDestroy(storage->stream);
-    delete context;
+    delete static_cast<stable_fluids::ContextStorage*>(context);
     return STABLE_FLUIDS_RESULT_OK;
 }
 
-StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc) {
+StableFluidsResult stable_fluids_step_cuda(void* context, const StableFluidsStepDesc* desc) {
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     nvtx3::scoped_range range("stable.step");
 
@@ -558,7 +556,7 @@ StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const St
     }
 }
 
-StableFluidsResult stable_fluids_export_cuda(StableFluidsContext context, const StableFluidsExportDesc* desc, void* destination) {
+StableFluidsResult stable_fluids_export_cuda(void* context, const StableFluidsExportDesc* desc, void* destination) {
     nvtx3::scoped_range range("stable.export");
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
 

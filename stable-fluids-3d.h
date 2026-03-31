@@ -60,8 +60,6 @@ typedef struct StableFluidsSimulationConfig {
     int32_t block_z;
 } StableFluidsSimulationConfig;
 
-typedef struct StableFluidsContext_t* StableFluidsContext;
-
 typedef struct StableFluidsContextCreateDesc {
     StableFluidsSimulationConfig config;
     void* stream;
@@ -82,6 +80,12 @@ typedef struct StableFluidsStepDesc {
     uint32_t field_source_count;
 } StableFluidsStepDesc;
 
+
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, void** out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(void* context);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(void* context, const StableFluidsStepDesc* desc);
+
+
 typedef enum StableFluidsExportKind {
     STABLE_FLUIDS_EXPORT_FIELD              = 0,
     STABLE_FLUIDS_EXPORT_VELOCITY           = 1,
@@ -89,16 +93,11 @@ typedef enum StableFluidsExportKind {
     STABLE_FLUIDS_EXPORT_PRESSURE           = 3,
     STABLE_FLUIDS_EXPORT_DIVERGENCE         = 4,
 } StableFluidsExportKind;
-
 typedef struct StableFluidsExportDesc {
     uint32_t kind;
     StableFluidsFieldHandle field;
 } StableFluidsExportDesc;
-
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCreateDesc* desc, StableFluidsContext* out_context, StableFluidsFieldHandle* out_field_handles, uint32_t out_field_handle_capacity);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_destroy_context_cuda(StableFluidsContext context);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_step_cuda(StableFluidsContext context, const StableFluidsStepDesc* desc);
-STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_cuda(StableFluidsContext context, const StableFluidsExportDesc* desc, void* destination);
+STABLE_FLUIDS_API StableFluidsResult stable_fluids_export_cuda(void* context, const StableFluidsExportDesc* desc, void* destination);
 
 #ifdef __cplusplus
 }

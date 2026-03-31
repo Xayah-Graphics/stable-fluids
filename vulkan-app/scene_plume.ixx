@@ -51,7 +51,7 @@ export namespace scene_plume {
             .block_z = 4,
         };
         cudaStream_t stream_                   = nullptr;
-        StableFluidsContext context_           = nullptr;
+        void* context_           = nullptr;
         StableFluidsFieldHandle density_field_ = 0;
         app::GridShape grid_{};
         float* force_x_device_        = nullptr;

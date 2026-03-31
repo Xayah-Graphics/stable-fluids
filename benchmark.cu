@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
     cudaStream_t stream = nullptr;
     if (!check_cuda(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags")) return EXIT_FAILURE;
 
-    StableFluidsContext context = nullptr;
+    void* context = nullptr;
     const StableFluidsContextCreateDesc create_desc{
         .config      = config,
         .stream      = stream,
