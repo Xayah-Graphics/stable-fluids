@@ -5,7 +5,6 @@
 #include <cuda_runtime.h>
 #include <memory>
 #include <new>
-#include <ostream>
 #include <vector>
 
 #include <nvtx3/nvtx3.hpp>
@@ -58,15 +57,15 @@ namespace stable_fluids {
         } device;
     };
 
-    __host__ __device__ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, const int sy) {
+    __device__ std::uint64_t index_3d(const int x, const int y, const int z, const int sx, const int sy) {
         return static_cast<std::uint64_t>(z) * static_cast<std::uint64_t>(sx) * static_cast<std::uint64_t>(sy) + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(sx) + static_cast<std::uint64_t>(x);
     }
 
-    __host__ __device__ bool is_valid_flow_boundary_type(const uint32_t type) {
+    bool is_valid_flow_boundary_type(const uint32_t type) {
         return type == STABLE_FLUIDS_FLOW_BOUNDARY_NO_SLIP_WALL || type == STABLE_FLUIDS_FLOW_BOUNDARY_FREE_SLIP_WALL || type == STABLE_FLUIDS_FLOW_BOUNDARY_INFLOW || type == STABLE_FLUIDS_FLOW_BOUNDARY_OUTFLOW || type == STABLE_FLUIDS_FLOW_BOUNDARY_PERIODIC;
     }
 
-    __host__ __device__ bool is_valid_scalar_boundary_type(const uint32_t type) {
+    bool is_valid_scalar_boundary_type(const uint32_t type) {
         return type == STABLE_FLUIDS_SCALAR_BOUNDARY_FIXED_VALUE || type == STABLE_FLUIDS_SCALAR_BOUNDARY_ZERO_FLUX || type == STABLE_FLUIDS_SCALAR_BOUNDARY_PERIODIC;
     }
 
@@ -432,18 +431,6 @@ namespace stable_fluids {
         destination_x[index] = source_x[index] - grad_x;
         destination_y[index] = source_y[index] - grad_y;
         destination_z[index] = source_z[index] - grad_z;
-    }
-
-    __global__ void pack_velocity_kernel(float* destination, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz) {
-        const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
-        const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
-        const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
-        if (x >= nx || y >= ny || z >= nz) return;
-        const auto index                     = index_3d(x, y, z, nx, ny);
-        const auto cell_count                = static_cast<std::uint64_t>(nx) * static_cast<std::uint64_t>(ny) * static_cast<std::uint64_t>(nz);
-        destination[index]                   = velocity_x[index];
-        destination[cell_count + index]      = velocity_y[index];
-        destination[cell_count * 2u + index] = velocity_z[index];
     }
 
     __global__ void velocity_magnitude_kernel(float* destination, const float* velocity_x, const float* velocity_y, const float* velocity_z, const int nx, const int ny, const int nz) {

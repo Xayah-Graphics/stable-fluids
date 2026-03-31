@@ -85,7 +85,6 @@ typedef struct StableFluidsSimulationConfig {
     StableFluidsFlowBoundaryConfig flow_boundary;
 } StableFluidsSimulationConfig;
 typedef struct StableFluidsScalarFieldDesc {
-    const char* name;
     float diffusion;
     float dissipation;
     float initial_value;
@@ -97,7 +96,6 @@ typedef enum StableFluidsVectorFieldUsage {
 } StableFluidsVectorFieldUsage;
 
 typedef struct StableFluidsVectorFieldDesc {
-    const char* name;
     StableFluidsVectorFieldUsage usage;
     float initial_value_x;
     float initial_value_y;

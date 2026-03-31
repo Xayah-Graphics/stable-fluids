@@ -186,7 +186,6 @@ namespace scene_plume {
 
         const std::array scalar_fields{
             StableFluidsScalarFieldDesc{
-                .name          = "density",
                 .diffusion     = 0.00005f,
                 .dissipation   = 0.35f,
                 .initial_value = 0.0f,
@@ -203,7 +202,6 @@ namespace scene_plume {
         };
         const std::array vector_fields{
             StableFluidsVectorFieldDesc{
-                .name            = "force",
                 .usage           = STABLE_FLUIDS_VECTOR_FIELD_FORCE,
                 .initial_value_x = 0.0f,
                 .initial_value_y = 0.0f,

@@ -101,7 +101,6 @@ int main(int argc, char** argv) {
 
     const std::array scalar_fields{
         StableFluidsScalarFieldDesc{
-            .name          = "density",
             .diffusion     = field_diffusion,
             .dissipation   = field_dissipation,
             .initial_value = 0.0f,
@@ -118,7 +117,6 @@ int main(int argc, char** argv) {
     };
     const std::array vector_fields{
         StableFluidsVectorFieldDesc{
-            .name            = "force",
             .usage           = STABLE_FLUIDS_VECTOR_FIELD_FORCE,
             .initial_value_x = 0.0f,
             .initial_value_y = 0.0f,
