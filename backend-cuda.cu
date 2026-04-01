@@ -1,6 +1,5 @@
 #include "stable-fluids-3d.h"
 #include <algorithm>
-#include <array>
 #include <cuda_runtime.h>
 #include <memory>
 #include <new>
@@ -358,8 +357,8 @@ namespace stable_fluids {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
         if (((x + y + z) & 1) != parity) return;
-        const float neighbors = load_velocity_component(destination, component_axis, x - 1, y, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x + 1, y, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y - 1, z, nx, ny, nz, boundary)
-                              + load_velocity_component(destination, component_axis, x, y + 1, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y, z - 1, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y, z + 1, nx, ny, nz, boundary);
+        const float neighbors = load_velocity_component(destination, component_axis, x - 1, y, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x + 1, y, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y - 1, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y + 1, z, nx, ny, nz, boundary) + load_velocity_component(destination, component_axis, x, y, z - 1, nx, ny, nz, boundary)
+                              + load_velocity_component(destination, component_axis, x, y, z + 1, nx, ny, nz, boundary);
         const auto index   = index_3d(x, y, z, nx, ny);
         destination[index] = (source[index] + alpha * neighbors) / (1.0f + 6.0f * alpha);
     }
@@ -370,10 +369,9 @@ namespace stable_fluids {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
         if (((x + y + z) & 1) != parity) return;
-        const float neighbors = load_scalar(destination, x - 1, y, z, nx, ny, nz, boundary) + load_scalar(destination, x + 1, y, z, nx, ny, nz, boundary) + load_scalar(destination, x, y - 1, z, nx, ny, nz, boundary) + load_scalar(destination, x, y + 1, z, nx, ny, nz, boundary) + load_scalar(destination, x, y, z - 1, nx, ny, nz, boundary)
-                              + load_scalar(destination, x, y, z + 1, nx, ny, nz, boundary);
-        const auto index   = index_3d(x, y, z, nx, ny);
-        destination[index] = (source[index] + alpha * neighbors) / (1.0f + 6.0f * alpha);
+        const float neighbors = load_scalar(destination, x - 1, y, z, nx, ny, nz, boundary) + load_scalar(destination, x + 1, y, z, nx, ny, nz, boundary) + load_scalar(destination, x, y - 1, z, nx, ny, nz, boundary) + load_scalar(destination, x, y + 1, z, nx, ny, nz, boundary) + load_scalar(destination, x, y, z - 1, nx, ny, nz, boundary) + load_scalar(destination, x, y, z + 1, nx, ny, nz, boundary);
+        const auto index      = index_3d(x, y, z, nx, ny);
+        destination[index]    = (source[index] + alpha * neighbors) / (1.0f + 6.0f * alpha);
     }
 
     __global__ void dissipate_kernel(float* destination, const float* source, const float factor, const int nx, const int ny, const int nz) {
@@ -403,10 +401,9 @@ namespace stable_fluids {
         const int z = static_cast<int>(blockIdx.z * blockDim.z + threadIdx.z);
         if (x >= nx || y >= ny || z >= nz) return;
         if (((x + y + z) & 1) != parity) return;
-        const float neighbors = load_pressure(pressure, x - 1, y, z, nx, ny, nz, boundary) + load_pressure(pressure, x + 1, y, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y - 1, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y + 1, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y, z - 1, nx, ny, nz, boundary)
-                              + load_pressure(pressure, x, y, z + 1, nx, ny, nz, boundary);
-        const auto index = index_3d(x, y, z, nx, ny);
-        pressure[index]  = (neighbors - h2 * divergence[index]) / 6.0f;
+        const float neighbors = load_pressure(pressure, x - 1, y, z, nx, ny, nz, boundary) + load_pressure(pressure, x + 1, y, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y - 1, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y + 1, z, nx, ny, nz, boundary) + load_pressure(pressure, x, y, z - 1, nx, ny, nz, boundary) + load_pressure(pressure, x, y, z + 1, nx, ny, nz, boundary);
+        const auto index      = index_3d(x, y, z, nx, ny);
+        pressure[index]       = (neighbors - h2 * divergence[index]) / 6.0f;
     }
 
     __global__ void project_velocity_kernel(float* destination_x, float* destination_y, float* destination_z, const float* source_x, const float* source_y, const float* source_z, const float* pressure, const int nx, const int ny, const int nz, const float h, const StableFluidsFlowBoundaryConfig boundary) {
@@ -530,8 +527,7 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
     if (!validate_flow_axis(context->config.flow_boundary.y_minus, context->config.flow_boundary.y_plus)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     if (!validate_flow_axis(context->config.flow_boundary.z_minus, context->config.flow_boundary.z_plus)) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     context->block = choose_block();
-    context->cells = dim3(static_cast<unsigned>((context->config.nx + static_cast<int>(context->block.x) - 1) / static_cast<int>(context->block.x)), static_cast<unsigned>((context->config.ny + static_cast<int>(context->block.y) - 1) / static_cast<int>(context->block.y)),
-        static_cast<unsigned>((context->config.nz + static_cast<int>(context->block.z) - 1) / static_cast<int>(context->block.z)));
+    context->cells = dim3(static_cast<unsigned>((context->config.nx + static_cast<int>(context->block.x) - 1) / static_cast<int>(context->block.x)), static_cast<unsigned>((context->config.ny + static_cast<int>(context->block.y) - 1) / static_cast<int>(context->block.y)), static_cast<unsigned>((context->config.nz + static_cast<int>(context->block.z) - 1) / static_cast<int>(context->block.z)));
     if (context->stream == nullptr) {
         if (cudaStreamCreateWithFlags(&context->stream, cudaStreamNonBlocking) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
         context->owns_stream = true;
@@ -611,410 +607,70 @@ StableFluidsResult stable_fluids_create_context_cuda(const StableFluidsContextCr
 
     {
         nvtx3::scoped_range graph_range("stable.create_context.graph");
-        if (cudaGraphCreate(&context->step_graph.graph, 0) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+        if (cudaStreamBeginCapture(context->stream, cudaStreamCaptureModeGlobal) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
-        auto add_kernel_node = [&](cudaGraphNode_t& node, const cudaGraphNode_t* dependencies, const std::size_t dependency_count, void* const func, void** const args) {
-            cudaKernelNodeParams params{
-                .func           = func,
-                .gridDim        = context->cells,
-                .blockDim       = context->block,
-                .sharedMemBytes = 0,
-                .kernelParams   = args,
-                .extra          = nullptr,
-            };
-            return cudaGraphAddKernelNode(&node, context->step_graph.graph, dependencies, dependency_count, &params) == cudaSuccess;
-        };
-        auto add_memcpy_node = [&](cudaGraphNode_t& node, const cudaGraphNode_t* dependencies, const std::size_t dependency_count, void* const destination, const void* const source) {
-            return cudaGraphAddMemcpyNode1D(&node, context->step_graph.graph, dependencies, dependency_count, destination, source, context->bytes, cudaMemcpyDeviceToDevice) == cudaSuccess;
-        };
-        auto add_zero_node = [&](cudaGraphNode_t& node, const cudaGraphNode_t* dependencies, const std::size_t dependency_count, void* const destination) {
-            const cudaMemsetParams params{
-                .dst         = destination,
-                .pitch       = 0,
-                .value       = 0u,
-                .elementSize = sizeof(float),
-                .width       = context->cell_count,
-                .height      = 1,
-            };
-            return cudaGraphAddMemsetNode(&node, context->step_graph.graph, dependencies, dependency_count, &params) == cudaSuccess;
-        };
-        auto append_kernel_node = [&](cudaGraphNode_t& tail, void* const func, void** const args) {
-            cudaGraphNode_t node{};
-            if (!add_kernel_node(node, tail != nullptr ? &tail : nullptr, tail != nullptr ? 1u : 0u, func, args)) return false;
-            tail = node;
-            return true;
-        };
-        auto append_memcpy_node = [&](cudaGraphNode_t& tail, void* const destination, const void* const source) {
-            cudaGraphNode_t node{};
-            if (!add_memcpy_node(node, tail != nullptr ? &tail : nullptr, tail != nullptr ? 1u : 0u, destination, source)) return false;
-            tail = node;
-            return true;
-        };
-        auto append_zero_node = [&](cudaGraphNode_t& tail, void* const destination) {
-            cudaGraphNode_t node{};
-            if (!add_zero_node(node, tail != nullptr ? &tail : nullptr, tail != nullptr ? 1u : 0u, destination)) return false;
-            tail = node;
-            return true;
-        };
-
-        cudaGraphNode_t force_tail = nullptr;
         for (auto& [desc, data_x, data_y, data_z] : context->device.vector_fields) {
             if (desc.usage != STABLE_FLUIDS_VECTOR_FIELD_FORCE) continue;
-            std::array<void*, 10> arguments{
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &data_x,
-                &data_y,
-                &data_z,
-                &context->config.dt,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-            };
-            if (!append_kernel_node(force_tail, reinterpret_cast<void*>(stable_fluids::add_force_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+            stable_fluids::add_force_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, data_x, data_y, data_z, context->config.dt, context->config.nx, context->config.ny, context->config.nz);
         }
 
-        cudaGraphNode_t advect_velocity_x = nullptr;
-        cudaGraphNode_t advect_velocity_y = nullptr;
-        cudaGraphNode_t advect_velocity_z = nullptr;
-        int velocity_x_axis = 0;
-        int velocity_y_axis = 1;
-        int velocity_z_axis = 2;
-        {
-            std::array<void*, 12> arguments{
-                &context->device.flow.temp_velocity_x,
-                &context->device.flow.velocity_x,
-                &velocity_x_axis,
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->config.dt,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-                &context->config.cell_size,
-                &context->config.flow_boundary,
-            };
-            if (!add_kernel_node(advect_velocity_x, force_tail != nullptr ? &force_tail : nullptr, force_tail != nullptr ? 1u : 0u, reinterpret_cast<void*>(stable_fluids::advect_velocity_component_kernel), arguments.data()))
-                return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        }
-        {
-            std::array<void*, 12> arguments{
-                &context->device.flow.temp_velocity_y,
-                &context->device.flow.velocity_y,
-                &velocity_y_axis,
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->config.dt,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-                &context->config.cell_size,
-                &context->config.flow_boundary,
-            };
-            if (!add_kernel_node(advect_velocity_y, force_tail != nullptr ? &force_tail : nullptr, force_tail != nullptr ? 1u : 0u, reinterpret_cast<void*>(stable_fluids::advect_velocity_component_kernel), arguments.data()))
-                return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        }
-        {
-            std::array<void*, 12> arguments{
-                &context->device.flow.temp_velocity_z,
-                &context->device.flow.velocity_z,
-                &velocity_z_axis,
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->config.dt,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-                &context->config.cell_size,
-                &context->config.flow_boundary,
-            };
-            if (!add_kernel_node(advect_velocity_z, force_tail != nullptr ? &force_tail : nullptr, force_tail != nullptr ? 1u : 0u, reinterpret_cast<void*>(stable_fluids::advect_velocity_component_kernel), arguments.data()))
-                return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        }
+        stable_fluids::advect_velocity_component_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.temp_velocity_x, context->device.flow.velocity_x, 0, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->config.dt, context->config.nx, context->config.ny, context->config.nz, context->config.cell_size, context->config.flow_boundary);
+        stable_fluids::advect_velocity_component_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.temp_velocity_y, context->device.flow.velocity_y, 1, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->config.dt, context->config.nx, context->config.ny, context->config.nz, context->config.cell_size, context->config.flow_boundary);
+        stable_fluids::advect_velocity_component_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.temp_velocity_z, context->device.flow.velocity_z, 2, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->config.dt, context->config.nx, context->config.ny, context->config.nz, context->config.cell_size, context->config.flow_boundary);
 
-        std::array<cudaGraphNode_t, 3> diffuse_velocity_tails{advect_velocity_x, advect_velocity_y, advect_velocity_z};
         {
             float alpha = context->config.dt * context->config.viscosity / (context->config.cell_size * context->config.cell_size);
             if (alpha > 0.0f) {
-                if (!append_memcpy_node(diffuse_velocity_tails[0], context->device.flow.velocity_x, context->device.flow.temp_velocity_x)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                if (!append_memcpy_node(diffuse_velocity_tails[1], context->device.flow.velocity_y, context->device.flow.temp_velocity_y)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                if (!append_memcpy_node(diffuse_velocity_tails[2], context->device.flow.velocity_z, context->device.flow.temp_velocity_z)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+                if (cudaMemcpyAsync(context->device.flow.velocity_x, context->device.flow.temp_velocity_x, context->bytes, cudaMemcpyDeviceToDevice, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+                if (cudaMemcpyAsync(context->device.flow.velocity_y, context->device.flow.temp_velocity_y, context->bytes, cudaMemcpyDeviceToDevice, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+                if (cudaMemcpyAsync(context->device.flow.velocity_z, context->device.flow.temp_velocity_z, context->bytes, cudaMemcpyDeviceToDevice, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
 
                 for (int iteration = 0; iteration < context->config.diffuse_iterations; ++iteration) {
-                    int parity0_value = 0;
-                    int parity1_value = 1;
+                    int parity0_value             = 0;
+                    int parity1_value             = 1;
                     int velocity_x_component_axis = 0;
                     int velocity_y_component_axis = 1;
                     int velocity_z_component_axis = 2;
-                    {
-                        std::array<void*, 9> arguments{
-                            &context->device.flow.velocity_x,
-                            &context->device.flow.temp_velocity_x,
-                            &alpha,
-                            &parity0_value,
-                            &velocity_x_component_axis,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &context->config.flow_boundary,
-                        };
-                        if (!append_kernel_node(diffuse_velocity_tails[0], reinterpret_cast<void*>(stable_fluids::diffuse_velocity_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
-                    {
-                        std::array<void*, 9> arguments{
-                            &context->device.flow.velocity_x,
-                            &context->device.flow.temp_velocity_x,
-                            &alpha,
-                            &parity1_value,
-                            &velocity_x_component_axis,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &context->config.flow_boundary,
-                        };
-                        if (!append_kernel_node(diffuse_velocity_tails[0], reinterpret_cast<void*>(stable_fluids::diffuse_velocity_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
-                    {
-                        std::array<void*, 9> arguments{
-                            &context->device.flow.velocity_y,
-                            &context->device.flow.temp_velocity_y,
-                            &alpha,
-                            &parity0_value,
-                            &velocity_y_component_axis,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &context->config.flow_boundary,
-                        };
-                        if (!append_kernel_node(diffuse_velocity_tails[1], reinterpret_cast<void*>(stable_fluids::diffuse_velocity_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
-                    {
-                        std::array<void*, 9> arguments{
-                            &context->device.flow.velocity_y,
-                            &context->device.flow.temp_velocity_y,
-                            &alpha,
-                            &parity1_value,
-                            &velocity_y_component_axis,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &context->config.flow_boundary,
-                        };
-                        if (!append_kernel_node(diffuse_velocity_tails[1], reinterpret_cast<void*>(stable_fluids::diffuse_velocity_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
-                    {
-                        std::array<void*, 9> arguments{
-                            &context->device.flow.velocity_z,
-                            &context->device.flow.temp_velocity_z,
-                            &alpha,
-                            &parity0_value,
-                            &velocity_z_component_axis,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &context->config.flow_boundary,
-                        };
-                        if (!append_kernel_node(diffuse_velocity_tails[2], reinterpret_cast<void*>(stable_fluids::diffuse_velocity_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
-                    {
-                        std::array<void*, 9> arguments{
-                            &context->device.flow.velocity_z,
-                            &context->device.flow.temp_velocity_z,
-                            &alpha,
-                            &parity1_value,
-                            &velocity_z_component_axis,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &context->config.flow_boundary,
-                        };
-                        if (!append_kernel_node(diffuse_velocity_tails[2], reinterpret_cast<void*>(stable_fluids::diffuse_velocity_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
+                    stable_fluids::diffuse_velocity_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_x, context->device.flow.temp_velocity_x, alpha, parity0_value, velocity_x_component_axis, context->config.nx, context->config.ny, context->config.nz, context->config.flow_boundary);
+                    stable_fluids::diffuse_velocity_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_x, context->device.flow.temp_velocity_x, alpha, parity1_value, velocity_x_component_axis, context->config.nx, context->config.ny, context->config.nz, context->config.flow_boundary);
+                    stable_fluids::diffuse_velocity_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_y, context->device.flow.temp_velocity_y, alpha, parity0_value, velocity_y_component_axis, context->config.nx, context->config.ny, context->config.nz, context->config.flow_boundary);
+                    stable_fluids::diffuse_velocity_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_y, context->device.flow.temp_velocity_y, alpha, parity1_value, velocity_y_component_axis, context->config.nx, context->config.ny, context->config.nz, context->config.flow_boundary);
+                    stable_fluids::diffuse_velocity_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_z, context->device.flow.temp_velocity_z, alpha, parity0_value, velocity_z_component_axis, context->config.nx, context->config.ny, context->config.nz, context->config.flow_boundary);
+                    stable_fluids::diffuse_velocity_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_z, context->device.flow.temp_velocity_z, alpha, parity1_value, velocity_z_component_axis, context->config.nx, context->config.ny, context->config.nz, context->config.flow_boundary);
                 }
             }
         }
-
-        cudaGraphNode_t divergence_node = nullptr;
-        {
-            std::array<void*, 9> arguments{
-                &context->device.flow.divergence,
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-                &context->config.cell_size,
-                &context->config.flow_boundary,
-            };
-            if (!add_kernel_node(divergence_node, diffuse_velocity_tails.data(), diffuse_velocity_tails.size(), reinterpret_cast<void*>(stable_fluids::compute_divergence_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        }
-
-        cudaGraphNode_t pressure_tail = divergence_node;
-        if (!append_zero_node(pressure_tail, context->device.flow.pressure)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        float h2                      = context->config.cell_size * context->config.cell_size;
+        stable_fluids::compute_divergence_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.divergence, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->config.nx, context->config.ny, context->config.nz, context->config.cell_size, context->config.flow_boundary);
+        if (cudaMemsetAsync(context->device.flow.pressure, 0, context->bytes, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+        float h2 = context->config.cell_size * context->config.cell_size;
         for (int iteration = 0; iteration < context->config.pressure_iterations; ++iteration) {
-            int parity0_value = 0;
-            int parity1_value = 1;
-            {
-                std::array<void*, 8> arguments{
-                    &context->device.flow.pressure,
-                    &context->device.flow.divergence,
-                    &parity0_value,
-                    &context->config.nx,
-                    &context->config.ny,
-                    &context->config.nz,
-                    &h2,
-                    &context->config.flow_boundary,
-                };
-                if (!append_kernel_node(pressure_tail, reinterpret_cast<void*>(stable_fluids::pressure_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-            }
-            {
-                std::array<void*, 8> arguments{
-                    &context->device.flow.pressure,
-                    &context->device.flow.divergence,
-                    &parity1_value,
-                    &context->config.nx,
-                    &context->config.ny,
-                    &context->config.nz,
-                    &h2,
-                    &context->config.flow_boundary,
-                };
-                if (!append_kernel_node(pressure_tail, reinterpret_cast<void*>(stable_fluids::pressure_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-            }
+            stable_fluids::pressure_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.pressure, context->device.flow.divergence, 0, context->config.nx, context->config.ny, context->config.nz, h2, context->config.flow_boundary);
+            stable_fluids::pressure_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.pressure, context->device.flow.divergence, 1, context->config.nx, context->config.ny, context->config.nz, h2, context->config.flow_boundary);
         }
-
-        cudaGraphNode_t project_velocity_node = nullptr;
-        {
-            std::array<void*, 12> arguments{
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->device.flow.pressure,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-                &context->config.cell_size,
-                &context->config.flow_boundary,
-            };
-            if (!add_kernel_node(project_velocity_node, &pressure_tail, 1, reinterpret_cast<void*>(stable_fluids::project_velocity_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        }
-
-        cudaGraphNode_t final_divergence_node = nullptr;
-        {
-            std::array<void*, 9> arguments{
-                &context->device.flow.divergence,
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-                &context->config.cell_size,
-                &context->config.flow_boundary,
-            };
-            if (!add_kernel_node(final_divergence_node, &project_velocity_node, 1, reinterpret_cast<void*>(stable_fluids::compute_divergence_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        }
-        cudaGraphNode_t velocity_magnitude_node = nullptr;
-        {
-            std::array<void*, 7> arguments{
-                &context->device.flow.velocity_magnitude,
-                &context->device.flow.velocity_x,
-                &context->device.flow.velocity_y,
-                &context->device.flow.velocity_z,
-                &context->config.nx,
-                &context->config.ny,
-                &context->config.nz,
-            };
-            if (!add_kernel_node(velocity_magnitude_node, &final_divergence_node, 1, reinterpret_cast<void*>(stable_fluids::velocity_magnitude_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-        }
+        stable_fluids::project_velocity_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->device.flow.pressure, context->config.nx, context->config.ny, context->config.nz, context->config.cell_size, context->config.flow_boundary);
 
         for (auto& [desc, data, temp, source] : context->device.scalar_fields) {
-            cudaGraphNode_t field_tail = project_velocity_node;
-            {
-                std::array<void*, 6> arguments{
-                    &data,
-                    &source,
-                    &context->config.dt,
-                    &context->config.nx,
-                    &context->config.ny,
-                    &context->config.nz,
-                };
-                if (!append_kernel_node(field_tail, reinterpret_cast<void*>(stable_fluids::add_field_source_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-            }
-            {
-                std::array<void*, 12> arguments{
-                    &temp,
-                    &data,
-                    &context->device.flow.velocity_x,
-                    &context->device.flow.velocity_y,
-                    &context->device.flow.velocity_z,
-                    &context->config.dt,
-                    &context->config.nx,
-                    &context->config.ny,
-                    &context->config.nz,
-                    &context->config.cell_size,
-                    &desc.boundary,
-                    &context->config.flow_boundary,
-                };
-                if (!append_kernel_node(field_tail, reinterpret_cast<void*>(stable_fluids::advect_scalar_component_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-            }
+            stable_fluids::add_field_source_kernel<<<context->cells, context->block, 0, context->stream>>>(data, source, context->config.dt, context->config.nx, context->config.ny, context->config.nz);
+            stable_fluids::advect_scalar_component_kernel<<<context->cells, context->block, 0, context->stream>>>(temp, data, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->config.dt, context->config.nx, context->config.ny, context->config.nz, context->config.cell_size, desc.boundary, context->config.flow_boundary);
 
             float alpha = context->config.dt * desc.diffusion / (context->config.cell_size * context->config.cell_size);
             if (alpha > 0.0f) {
-                if (!append_memcpy_node(field_tail, data, temp)) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+                if (cudaMemcpyAsync(data, temp, context->bytes, cudaMemcpyDeviceToDevice, context->stream) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
                 for (int iteration = 0; iteration < context->config.diffuse_iterations; ++iteration) {
-                    int parity0_value = 0;
-                    int parity1_value = 1;
-                    {
-                        std::array<void*, 8> arguments{
-                            &data,
-                            &temp,
-                            &alpha,
-                            &parity0_value,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &desc.boundary,
-                        };
-                        if (!append_kernel_node(field_tail, reinterpret_cast<void*>(stable_fluids::diffuse_scalar_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
-                    {
-                        std::array<void*, 8> arguments{
-                            &data,
-                            &temp,
-                            &alpha,
-                            &parity1_value,
-                            &context->config.nx,
-                            &context->config.ny,
-                            &context->config.nz,
-                            &desc.boundary,
-                        };
-                        if (!append_kernel_node(field_tail, reinterpret_cast<void*>(stable_fluids::diffuse_scalar_rbgs_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
-                    }
+                    stable_fluids::diffuse_scalar_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(data, temp, alpha, 0, context->config.nx, context->config.ny, context->config.nz, desc.boundary);
+                    stable_fluids::diffuse_scalar_rbgs_kernel<<<context->cells, context->block, 0, context->stream>>>(data, temp, alpha, 1, context->config.nx, context->config.ny, context->config.nz, desc.boundary);
                 }
             }
             if (desc.dissipation > 0.0f) {
                 float factor = 1.0f / (1.0f + context->config.dt * desc.dissipation);
-                std::array<void*, 6> arguments{
-                    &data,
-                    &data,
-                    &factor,
-                    &context->config.nx,
-                    &context->config.ny,
-                    &context->config.nz,
-                };
-                if (!append_kernel_node(field_tail, reinterpret_cast<void*>(stable_fluids::dissipate_kernel), arguments.data())) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
+                stable_fluids::dissipate_kernel<<<context->cells, context->block, 0, context->stream>>>(data, data, factor, context->config.nx, context->config.ny, context->config.nz);
             }
         }
 
+        stable_fluids::compute_divergence_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.divergence, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->config.nx, context->config.ny, context->config.nz, context->config.cell_size, context->config.flow_boundary);
+        stable_fluids::velocity_magnitude_kernel<<<context->cells, context->block, 0, context->stream>>>(context->device.flow.velocity_magnitude, context->device.flow.velocity_x, context->device.flow.velocity_y, context->device.flow.velocity_z, context->config.nx, context->config.ny, context->config.nz);
+
+        if (cudaStreamEndCapture(context->stream, &context->step_graph.graph) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
         if (cudaGraphInstantiate(&context->step_graph.exec, context->step_graph.graph) != cudaSuccess) return fail(STABLE_FLUIDS_RESULT_BACKEND_FAILURE);
     }
 
@@ -1055,14 +711,10 @@ StableFluidsResult stable_fluids_update_vector_field_cuda(void* context, const S
     nvtx3::scoped_range range("stable.update_vector_field");
     auto& storage = *static_cast<stable_fluids::ContextStorage*>(context);
     if (field == 0 || field > storage.device.vector_fields.size()) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
-    auto& vector_field  = storage.device.vector_fields[static_cast<std::size_t>(field - 1u)];
-    auto copy_component = [&](float* const destination, const float* const source) {
-        if (source == nullptr) return cudaMemsetAsync(destination, 0, storage.bytes, storage.stream);
-        return cudaMemcpyAsync(destination, source, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream);
-    };
-    if (copy_component(vector_field.data_x, values_x) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
-    if (copy_component(vector_field.data_y, values_y) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
-    if (copy_component(vector_field.data_z, values_z) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    auto& vector_field = storage.device.vector_fields[static_cast<std::size_t>(field - 1u)];
+    if ((values_x == nullptr ? cudaMemsetAsync(vector_field.data_x, 0, storage.bytes, storage.stream) : cudaMemcpyAsync(vector_field.data_x, values_x, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream)) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if ((values_y == nullptr ? cudaMemsetAsync(vector_field.data_y, 0, storage.bytes, storage.stream) : cudaMemcpyAsync(vector_field.data_y, values_y, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream)) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
+    if ((values_z == nullptr ? cudaMemsetAsync(vector_field.data_z, 0, storage.bytes, storage.stream) : cudaMemcpyAsync(vector_field.data_z, values_z, storage.bytes, cudaMemcpyDeviceToDevice, storage.stream)) != cudaSuccess) return STABLE_FLUIDS_RESULT_BACKEND_FAILURE;
     return STABLE_FLUIDS_RESULT_OK;
 }
 
